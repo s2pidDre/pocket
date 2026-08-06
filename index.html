@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#5b5bd6">
+  <meta name="description" content="A simple student allowance tracker with smart saving suggestions and minimal manual entry.">
+  <title>Pocket — Student Allowance Tracker</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.8 12 3l9 7.8v9.2a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/></symbol>
+    <symbol id="i-savings" viewBox="0 0 24 24"><path d="M5 8.5A7 7 0 0 1 12 3c4.5 0 8 2.8 8 6.5 0 2.5-1.7 4.6-4.4 5.7V20h-3v-3.8H10V20H7v-4.7A7.2 7.2 0 0 1 4 12c-.7 0-1.4-.2-2-.5V8.7c1 .5 2 .7 3 .7Z"/><path d="M15.5 7.5h.01"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="m3 3 18 18M10.6 6.2A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a15 15 0 0 1-2.2 2.8M6.4 6.5C3.8 8.3 2.5 12 2.5 12s3.5 6 9.5 6c1 0 2-.2 2.8-.5M10.1 10.2a2.5 2.5 0 0 0 3.6 3.7"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 4v16m-6-6 6 6 6-6"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M4 6.5h14a2 2 0 0 1 2 2V19H5a2 2 0 0 1-2-2V7.5a3 3 0 0 1 3-3h11"/><path d="M15 12h6v4h-6a2 2 0 0 1 0-4Z"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4m8-4v4M3 10h18"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5Zm7 11 .8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10m-7 6h4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m-9 0 1 14h10l1-14"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 17V5m-5 5 5-5 5 5M5 21h14"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.5A8.5 8.5 0 1 1 8.5 4 6.5 6.5 0 0 0 20 15.5Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Zm-8 12h4"/></symbol>
+    <symbol id="i-school" viewBox="0 0 24 24"><path d="m3 10 9-5 9 5-9 5Zm3 2.5V18l6 3 6-3v-5.5M21 10v6"/></symbol>
+    <symbol id="i-food" viewBox="0 0 24 24"><path d="M7 3v8m-3-8v5a3 3 0 0 0 6 0V3M7 11v10M16 3v18m0-18c3 1 4 4 4 7h-4"/></symbol>
+    <symbol id="i-transport" viewBox="0 0 24 24"><path d="M5 16h14l-1.5-8h-11ZM7 16v3m10-3v3M8 12h8"/><circle cx="8" cy="17" r="1"/><circle cx="16" cy="17" r="1"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 5h4m-3 14h2"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand" href="#home" aria-label="Pocket home">
+        <span class="brand-mark">P</span>
+        <span class="brand-copy"><strong>Pocket</strong><small>Student money</small></span>
+      </a>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item is-active" data-view="home"><svg><use href="#i-home"/></svg><span>Home</span></button>
+        <button class="nav-item" data-view="activity"><svg><use href="#i-activity"/></svg><span>Activity</span></button>
+        <button class="nav-item" data-view="savings"><svg><use href="#i-savings"/></svg><span>Savings</span></button>
+        <button class="nav-item" data-view="more"><svg><use href="#i-more"/></svg><span>More</span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="privacy-toggle button-quiet" type="button" data-action="toggle-privacy">
+          <svg class="privacy-icon"><use href="#i-eye"/></svg>
+          <span>Hide amounts</span>
+        </button>
+        <p>Stored privately on this device.</p>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="todayLabel"></p>
+          <h1 id="viewTitle">Good afternoon</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button privacy-mobile" type="button" data-action="toggle-privacy" aria-label="Hide amounts">
+            <svg class="privacy-icon"><use href="#i-eye"/></svg>
+          </button>
+          <button class="button-primary top-add" type="button" data-action="open-expense">
+            <svg><use href="#i-plus"/></svg><span>Add expense</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="content-scroll" id="contentScroll">
+        <section class="view is-active" id="view-home" data-view-panel="home" aria-labelledby="viewTitle">
+          <div id="allowancePrompt"></div>
+
+          <div class="balance-grid">
+            <article class="card balance-card">
+              <div class="card-heading-row">
+                <div>
+                  <p class="label">Current balance</p>
+                  <p class="balance-value money-value" id="currentBalance">₱0.00</p>
+                </div>
+                <span class="round-icon accent-soft"><svg><use href="#i-wallet"/></svg></span>
+              </div>
+              <div class="balance-meta">
+                <span><b id="todayReceived" class="money-value">₱0</b> received today</span>
+                <span><b id="todaySpent" class="money-value">₱0</b> spent today</span>
+              </div>
+            </article>
+
+            <article class="card safe-card">
+              <div class="card-heading-row">
+                <div>
+                  <p class="label">Safe to spend</p>
+                  <p class="metric-value money-value" id="safeToSpend">₱0.00</p>
+                </div>
+                <span class="round-icon green-soft"><svg><use href="#i-check"/></svg></span>
+              </div>
+              <p class="muted" id="safeToSpendHint">After savings and planned essentials.</p>
+            </article>
+
+            <article class="card guide-card">
+              <div class="card-heading-row">
+                <div>
+                  <p class="label">Daily guide</p>
+                  <p class="metric-value money-value" id="dailyGuide">₱0.00</p>
+                </div>
+                <span class="round-icon amber-soft"><svg><use href="#i-calendar"/></svg></span>
+              </div>
+              <p class="muted" id="dailyGuideHint">Add an allowance period to calculate a guide.</p>
+            </article>
+          </div>
+
+          <div class="home-layout">
+            <div class="home-main-column">
+              <article class="card allowance-plan-card" id="allowancePlanCard"></article>
+
+              <article class="card section-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Activity</p>
+                    <h2>Recent transactions</h2>
+                  </div>
+                  <button class="text-button" type="button" data-view="activity">See all <svg><use href="#i-chevron"/></svg></button>
+                </div>
+                <div class="transaction-list" id="recentTransactions"></div>
+              </article>
+            </div>
+
+            <div class="home-side-column">
+              <article class="card recommendation-card" id="recommendationCard"></article>
+
+              <article class="card section-card">
+                <div class="section-heading compact">
+                  <div>
+                    <p class="eyebrow">Shortcuts</p>
+                    <h2>Quick add</h2>
+                  </div>
+                </div>
+                <div class="quick-grid" id="quickExpenses"></div>
+              </article>
+
+              <article class="card section-card savings-mini" id="savingsMini"></article>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-activity" data-view-panel="activity" aria-labelledby="viewTitle">
+          <div class="section-toolbar card">
+            <div class="search-field">
+              <svg><use href="#i-search"/></svg>
+              <input type="search" id="activitySearch" placeholder="Search transactions" autocomplete="off">
+            </div>
+            <select id="activityType" aria-label="Filter by transaction type">
+              <option value="all">All activity</option>
+              <option value="expense">Expenses</option>
+              <option value="income">Allowance</option>
+              <option value="saving">Savings</option>
+            </select>
+            <button class="button-primary" type="button" data-action="open-expense"><svg><use href="#i-plus"/></svg><span>Add expense</span></button>
+          </div>
+
+          <div class="activity-summary-grid">
+            <article class="card compact-metric"><span class="round-icon red-soft"><svg><use href="#i-arrow-up"/></svg></span><div><p class="label">Spent this month</p><strong class="money-value" id="monthSpent">₱0</strong></div></article>
+            <article class="card compact-metric"><span class="round-icon green-soft"><svg><use href="#i-arrow-down"/></svg></span><div><p class="label">Received this month</p><strong class="money-value" id="monthReceived">₱0</strong></div></article>
+            <article class="card compact-metric"><span class="round-icon purple-soft"><svg><use href="#i-savings"/></svg></span><div><p class="label">Saved this month</p><strong class="money-value" id="monthSaved">₱0</strong></div></article>
+          </div>
+
+          <article class="card section-card activity-card">
+            <div class="section-heading">
+              <div><p class="eyebrow">History</p><h2>All transactions</h2></div>
+              <span class="muted" id="activityCount">0 entries</span>
+            </div>
+            <div class="transaction-list full" id="allTransactions"></div>
+          </article>
+        </section>
+
+        <section class="view" id="view-savings" data-view-panel="savings" aria-labelledby="viewTitle">
+          <div class="savings-hero card">
+            <div>
+              <p class="eyebrow">Protected money</p>
+              <h2 class="money-value" id="totalSavings">₱0.00</h2>
+              <p>Reserved inside your current balance, so it stays out of your safe-to-spend amount.</p>
+            </div>
+            <button class="button-primary" type="button" data-action="open-goal"><svg><use href="#i-plus"/></svg><span>New goal</span></button>
+          </div>
+
+          <div class="goals-grid" id="goalsGrid"></div>
+
+          <article class="card section-card">
+            <div class="section-heading">
+              <div><p class="eyebrow">Smart suggestion</p><h2>Save without overdoing it</h2></div>
+              <span class="round-icon purple-soft"><svg><use href="#i-sparkle"/></svg></span>
+            </div>
+            <p class="insight-copy" id="savingsInsight"></p>
+          </article>
+        </section>
+
+        <section class="view" id="view-more" data-view-panel="more" aria-labelledby="viewTitle">
+          <div class="settings-grid">
+            <article class="card settings-card">
+              <div class="section-heading compact"><div><p class="eyebrow">Preferences</p><h2>Appearance</h2></div></div>
+              <button class="setting-row" type="button" data-action="toggle-theme">
+                <span class="round-icon neutral-soft"><svg id="themeIcon"><use href="#i-moon"/></svg></span>
+                <span><strong>Theme</strong><small id="themeLabel">Light</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+              <button class="setting-row" type="button" data-action="toggle-privacy">
+                <span class="round-icon neutral-soft"><svg class="privacy-icon"><use href="#i-eye"/></svg></span>
+                <span><strong>Privacy mode</strong><small id="privacyLabel">Amounts visible</small></span>
+                <span class="switch" id="privacySwitch" aria-hidden="true"></span>
+              </button>
+            </article>
+
+            <article class="card settings-card">
+              <div class="section-heading compact"><div><p class="eyebrow">Allowance</p><h2>Daily check-in</h2></div></div>
+              <div class="setting-row static">
+                <span class="round-icon neutral-soft"><svg><use href="#i-bell"/></svg></span>
+                <span><strong>Ask once each day</strong><small>The prompt stays inside the app.</small></span>
+                <span class="status-pill success">On</span>
+              </div>
+              <button class="setting-row" type="button" data-action="reset-checkin">
+                <span class="round-icon neutral-soft"><svg><use href="#i-calendar"/></svg></span>
+                <span><strong>Show today’s question again</strong><small>Useful if you answered “Not yet.”</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+            </article>
+
+            <article class="card settings-card">
+              <div class="section-heading compact"><div><p class="eyebrow">Your data</p><h2>Backup and restore</h2></div></div>
+              <button class="setting-row" type="button" data-action="export-data">
+                <span class="round-icon neutral-soft"><svg><use href="#i-download"/></svg></span>
+                <span><strong>Export backup</strong><small>Download a JSON copy of all your data.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+              <button class="setting-row" type="button" data-action="import-data">
+                <span class="round-icon neutral-soft"><svg><use href="#i-upload"/></svg></span>
+                <span><strong>Restore backup</strong><small>Review and replace data from a backup.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+              <input id="importFile" type="file" accept="application/json" hidden>
+            </article>
+
+            <article class="card settings-card danger-zone">
+              <div class="section-heading compact"><div><p class="eyebrow">Reset</p><h2>Start fresh</h2></div></div>
+              <p class="muted">This removes locally stored transactions, goals, and allowance history.</p>
+              <button class="button-danger" type="button" data-action="reset-data">Clear all data</button>
+            </article>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Primary navigation">
+      <button class="bottom-nav-item is-active" data-view="home"><svg><use href="#i-home"/></svg><span>Home</span></button>
+      <button class="bottom-nav-item" data-view="activity"><svg><use href="#i-activity"/></svg><span>Activity</span></button>
+      <button class="bottom-add" type="button" data-action="open-expense" aria-label="Add expense"><svg><use href="#i-plus"/></svg></button>
+      <button class="bottom-nav-item" data-view="savings"><svg><use href="#i-savings"/></svg><span>Savings</span></button>
+      <button class="bottom-nav-item" data-view="more"><svg><use href="#i-more"/></svg><span>More</span></button>
+    </nav>
+  </div>
+
+  <dialog id="allowanceDialog" class="app-dialog">
+    <form method="dialog" class="dialog-panel" id="allowanceForm">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Allowance received</p><h2>Add money in seconds</h2></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <label class="field-label" for="allowanceAmount">How much did you receive?</label>
+        <div class="amount-field"><span>₱</span><input id="allowanceAmount" name="allowanceAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
+        <div class="amount-chips" id="allowanceAmountChips">
+          <button type="button" data-amount="100">₱100</button><button type="button" data-amount="200">₱200</button><button type="button" data-amount="500">₱500</button><button type="button" data-amount="1000">₱1,000</button>
+        </div>
+
+        <fieldset class="choice-group">
+          <legend>How long should it last?</legend>
+          <label><input type="radio" name="coverage" value="today"><span>Today</span></label>
+          <label><input type="radio" name="coverage" value="week" checked><span>This week</span></label>
+          <label><input type="radio" name="coverage" value="month"><span>This month</span></label>
+          <label><input type="radio" name="coverage" value="custom"><span>Until a date</span></label>
+        </fieldset>
+
+        <div class="field-group is-hidden" id="customDateWrap">
+          <label class="field-label" for="allowanceEndDate">Last day this money should cover</label>
+          <input class="text-input" id="allowanceEndDate" type="date">
+        </div>
+
+        <div class="smart-box" id="allowanceSuggestion">
+          <span class="round-icon purple-soft"><svg><use href="#i-sparkle"/></svg></span>
+          <div><strong>Enter an amount for a saving suggestion.</strong><p>We’ll protect only what looks comfortable.</p></div>
+        </div>
+
+        <label class="check-row">
+          <input type="checkbox" id="applySuggestedSaving" checked>
+          <span><strong>Move the suggested amount to savings</strong><small>You can skip or change this later.</small></span>
+        </label>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" type="submit" value="default">Add allowance</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="expenseDialog" class="app-dialog">
+    <form method="dialog" class="dialog-panel" id="expenseForm">
+      <div class="dialog-header">
+        <div><p class="eyebrow">New expense</p><h2>What did you spend?</h2></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <label class="field-label" for="expenseAmount">Amount</label>
+        <div class="amount-field"><span>₱</span><input id="expenseAmount" name="expenseAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
+
+        <fieldset class="category-picker" id="categoryPicker">
+          <legend>Category</legend>
+          <label><input type="radio" name="expenseCategory" value="Food" checked><span><svg><use href="#i-food"/></svg>Food</span></label>
+          <label><input type="radio" name="expenseCategory" value="Transport"><span><svg><use href="#i-transport"/></svg>Transport</span></label>
+          <label><input type="radio" name="expenseCategory" value="School"><span><svg><use href="#i-school"/></svg>School</span></label>
+          <label><input type="radio" name="expenseCategory" value="Load"><span><svg><use href="#i-phone"/></svg>Load</span></label>
+          <label><input type="radio" name="expenseCategory" value="Personal"><span><svg><use href="#i-user"/></svg>Personal</span></label>
+          <label><input type="radio" name="expenseCategory" value="Other"><span><svg><use href="#i-more"/></svg>Other</span></label>
+        </fieldset>
+
+        <div class="field-grid">
+          <div class="field-group"><label class="field-label" for="expenseAccount">Paid from</label><select class="text-input" id="expenseAccount"></select></div>
+          <div class="field-group"><label class="field-label" for="expenseDate">Date</label><input class="text-input" id="expenseDate" type="date" required></div>
+        </div>
+
+        <div class="field-group"><label class="field-label" for="expenseNote">Note <span>optional</span></label><input class="text-input" id="expenseNote" type="text" maxlength="80" placeholder="Lunch, printing, jeep fare…"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" type="submit" value="default">Save expense</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="goalDialog" class="app-dialog">
+    <form method="dialog" class="dialog-panel" id="goalForm">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Savings goal</p><h2>Create a goal</h2></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <div class="field-group"><label class="field-label" for="goalName">What are you saving for?</label><input class="text-input" id="goalName" type="text" maxlength="40" placeholder="Emergency fund" required></div>
+        <div class="field-grid">
+          <div class="field-group"><label class="field-label" for="goalTarget">Target amount</label><div class="compact-amount"><span>₱</span><input id="goalTarget" type="number" min="1" step="1" required></div></div>
+          <div class="field-group"><label class="field-label" for="goalCurrent">Already saved</label><div class="compact-amount"><span>₱</span><input id="goalCurrent" type="number" min="0" step="1" value="0"></div></div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" type="submit" value="default">Create goal</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="contributeDialog" class="app-dialog compact-dialog">
+    <form method="dialog" class="dialog-panel" id="contributeForm">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Add to savings</p><h2 id="contributeTitle">Goal</h2></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <input type="hidden" id="contributeGoalId">
+        <label class="field-label" for="contributeAmount">Amount to protect</label>
+        <div class="amount-field"><span>₱</span><input id="contributeAmount" type="number" min="1" step="1" required></div>
+        <p class="helper-text">This stays inside your tracked balance but is removed from “safe to spend.”</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" type="submit" value="default">Add savings</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmDialog" class="app-dialog compact-dialog">
+    <form method="dialog" class="dialog-panel">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Please confirm</p><h2 id="confirmTitle">Are you sure?</h2></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body"><p id="confirmMessage" class="confirm-message"></p></div>
+      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-danger" id="confirmAction" value="default">Continue</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
+
+  <script src="js/app.js" defer></script>
+</body>
+</html>
