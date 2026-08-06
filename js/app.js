@@ -3,6 +3,8 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
+  const APP_VERSION = '1.1.0';
+  const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: 'PHP',
@@ -35,6 +37,10 @@
   let pendingUndo = null;
   let pendingConfirm = null;
   let currentView = 'home';
+  let serviceWorkerRegistration = null;
+  let waitingServiceWorker = null;
+  let refreshAfterUpdate = false;
+  let lastUpdateCheck = 0;
 
   function localDateKey(date = new Date()) {
     const year = date.getFullYear();
@@ -921,6 +927,63 @@
     }
   }
 
+  function showUpdateAvailable(worker) {
+    if (!worker) return;
+    waitingServiceWorker = worker;
+    els.updateBanner.classList.add('is-visible');
+    els.updateBanner.setAttribute('aria-hidden', 'false');
+    els.updateStatus.textContent = 'Available';
+    els.updateStatus.classList.remove('success');
+  }
+
+  function hideUpdateAvailable() {
+    els.updateBanner.classList.remove('is-visible');
+    els.updateBanner.setAttribute('aria-hidden', 'true');
+  }
+
+  function applyAvailableUpdate() {
+    const worker = waitingServiceWorker || serviceWorkerRegistration?.waiting;
+    if (!worker) {
+      showToast('No downloaded update is waiting.');
+      return;
+    }
+    refreshAfterUpdate = true;
+    els.updateStatus.textContent = 'Installing';
+    worker.postMessage({ type: 'SKIP_WAITING' });
+  }
+
+  async function checkForUpdates({ announce = false, force = false } = {}) {
+    if (!serviceWorkerRegistration) {
+      if (announce) showToast('Update checks are available when the app is hosted.');
+      return;
+    }
+    const now = Date.now();
+    if (!force && now - lastUpdateCheck < UPDATE_CHECK_INTERVAL) return;
+    lastUpdateCheck = now;
+    if (announce) {
+      els.updateStatus.textContent = 'Checking';
+      showToast('Checking for updates…');
+    }
+    try {
+      await serviceWorkerRegistration.update();
+      window.setTimeout(() => {
+        const worker = waitingServiceWorker || serviceWorkerRegistration.waiting;
+        if (worker) {
+          showUpdateAvailable(worker);
+          if (announce) showToast('A new version is ready.');
+        } else if (announce) {
+          els.updateStatus.textContent = 'Current';
+          els.updateStatus.classList.add('success');
+          showToast('Pocket is up to date.');
+        }
+      }, 900);
+    } catch (error) {
+      console.warn('Unable to check for updates.', error);
+      els.updateStatus.textContent = 'Unavailable';
+      if (announce) showToast('Could not check for updates right now.');
+    }
+  }
+
   function handleAction(button) {
     const action = button.dataset.action;
     if (!action) return;
@@ -943,6 +1006,9 @@
       state.checkins[localDateKey()] = { status: 'later', updatedAt: new Date().toISOString() };
       saveState(); renderAll();
     }
+    if (action === 'apply-update') applyAvailableUpdate();
+    if (action === 'dismiss-update') hideUpdateAvailable();
+    if (action === 'check-update') checkForUpdates({ announce: true, force: true });
     if (action === 'reset-checkin') {
       delete state.checkins[localDateKey()];
       saveState(); renderAll(); setView('home');
@@ -981,7 +1047,8 @@
       'allowanceEndDate', 'customDateWrap', 'allowanceSuggestion', 'applySuggestedSaving', 'expenseDialog', 'expenseForm',
       'expenseAmount', 'expenseAccount', 'expenseDate', 'expenseNote', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
       'goalCurrent', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount',
-      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'toast', 'toastMessage', 'toastAction'
+      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'toast', 'toastMessage', 'toastAction',
+      'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
   }
 
@@ -1070,16 +1137,51 @@
         renderAll();
       }
     });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkForUpdates();
+    });
+    window.addEventListener('online', () => checkForUpdates({ force: true }));
   }
 
-  function registerServiceWorker() {
-    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-      navigator.serviceWorker.register('./sw.js').catch((error) => console.warn('Service worker registration failed.', error));
+  async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator) || location.protocol === 'file:') {
+      els.updateStatus.textContent = 'Hosted only';
+      return;
+    }
+
+    try {
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js');
+
+      if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
+        showUpdateAvailable(serviceWorkerRegistration.waiting);
+      }
+
+      serviceWorkerRegistration.addEventListener('updatefound', () => {
+        const installingWorker = serviceWorkerRegistration.installing;
+        if (!installingWorker) return;
+        installingWorker.addEventListener('statechange', () => {
+          if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            showUpdateAvailable(installingWorker);
+          }
+        });
+      });
+
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshAfterUpdate) return;
+        refreshAfterUpdate = false;
+        window.location.reload();
+      });
+
+      window.setTimeout(() => checkForUpdates({ force: true }), 1500);
+    } catch (error) {
+      els.updateStatus.textContent = 'Unavailable';
+      console.warn('Service worker registration failed.', error);
     }
   }
 
   function init() {
     cacheElements();
+    els.appVersion.textContent = `Version ${APP_VERSION}`;
     state = loadState();
     bindEvents();
     renderAll();

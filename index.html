@@ -41,7 +41,21 @@
     <symbol id="i-transport" viewBox="0 0 24 24"><path d="M5 16h14l-1.5-8h-11ZM7 16v3m10-3v3M8 12h8"/><circle cx="8" cy="17" r="1"/><circle cx="16" cy="17" r="1"/></symbol>
     <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 5h4m-3 14h2"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.2-2.1L20 11M4 13l2.7 4.1A7 7 0 0 0 17.9 15"/></symbol>
   </svg>
+
+
+  <aside class="update-banner" id="updateBanner" aria-live="polite" aria-hidden="true">
+    <span class="round-icon accent-soft"><svg><use href="#i-refresh"/></svg></span>
+    <div class="update-banner-copy">
+      <strong>Update available</strong>
+      <small>A newer version is ready to use.</small>
+    </div>
+    <div class="update-banner-actions">
+      <button class="text-button" type="button" data-action="dismiss-update">Later</button>
+      <button class="button-primary" type="button" data-action="apply-update">Refresh now</button>
+    </div>
+  </aside>
 
   <div class="app-shell">
     <aside class="sidebar" aria-label="Primary navigation">
@@ -252,6 +266,20 @@
                 <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
               <input id="importFile" type="file" accept="application/json" hidden>
+            </article>
+
+            <article class="card settings-card">
+              <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
+              <div class="setting-row static">
+                <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 1.1.0</small></span>
+                <span class="status-pill success" id="updateStatus">Current</span>
+              </div>
+              <button class="setting-row" type="button" data-action="check-update">
+                <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
+                <span><strong>Check for updates</strong><small>Look for a newer version now.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
             </article>
 
             <article class="card settings-card danger-zone">

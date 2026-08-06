@@ -72,6 +72,24 @@ button, [role="button"] { -webkit-tap-highlight-color: transparent; }
 svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .svg-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
+
+.update-banner {
+  position: fixed; z-index: 120; right: 22px; bottom: 22px; width: min(460px, calc(100vw - 28px));
+  min-height: 74px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 17px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent); box-shadow: 0 20px 60px rgba(20, 22, 28, .18);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); display: flex; align-items: center; gap: 12px;
+  opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(14px);
+  transition: opacity .2s ease, transform .2s ease, visibility .2s ease;
+}
+.update-banner.is-visible { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); }
+.update-banner > .round-icon { flex: 0 0 auto; }
+.update-banner-copy { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.update-banner-copy strong { font-size: 14px; }
+.update-banner-copy small { margin-top: 3px; color: var(--text-2); font-size: 11px; }
+.update-banner-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.update-banner-actions .button-primary { min-height: 38px; padding: 0 13px; }
+.update-banner-actions .text-button { min-height: 38px; padding: 0 4px; }
+
 .app-shell { display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); height: 100dvh; min-height: 0; }
 .sidebar {
   min-width: 0;
@@ -464,9 +482,13 @@ body.is-private .transaction-amount .money-value::after { right: 0; left: auto; 
   .goals-grid { grid-template-columns: 1fr; }
   .savings-hero { align-items: flex-end; }
   .toast { bottom: calc(var(--bottom-nav-height) + var(--safe-bottom) + 12px); }
+  .update-banner { left: 14px; right: 14px; bottom: calc(var(--bottom-nav-height) + var(--safe-bottom) + 12px); width: auto; }
 }
 
 @media (max-width: 560px) {
+  .update-banner { align-items: flex-start; flex-wrap: wrap; padding: 13px; }
+  .update-banner-copy { flex: 1; }
+  .update-banner-actions { width: 100%; margin-left: 0; justify-content: flex-end; }
   .daily-prompt { align-items: flex-start; flex-direction: column; padding: 16px; }
   .daily-prompt-actions { width: 100%; justify-content: stretch; }
   .daily-prompt-actions .button-primary, .daily-prompt-actions .button-secondary { flex: 1; }
