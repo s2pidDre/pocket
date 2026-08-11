@@ -4,7 +4,7 @@
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const RECOVERY_STORAGE_KEY = `${STORAGE_KEY}-recovery`;
   const SCHEMA_VERSION = 2;
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.2.1';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const MAX_MONEY = 1_000_000_000_000;
   const TRANSACTION_TYPES = new Set(['income', 'expense', 'saving', 'transfer']);
@@ -745,43 +745,6 @@
     }
   }
 
-  function frequentExpenses() {
-    const recent = state.transactions
-      .filter((tx) => tx.type === 'expense')
-      .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
-    const groups = new Map();
-
-    recent.forEach((tx) => {
-      const amount = Math.round(Number(tx.amount || 0));
-      const key = `${tx.category}|${amount}|${tx.note || ''}|${tx.accountId}`;
-      const current = groups.get(key) || { ...tx, count: 0 };
-      current.count += 1;
-      groups.set(key, current);
-    });
-
-    const favorites = [...groups.values()].sort((a, b) => b.count - a.count || String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 4);
-    const defaults = [
-      { category: 'Transport', amount: 30, note: 'Jeep fare', accountId: state.accounts[0]?.id },
-      { category: 'Food', amount: 80, note: 'Lunch', accountId: state.accounts[0]?.id },
-      { category: 'School', amount: 20, note: 'Printing', accountId: state.accounts[0]?.id },
-      { category: 'Load', amount: 50, note: 'Mobile data', accountId: state.accounts[1]?.id || state.accounts[0]?.id }
-    ];
-
-    while (favorites.length < 4) favorites.push(defaults[favorites.length]);
-    return favorites.slice(0, 4);
-  }
-
-  function renderQuickExpenses() {
-    els.quickExpenses.innerHTML = frequentExpenses().map((item) => {
-      const meta = categoryMeta[item.category] || categoryMeta.Other;
-      return `
-        <button class="quick-expense" type="button" data-action="quick-expense" data-category="${escapeHtml(item.category)}" data-amount="${Number(item.amount)}" data-note="${escapeHtml(item.note || item.category)}" data-account-id="${escapeHtml(item.accountId || state.accounts[0]?.id || '')}">
-          <span class="round-icon ${meta.tone}">${icon(meta.icon)}</span>
-          <span><strong>${escapeHtml(item.note || item.category)}</strong><small class="money-value">${currency(item.amount, true)}</small></span>
-        </button>`;
-    }).join('');
-  }
-
   function renderSavingsMini() {
     const goal = featuredGoal();
     if (!goal) {
@@ -813,7 +776,6 @@
     renderAllowancePrompt();
     renderAllowancePlan();
     renderRecommendation();
-    renderQuickExpenses();
     renderSavingsMini();
 
     const recent = [...state.transactions].sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))).slice(0, 5);
@@ -1131,33 +1093,6 @@
     showToast(remaining < 0 ? `Expense saved. ${state.accounts.find((a) => a.id === accountId)?.name || 'Account'} is now below zero.` : `${currency(amount, true)} expense saved.`);
   }
 
-  function quickExpense(button) {
-    const amount = Number(button.dataset.amount || 0);
-    const category = button.dataset.category || 'Other';
-    const accountId = button.dataset.accountId || state.accounts[0]?.id;
-    const note = button.dataset.note || category;
-    if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY || !state.accounts.some((account) => account.id === accountId) || !EXPENSE_CATEGORIES.has(category)) return;
-
-    const transaction = {
-      id: uid('tx'),
-      type: 'expense',
-      amount,
-      category,
-      accountId,
-      date: localDateKey(),
-      note,
-      createdAt: new Date().toISOString()
-    };
-    state.transactions.push(transaction);
-    saveState();
-    renderAll();
-    showToast(`${note} added for ${currency(amount, true)}.`, 'Undo', () => {
-      state.transactions = state.transactions.filter((tx) => tx.id !== transaction.id);
-      saveState();
-      renderAll();
-    });
-  }
-
   function addGoal() {
     const name = els.goalName.value.trim().slice(0, 40);
     const target = Number(els.goalTarget.value);
@@ -1418,7 +1353,6 @@
       delete state.checkins[localDateKey()];
       saveState(); renderAll(); setView('home');
     }
-    if (action === 'quick-expense') quickExpense(button);
     if (action === 'open-goal') {
       els.goalForm.reset();
       els.goalCurrent.value = '0';
@@ -1456,7 +1390,7 @@
     [
       'todayLabel', 'viewTitle', 'contentScroll', 'allowancePrompt', 'currentBalance', 'todayReceived', 'todaySpent',
       'safeToSpend', 'safeToSpendHint', 'dailyGuide', 'dailyGuideHint', 'allowancePlanCard', 'recommendationCard',
-      'recentTransactions', 'quickExpenses', 'savingsMini', 'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
+      'recentTransactions', 'savingsMini', 'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
       'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'themeIcon',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'importFile', 'allowanceDialog', 'allowanceForm', 'allowanceAmount',
       'allowanceEndDate', 'customDateWrap', 'allowanceSuggestion', 'applySuggestedSaving', 'expenseDialog', 'expenseForm',

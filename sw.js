@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'pocket-student-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.2.0`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.2.1`;
 const APP_ASSETS = [
   './',
   './index.html',
