@@ -1379,3 +1379,285 @@ input[type="number"]::-webkit-outer-spin-button {
   .home-wallet-overview-row { min-height: 27px; }
   .home-wallet-actions button { min-height: 38px; font-size: 10px; }
 }
+
+/* v2.1 — adaptive fixed tabs, day activity, swipeable goals */
+.content-scroll.fixed-view-active {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.content-scroll.fixed-view-active > .view.is-active {
+  height: 100%;
+  min-height: 0;
+}
+
+/* Home uses every available pixel instead of capping the wallet card height. */
+.wallet-mode-home {
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(200px, 1fr) auto auto auto;
+  align-content: stretch;
+}
+.wallet-carousel-stage,
+.wallet-carousel,
+.wallet-mode-card { min-height: 0; }
+.wallet-mode-card { height: 100%; }
+
+/* Activity is one fixed day at a time. The page does not vertically scroll. */
+#view-activity.is-active {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+}
+.activity-day-toolbar {
+  min-height: 64px;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 38px minmax(108px, 150px);
+  align-items: center;
+  gap: 8px;
+}
+.activity-day-arrow {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform .14s ease, color .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.activity-day-arrow:hover { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 40%, var(--line)); }
+.activity-day-arrow:active { transform: scale(.95); }
+.activity-day-arrow:disabled { opacity: .28; cursor: default; }
+.activity-day-arrow svg { width: 17px; height: 17px; }
+.activity-day-arrow.previous svg { transform: rotate(180deg); }
+.activity-day-title { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.activity-day-title > strong { font-size: 16px; line-height: 1.15; letter-spacing: -.25px; }
+.activity-date-jump {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.activity-date-jump svg { width: 13px; height: 13px; }
+.activity-date-jump input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.activity-day-toolbar > select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  outline: none;
+  font-size: 11px;
+  font-weight: 650;
+}
+.activity-day-toolbar > select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent); }
+.activity-summary-strip { margin: 0; }
+.activity-card {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.activity-history-heading { flex: 0 0 auto; margin-bottom: 6px; }
+.activity-day-transactions {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding-right: 2px;
+}
+.activity-swipe-hint {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding-top: 5px;
+  color: var(--text-3);
+  text-align: center;
+  font-size: 9.5px;
+  font-weight: 650;
+}
+
+/* Savings is fixed-height. Goals become horizontal pages instead of a vertical stack. */
+#view-savings.is-active {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+}
+.savings-dashboard { margin: 0; }
+.savings-goals-heading { margin: 0 2px; }
+.savings-goal-heading-actions { display: flex; align-items: center; gap: 8px; }
+.manage-goals-button { min-height: 39px; padding: 0 12px; font-size: 11px; white-space: nowrap; }
+.manage-goals-button:disabled { opacity: .4; cursor: default; }
+.goals-carousel {
+  --goal-card-width: clamp(320px, 48vw, 530px);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 2px;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  scrollbar-width: none;
+  padding: 2px 2px 4px;
+}
+.goals-carousel::-webkit-scrollbar { display: none; }
+.goals-carousel .goal-card {
+  flex: 0 0 var(--goal-card-width);
+  width: var(--goal-card-width);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+.goals-carousel .empty-goal-card { flex-basis: min(100%, 620px); width: min(100%, 620px); }
+.goals-carousel .goal-progress { flex: 0 0 auto; }
+.goals-carousel .goal-footer { margin-top: auto; }
+.goal-remove {
+  width: auto;
+  min-width: 36px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 26%, var(--line));
+  background: color-mix(in srgb, var(--red-soft) 50%, var(--surface-2));
+}
+.goal-remove span { font-size: 10px; font-weight: 750; }
+
+@media (min-width: 821px) {
+  .content-scroll.fixed-view-active {
+    padding-top: clamp(18px, 2.5vw, 30px);
+    padding-bottom: clamp(18px, 2.5vw, 30px);
+  }
+}
+
+@media (max-width: 820px) {
+  .content-scroll.fixed-view-active {
+    padding: 10px 12px calc(var(--bottom-nav-height) + var(--safe-bottom) + 8px);
+  }
+  .wallet-mode-home { grid-template-rows: auto minmax(190px, 1fr) auto auto auto; }
+  #view-activity.is-active, #view-savings.is-active { gap: 8px; }
+  .activity-day-toolbar { grid-template-columns: 36px minmax(0, 1fr) 36px; min-height: 58px; padding: 7px 8px; }
+  .activity-day-toolbar > select { grid-column: 1 / -1; min-height: 34px; }
+  .activity-summary-strip { min-height: 58px; }
+  .activity-card { padding: 12px 14px; }
+  .savings-dashboard { padding: 14px; border-radius: 17px; }
+  .savings-dashboard-head { gap: 10px; }
+  .savings-dashboard-head h2 { font-size: 20px; }
+  .savings-dashboard-head p:last-child { font-size: 11px; }
+  .savings-balance-hero { min-height: 86px; padding: 13px 15px; margin-top: 10px; border-radius: 17px; }
+  .savings-balance-hero strong { font-size: 32px; }
+  .savings-wallet-tabs { padding-top: 9px; }
+  .savings-goals-heading h2 { font-size: 18px; }
+  .goals-carousel { --goal-card-width: min(86vw, 430px); gap: 10px; }
+  .goals-carousel .goal-card { padding: 16px; }
+}
+
+@media (max-width: 560px) {
+  .content-scroll.fixed-view-active { padding-left: 10px; padding-right: 10px; }
+  .wallet-mode-home { grid-template-rows: auto minmax(185px, 1fr) auto auto auto; gap: 6px; }
+  .wallet-mode-card { padding: 15px 17px; }
+  .wallet-mode-main-balance strong { font-size: clamp(32px, 9vw, 42px); }
+  .home-wallet-overview { padding: 8px 11px 7px; }
+  .home-wallet-overview-row { min-height: 26px; }
+  .home-wallet-actions button { min-height: 38px; }
+
+  .activity-day-toolbar { gap: 6px; }
+  .activity-day-arrow { width: 34px; height: 34px; }
+  .activity-day-title > strong { font-size: 14px; }
+  .activity-date-jump { font-size: 9.5px; }
+  .activity-summary-strip { min-height: 52px; padding-top: 6px; padding-bottom: 6px; }
+  .activity-history-heading h2 { font-size: 16px; }
+  .activity-swipe-hint { font-size: 9px; }
+
+  .savings-dashboard-head { flex-direction: row; align-items: center; }
+  .savings-dashboard-head > div:first-child { min-width: 0; }
+  .savings-dashboard-head p:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45vw; }
+  .savings-view-toggle { width: auto; flex: 0 0 auto; }
+  .savings-view-toggle button { min-height: 34px; padding: 0 9px; font-size: 10px; }
+  .savings-balance-hero { min-height: 74px; padding: 11px 13px; }
+  .savings-balance-hero .round-icon { width: 36px; height: 36px; }
+  .savings-balance-hero strong { font-size: 29px; }
+  .savings-goals-heading { align-items: center; }
+  .savings-goal-heading-actions { gap: 6px; }
+  .manage-goals-button { min-height: 36px; padding: 0 9px; font-size: 10px; }
+  .savings-goals-heading .button-primary { min-height: 36px; padding: 0 10px; }
+  .goals-carousel { --goal-card-width: min(88vw, 390px); }
+  .goals-carousel .goal-card { padding: 14px; border-radius: 17px; }
+  .goals-carousel .goal-card h3 { font-size: 16px; }
+  .goals-carousel .goal-progress { margin: 13px 0 8px; }
+  .goal-footer .button-secondary { min-height: 34px; }
+  .goal-remove span { display: none; }
+}
+
+@media (max-width: 390px) and (max-height: 700px) {
+  .content-scroll.fixed-view-active { padding-top: 6px; }
+  .wallet-mode-home { grid-template-rows: auto minmax(170px, 1fr) auto auto auto; gap: 4px; }
+  .wallet-mode-card { padding: 12px 15px; }
+  .wallet-mode-card-kicker { margin-bottom: 2px; }
+  .wallet-mode-card h3 { font-size: 20px; }
+  .wallet-mode-card-icon { width: 36px; height: 36px; }
+  .wallet-mode-main-balance > span { font-size: 10px; }
+  .wallet-mode-main-balance strong { font-size: 31px; }
+  .wallet-mode-savings-inline { min-height: 29px; padding: 4px 1px; }
+  .wallet-mode-card-footer { padding-top: 3px; }
+  .home-wallet-overview-row { min-height: 23px; }
+  .home-wallet-overview-divider { margin: 3px 0; }
+  .home-wallet-month-bar { margin-top: 3px; }
+  .home-wallet-actions button { min-height: 35px; font-size: 9.5px; }
+
+  .activity-day-toolbar { min-height: 52px; padding-top: 5px; padding-bottom: 5px; }
+  .activity-day-toolbar > select { min-height: 31px; }
+  .activity-summary-strip { min-height: 46px; }
+  .activity-card { padding-top: 9px; padding-bottom: 9px; }
+  .transaction-list.full .transaction-row { min-height: 63px; padding: 7px 0; }
+  .transaction-list.full .transaction-action,
+  .transaction-list.full .transaction-lock { min-height: 24px; }
+
+  .savings-dashboard { padding: 10px 12px; }
+  .savings-dashboard-head h2 { font-size: 18px; }
+  .savings-dashboard-head p:last-child { display: none; }
+  .savings-view-toggle button { min-height: 31px; }
+  .savings-balance-hero { min-height: 64px; margin-top: 7px; padding: 9px 11px; }
+  .savings-balance-hero strong { font-size: 26px; }
+  .savings-wallet-tabs { padding-top: 6px; }
+  .savings-wallet-tabs button { min-height: 30px; font-size: 10px; }
+  .savings-goals-heading h2 { font-size: 16px; }
+  .manage-goals-button, .savings-goals-heading .button-primary { min-height: 33px; }
+  .goals-carousel .goal-card { padding: 12px; }
+  .goal-progress { margin-top: 10px; }
+}

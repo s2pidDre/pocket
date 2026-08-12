@@ -142,33 +142,39 @@
         </section>
 
         <section class="view" id="view-activity" data-view-panel="activity" aria-labelledby="viewTitle">
-          <div class="section-toolbar card">
-            <div class="search-field">
-              <svg><use href="#i-search"/></svg>
-              <input type="search" id="activitySearch" placeholder="Search transactions" autocomplete="off">
+          <div class="activity-day-toolbar card">
+            <button class="activity-day-arrow previous" id="activityPrevDay" type="button" aria-label="Previous day"><svg><use href="#i-chevron"/></svg></button>
+            <div class="activity-day-title">
+              <strong id="activityDayName">Today</strong>
+              <label class="activity-date-jump" for="activityDatePicker">
+                <span id="activityDayDate">Aug 12, 2026</span>
+                <svg><use href="#i-calendar"/></svg>
+                <input id="activityDatePicker" type="date" aria-label="Jump to activity date">
+              </label>
             </div>
-            <select id="activityType" aria-label="Filter by transaction type">
-              <option value="all">All activity</option>
+            <button class="activity-day-arrow next" id="activityNextDay" type="button" aria-label="Next day"><svg><use href="#i-chevron"/></svg></button>
+            <select id="activityType" aria-label="Filter selected day activity">
+              <option value="all">All</option>
               <option value="expense">Expenses</option>
               <option value="income">Allowance</option>
               <option value="saving">Savings</option>
               <option value="transfer">Transfers</option>
             </select>
-            <button class="button-primary" type="button" data-action="open-expense"><svg><use href="#i-plus"/></svg><span>Add expense</span></button>
           </div>
 
-          <article class="card activity-summary-strip" aria-label="This month summary">
+          <article class="card activity-summary-strip" aria-label="Selected day summary">
             <div class="activity-summary-item"><span class="summary-dot red-soft"><svg><use href="#i-arrow-up"/></svg></span><div><small>Spent</small><strong class="money-value" id="monthSpent">₱0</strong></div></div>
             <div class="activity-summary-item"><span class="summary-dot green-soft"><svg><use href="#i-arrow-down"/></svg></span><div><small>Received</small><strong class="money-value" id="monthReceived">₱0</strong></div></div>
             <div class="activity-summary-item"><span class="summary-dot purple-soft"><svg><use href="#i-savings"/></svg></span><div><small>Saved</small><strong class="money-value" id="monthSaved">₱0</strong></div></div>
           </article>
 
-          <article class="card section-card activity-card">
-            <div class="section-heading">
-              <div><p class="eyebrow">History</p><h2>All transactions</h2></div>
+          <article class="card section-card activity-card" id="activityDayCard">
+            <div class="section-heading activity-history-heading">
+              <div><p class="eyebrow">Day history</p><h2 id="activityHistoryTitle">Today’s transactions</h2></div>
               <span class="muted" id="activityCount">0 entries</span>
             </div>
-            <div class="transaction-list full" id="allTransactions"></div>
+            <div class="transaction-list full activity-day-transactions" id="allTransactions"></div>
+            <div class="activity-swipe-hint" id="activitySwipeHint">Swipe left or right to change day</div>
           </article>
         </section>
 
@@ -200,14 +206,12 @@
 
           <div class="savings-goals-heading">
             <div><p class="eyebrow">Goals</p><h2>Your savings goals</h2></div>
-            <button class="button-primary" type="button" data-action="open-goal"><svg><use href="#i-plus"/></svg><span>New goal</span></button>
+            <div class="savings-goal-heading-actions">
+              <button class="button-secondary manage-goals-button" id="manageGoalsButton" type="button" data-action="toggle-manage-goals">Manage goals</button>
+              <button class="button-primary" type="button" data-action="open-goal"><svg><use href="#i-plus"/></svg><span>New goal</span></button>
+            </div>
           </div>
-          <div class="goals-grid" id="goalsGrid"></div>
-
-          <article class="card savings-help-card">
-            <span class="round-icon green-soft"><svg><use href="#i-check"/></svg></span>
-            <div><strong>Savings stay separate</strong><p id="savingsInsight">Money moved to savings cannot be used for expenses unless you undo that savings transaction within its edit window.</p></div>
-          </article>
+          <div class="goals-carousel" id="goalsGrid" aria-label="Savings goals"></div>
         </section>
 
         <section class="view" id="view-more" data-view-panel="more" aria-labelledby="viewTitle">
@@ -262,7 +266,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <div class="setting-row static">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 2.0.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 2.1.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </div>
               <button class="setting-row" type="button" data-action="check-update">

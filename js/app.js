@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.0.0';
+  const APP_VERSION = '2.1.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -50,6 +50,9 @@
   let walletCarouselResizeObserver = null;
   let savingsMode = 'total';
   let savingsWalletIndex = 0;
+  let activityDate = localDateKey();
+  let manageGoalsMode = false;
+  let activitySwipeStartX = null;
   let lastReceiptTransactionId = '';
 
   function localDateKey(date = new Date()) {
@@ -618,27 +621,46 @@
     stabilizeWalletCarousel(walletModeIndex);
   }
 
+  function activityDayName(dateKey) {
+    const today = localDateKey();
+    if (dateKey === today) return 'Today';
+    if (dateKey === addDays(today, -1)) return 'Yesterday';
+    return new Intl.DateTimeFormat('en-PH', { weekday: 'long' }).format(fromDateKey(dateKey));
+  }
+
   function filteredActivity() {
-    const search = els.activitySearch.value.trim().toLowerCase();
     const type = els.activityType.value;
     return [...state.transactions]
+      .filter((tx) => tx.date === activityDate)
       .filter((tx) => type === 'all' || tx.type === type)
-      .filter((tx) => {
-        if (!search) return true;
-        const haystack = `${tx.category || ''} ${tx.note || ''} ${transactionSubtitle(tx)} ${tx.amount}`.toLowerCase();
-        return haystack.includes(search);
-      })
       .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
   }
 
+  function moveActivityDay(days) {
+    const today = localDateKey();
+    const next = addDays(activityDate, days);
+    if (next > today) return;
+    activityDate = next;
+    renderActivity();
+  }
+
   function renderActivity() {
-    const range = monthRange();
-    els.monthSpent.textContent = currency(sumTransactions('expense', range.start, range.end), true);
-    els.monthReceived.textContent = currency(sumTransactions('income', range.start, range.end), true);
-    els.monthSaved.textContent = currency(sumTransactions('saving', range.start, range.end), true);
+    const today = localDateKey();
+    if (activityDate > today) activityDate = today;
+    els.activityDatePicker.max = today;
+    els.activityDatePicker.value = activityDate;
+    els.activityDayName.textContent = activityDayName(activityDate);
+    els.activityDayDate.textContent = DATE_LABEL.format(fromDateKey(activityDate));
+    els.activityHistoryTitle.textContent = activityDate === today ? 'Today’s transactions' : `${activityDayName(activityDate)} transactions`;
+    els.activityNextDay.disabled = activityDate >= today;
+
+    els.monthSpent.textContent = currency(sumTransactions('expense', activityDate, activityDate), true);
+    els.monthReceived.textContent = currency(sumTransactions('income', activityDate, activityDate), true);
+    els.monthSaved.textContent = currency(sumTransactions('saving', activityDate, activityDate), true);
     const filtered = filteredActivity();
     els.activityCount.textContent = `${filtered.length} entr${filtered.length === 1 ? 'y' : 'ies'}`;
     els.allTransactions.innerHTML = renderTransactionRows(filtered, true);
+    els.activitySwipeHint.classList.toggle('is-hidden', state.transactions.length === 0);
   }
 
   function renderSavings() {
@@ -657,15 +679,21 @@
 
     els.savingsViewTitle.textContent = isWalletMode ? `${selectedAccount.name} savings` : 'All savings';
     els.savingsViewSubtitle.textContent = isWalletMode
-      ? `Only money saved from ${selectedAccount.name} is shown below.`
-      : 'See everything you have set aside across all wallets.';
+      ? `Only money saved from ${selectedAccount.name} is shown.`
+      : 'Everything you have set aside across all wallets.';
     els.savingsBalanceLabel.textContent = isWalletMode ? `Saved from ${selectedAccount.name}` : 'Total savings';
     els.totalSavings.textContent = currency(shownBalance);
     replayAnimation(els.totalSavings, 'amount-pop');
 
     const visibleGoals = state.goals.filter((goal) => !goal.removedAt);
+    els.manageGoalsButton.disabled = visibleGoals.length === 0;
+    els.manageGoalsButton.textContent = manageGoalsMode ? 'Done' : 'Manage goals';
+    els.goalsGrid.classList.toggle('is-managing', manageGoalsMode);
+
     if (!visibleGoals.length) {
-      els.goalsGrid.innerHTML = `<article class="card goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and choose which wallet the money comes from.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
+      manageGoalsMode = false;
+      els.manageGoalsButton.textContent = 'Manage goals';
+      els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and choose which wallet the money comes from.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = visibleGoals.map((goal) => {
         const totalCurrent = Number(goal.current || 0);
@@ -676,16 +704,19 @@
           ? `${currency(walletCurrent, true)} from ${selectedAccount.name}`
           : `${currency(totalCurrent, true)} of ${currency(target, true)}`;
         const secondaryCopy = isWalletMode
-          ? `${currency(totalCurrent, true)} total saved · ${Math.round(percent)}% of goal`
+          ? `${currency(totalCurrent, true)} total · ${Math.round(percent)}% of goal`
           : `${Math.round(percent)}% complete`;
         const accountAttribute = isWalletMode ? ` data-account-id="${escapeHtml(selectedAccount.id)}"` : '';
+        const removeButton = manageGoalsMode
+          ? `<button class="goal-remove" type="button" data-action="remove-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Remove ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}<span>Remove</span></button>`
+          : '';
         return `
           <article class="card goal-card">
             <div class="goal-card-head">
               <div><p class="eyebrow">Savings goal</p><h3>${escapeHtml(goal.name)}</h3><p class="goal-amount money-value">${escapeHtml(amountCopy)}</p></div>
               <div class="goal-card-actions">
                 <span class="round-icon green-soft">${icon('i-target')}</span>
-                <button class="goal-remove" type="button" data-action="remove-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Remove ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}</button>
+                ${removeButton}
               </div>
             </div>
             <div class="goal-progress"><span style="width:${percent.toFixed(1)}%"></span></div>
@@ -693,12 +724,6 @@
           </article>`;
       }).join('');
     }
-
-    els.savingsInsight.textContent = isWalletMode
-      ? `Savings from ${selectedAccount.name} stay separate from its spendable balance. Switch back to Total to see savings across every wallet.`
-      : accounts.length > 1
-        ? 'Use By wallet to see exactly how much of your savings came from Cash, GCash, Maya, or another wallet.'
-        : 'Add another wallet in Settings when you start using an e-wallet. Savings will stay synced automatically.';
   }
 
   function renderWallets() {
@@ -846,6 +871,9 @@
     if (!['home', 'activity', 'savings', 'more'].includes(view)) view = 'home';
     currentView = view;
     els.contentScroll.classList.toggle('home-active', view === 'home');
+    els.contentScroll.classList.toggle('activity-active', view === 'activity');
+    els.contentScroll.classList.toggle('savings-active', view === 'savings');
+    els.contentScroll.classList.toggle('fixed-view-active', ['home', 'activity', 'savings'].includes(view));
     document.querySelectorAll('[data-view-panel]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.viewPanel === view));
     document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((button) => button.classList.toggle('is-active', button.dataset.view === view));
     renderHeader();
@@ -1265,6 +1293,7 @@
       'Remove goal',
       () => {
         goal.removedAt = new Date().toISOString();
+        if (!state.goals.some((item) => !item.removedAt)) manageGoalsMode = false;
         saveState();
         renderAll();
         showToast('Savings goal removed.');
@@ -1587,6 +1616,7 @@
     if (action === 'open-goal') openGoal();
     if (action === 'open-contribution') openContribution(button.dataset.goalId, '', button.dataset.accountId || '');
     if (action === 'remove-goal') removeGoal(button.dataset.goalId);
+    if (action === 'toggle-manage-goals') { manageGoalsMode = !manageGoalsMode; renderSavings(); }
     if (action === 'open-wallet') openWallet();
     if (action === 'remove-wallet') removeWallet(button.dataset.id);
     if (action === 'edit-transaction') editTransaction(button.dataset.id);
@@ -1610,8 +1640,8 @@
     [
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar',
-      'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
-      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'themeIcon',
+      'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthReceived',
+      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'themeIcon',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
@@ -1642,8 +1672,26 @@
       if (actionButton) handleAction(actionButton);
     });
 
-    els.activitySearch.addEventListener('input', renderActivity);
     els.activityType.addEventListener('change', renderActivity);
+    els.activityPrevDay.addEventListener('click', () => moveActivityDay(-1));
+    els.activityNextDay.addEventListener('click', () => moveActivityDay(1));
+    els.activityDatePicker.addEventListener('change', () => {
+      if (!els.activityDatePicker.value) return;
+      activityDate = els.activityDatePicker.value > localDateKey() ? localDateKey() : els.activityDatePicker.value;
+      renderActivity();
+    });
+    els.activityDayCard.addEventListener('touchstart', (event) => {
+      activitySwipeStartX = event.changedTouches?.[0]?.clientX ?? null;
+    }, { passive: true });
+    els.activityDayCard.addEventListener('touchend', (event) => {
+      if (activitySwipeStartX == null) return;
+      const endX = event.changedTouches?.[0]?.clientX ?? activitySwipeStartX;
+      const delta = endX - activitySwipeStartX;
+      activitySwipeStartX = null;
+      if (Math.abs(delta) < 55) return;
+      if (delta > 0) moveActivityDay(-1);
+      else moveActivityDay(1);
+    }, { passive: true });
     els.savingsModeToggle.addEventListener('click', (event) => {
       const button = event.target.closest('[data-savings-mode]');
       if (!button) return;
