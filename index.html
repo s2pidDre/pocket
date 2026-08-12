@@ -126,12 +126,14 @@
                 <span id="homeWalletTodayEntries">0 entries</span>
               </div>
               <div class="home-wallet-category-bar" id="homeWalletTodayBar" aria-label="Today's spending by category"></div>
+              <div class="home-wallet-category-legend" id="homeWalletTodayLegend" aria-label="Today category breakdown"></div>
               <div class="home-wallet-overview-divider"></div>
               <div class="home-wallet-overview-row month-row">
                 <div><p class="eyebrow" id="homeWalletMonthLabel">This month</p><strong class="money-value" id="homeWalletMonthSpent">₱0 spent</strong></div>
                 <span id="homeWalletTopCategory">No spending yet</span>
               </div>
               <div class="home-wallet-category-bar" id="homeWalletMonthBar" aria-label="This month's spending by category"></div>
+              <div class="home-wallet-category-legend" id="homeWalletMonthLegend" aria-label="Monthly category breakdown"></div>
             </article>
 
             <div class="home-wallet-actions" aria-label="Wallet quick actions">
@@ -404,23 +406,23 @@
   <dialog id="goalDialog" class="app-dialog">
     <form method="dialog" class="dialog-panel" id="goalForm" autocomplete="off">
       <div class="dialog-header">
-        <div><p class="eyebrow">Savings goal</p><h2>Create a goal</h2></div>
+        <div><p class="eyebrow">Savings goal</p><h2 id="goalDialogTitle">Create a goal</h2></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body">
         <div class="field-group"><label class="field-label" for="goalName">What are you saving for?</label><input class="text-input" id="goalName" type="text" maxlength="40" placeholder="Emergency fund" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done" required></div>
         <div class="field-grid">
           <div class="field-group"><label class="field-label" for="goalTarget">Target amount</label><div class="compact-amount"><span>₱</span><input id="goalTarget" type="number" min="1" step="1" required></div></div>
-          <div class="field-group"><label class="field-label" for="goalCurrent">Save now <span>optional</span></label><div class="compact-amount"><span>₱</span><input id="goalCurrent" type="number" min="0" step="1" value="0"></div></div>
+          <div class="field-group goal-create-only"><label class="field-label" for="goalCurrent">Save now <span>optional</span></label><div class="compact-amount"><span>₱</span><input id="goalCurrent" type="number" min="0" step="1" value="0"></div></div>
         </div>
-        <div class="field-group">
+        <div class="field-group goal-create-only">
           <label class="field-label" for="goalAccountPicker">Save from</label>
           <select class="native-wallet-select" id="goalAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="goalAccountPicker" type="button" data-wallet-select="goalAccount" aria-label="Choose wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button>
         </div>
       </div>
       <div class="dialog-footer">
         <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
-        <button class="button-primary" type="submit" value="default">Create goal</button>
+        <button class="button-primary" id="goalSubmitButton" type="submit" value="default">Create goal</button>
       </div>
     </form>
   </dialog>
@@ -534,6 +536,37 @@
         <button class="button-primary" type="button" data-close-dialog>Done</button>
       </div>
     </div>
+  </dialog>
+
+  <dialog id="goalTransferDialog" class="app-dialog compact-dialog">
+    <form method="dialog" class="dialog-panel" id="goalTransferForm" autocomplete="off">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Savings transfer</p><h2>Transfer between goals</h2><p class="dialog-subtitle">Move existing savings without making it spendable.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body goal-transfer-body">
+        <input id="goalTransferFromGoalId" type="hidden">
+        <div class="goal-transfer-source" id="goalTransferSource"></div>
+        <fieldset class="goal-transfer-destinations" id="goalTransferDestinations">
+          <legend>Move to</legend>
+        </fieldset>
+        <div class="expense-amount-card goal-transfer-amount-card" id="goalTransferAmountCard">
+          <div class="expense-amount-meta"><span>Amount</span><small id="goalTransferAvailable">Available ₱0</small></div>
+          <div class="expense-amount-display"><span>₱</span><input id="goalTransferAmount" type="text" inputmode="none" autocomplete="off" placeholder="0" readonly required aria-label="Savings transfer amount"></div>
+          <p id="goalTransferHint">Wallet origin stays attached to the savings.</p>
+        </div>
+        <div class="soft-keypad compact-keypad goal-transfer-keypad" id="goalTransferKeypad" aria-label="Savings transfer keypad">
+          <button type="button" data-goal-transfer-key="1">1</button><button type="button" data-goal-transfer-key="2">2</button><button type="button" data-goal-transfer-key="3">3</button>
+          <button type="button" data-goal-transfer-key="4">4</button><button type="button" data-goal-transfer-key="5">5</button><button type="button" data-goal-transfer-key="6">6</button>
+          <button type="button" data-goal-transfer-key="7">7</button><button type="button" data-goal-transfer-key="8">8</button><button type="button" data-goal-transfer-key="9">9</button>
+          <button type="button" class="soft-key utility" data-goal-transfer-key=".">.</button><button type="button" data-goal-transfer-key="0">0</button><button type="button" class="soft-key utility" data-goal-transfer-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" id="goalTransferSaveButton" type="submit" value="default" disabled>Transfer savings</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="contributeDialog" class="app-dialog compact-dialog">
