@@ -101,36 +101,27 @@
 
       <div class="content-scroll" id="contentScroll">
         <section class="view is-active" id="view-home" data-view-panel="home" aria-labelledby="viewTitle">
-          <div class="balance-grid">
-            <article class="card balance-card">
-              <div class="card-heading-row">
-                <div>
-                  <p class="label">Available to spend</p>
-                  <p class="balance-value money-value" id="currentBalance">₱0.00</p>
-                </div>
-                <span class="round-icon accent-soft"><svg><use href="#i-wallet"/></svg></span>
+          <div class="wallet-mode-home">
+            <div class="wallet-mode-heading">
+              <div>
+                <p class="eyebrow">Wallet mode</p>
+                <h2 id="walletModeTitle">Cash</h2>
               </div>
-              <div class="balance-meta">
-                <span><b id="todaySpent" class="money-value">₱0</b> spent today</span>
-                <span><b id="homeWalletCount">1 wallet</b></span>
-              </div>
-            </article>
+              <span class="wallet-mode-counter" id="walletModeCounter">1 / 1</span>
+            </div>
 
-            <article class="card savings-balance-card">
-              <div class="card-heading-row">
-                <div>
-                  <p class="label">Today pace</p>
-                  <p class="metric-value money-value" id="homeDailyPace">₱0.00</p>
-                </div>
-                <span class="round-icon purple-soft"><svg><use href="#i-calendar"/></svg></span>
-              </div>
-              <p class="muted" id="homeDailyPaceHint">This is your suggested daily pace.</p>
-            </article>
+            <div class="wallet-carousel-stage">
+              <button class="wallet-carousel-arrow wallet-carousel-prev" id="walletCarouselPrev" type="button" aria-label="Previous wallet">
+                <svg><use href="#i-chevron"/></svg>
+              </button>
+              <div class="wallet-carousel" id="walletCarousel" tabindex="0" aria-label="Swipe between wallets"></div>
+              <button class="wallet-carousel-arrow wallet-carousel-next" id="walletCarouselNext" type="button" aria-label="Next wallet">
+                <svg><use href="#i-chevron"/></svg>
+              </button>
+            </div>
 
-          </div>
-
-          <div class="home-layout simple-home-layout">
-            <article class="card allowance-plan-card" id="allowancePlanCard"></article>
+            <div class="wallet-mode-indicators" id="walletModeIndicators" aria-label="Wallet pages"></div>
+            <p class="wallet-mode-hint" id="walletModeHint">Swipe to switch wallets</p>
           </div>
         </section>
 
@@ -242,7 +233,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <div class="setting-row static">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 1.7.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 1.8.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </div>
               <button class="setting-row" type="button" data-action="check-update">

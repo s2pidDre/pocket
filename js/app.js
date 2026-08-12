@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '1.7.0';
+  const APP_VERSION = '1.8.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -43,6 +43,8 @@
   let lastUpdateCheck = 0;
   let currentExpenseEditId = null;
   let currentAllowanceEditId = null;
+  let walletModeIndex = 0;
+  let walletCarouselFrame = 0;
   let lastReceiptTransactionId = '';
 
   function localDateKey(date = new Date()) {
@@ -71,10 +73,6 @@
     return localDateKey(target);
   }
 
-  function daysUntil(fromKey, toKey) {
-    if (!fromKey || !toKey) return 0;
-    return Math.max(0, Math.ceil((fromDateKey(toKey) - fromDateKey(fromKey)) / 86400000));
-  }
 
   function endOfMonthKey(key) {
     const date = fromDateKey(key);
@@ -338,6 +336,18 @@
     }, Number(account.openingBalance || 0));
   }
 
+  function walletSavingsBalance(accountId) {
+    const attributed = state.transactions
+      .filter((tx) => tx.type === 'saving' && tx.accountId === accountId)
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const attributedTotal = state.transactions
+      .filter((tx) => tx.type === 'saving')
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const legacyUnattributed = Math.max(0, totalSavings() - attributedTotal);
+    const account = state.accounts.find((item) => item.id === accountId);
+    return attributed + (account?.isPrimary ? legacyUnattributed : 0);
+  }
+
   function totalBalance() {
     return state.accounts.reduce((total, account) => total + accountBalance(account.id), 0);
   }
@@ -346,18 +356,6 @@
     return state.goals.reduce((total, goal) => total + Number(goal.current || 0), 0);
   }
 
-  function activeAllowancePlan() {
-    const today = localDateKey();
-    return [...state.allowancePlans]
-      .filter((plan) => plan.status !== 'deleted' && plan.startDate <= today && plan.endDate >= today)
-      .sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
-  }
-
-  function expensesBetween(startDate, endDate) {
-    return state.transactions
-      .filter((tx) => tx.type === 'expense' && tx.date >= startDate && tx.date <= endDate)
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  }
 
   function transactionsForDate(dateKey) {
     return state.transactions.filter((tx) => tx.date === dateKey);
@@ -377,11 +375,6 @@
     };
   }
 
-  function allowancePlanRemaining(plan) {
-    if (!plan) return 0;
-    const spent = expensesBetween(plan.startDate, plan.endDate);
-    return Math.max(0, Number(plan.amount || 0) - spent - Number(plan.savingsAmount || 0));
-  }
 
   function transactionTitle(tx) {
     if (tx.type === 'income') return tx.note || 'Allowance received';
@@ -431,86 +424,126 @@
     }).join('');
   }
 
-  function renderAllowancePlan() {
-    const plan = activeAllowancePlan();
-    const routine = state.allowanceRoutine;
-    const today = localDateKey();
-
-    if (!routine) {
-      els.allowancePlanCard.innerHTML = `
-        <div class="empty-plan allowance-empty-plan">
-          <div><p class="eyebrow">Allowance</p><h2>No allowance plan yet</h2><p>Set your usual allowance from Settings whenever you want Pocket to calculate a daily pace.</p></div>
-          <span class="status-pill neutral">Manage in Settings</span>
-        </div>`;
-      return;
-    }
-
-    const expected = routine.nextDueDate;
-    let expectedText = routine.frequency === 'irregular' ? 'No fixed schedule' : `${frequencyLabel(routine.frequency)} planning pattern`;
-    if (expected) {
-      const expectedDate = DATE_LABEL.format(fromDateKey(expected));
-      expectedText = expected < today ? `Expected around ${expectedDate}` : `Next expected ${expectedDate}`;
-    }
-
-    if (!plan) {
-      els.allowancePlanCard.innerHTML = `
-        <div class="plan-header allowance-simple-head">
-          <div><p class="eyebrow">Allowance plan</p><h2 class="allowance-left money-value">${currency(routine.amount, true)}</h2><p>${escapeHtml(expectedText)}</p></div>
-          <span class="status-pill neutral">Planning only</span>
-        </div>
-        <p class="allowance-settings-note">Record allowance and manage the routine from Settings.</p>`;
-      return;
-    }
-
-    const spent = expensesBetween(plan.startDate, plan.endDate);
-    const remaining = allowancePlanRemaining(plan);
-    const availableFromPlan = Math.max(0, Number(plan.amount || 0) - Number(plan.savingsAmount || 0));
-    const usedPercent = Math.min(100, (spent / Math.max(availableFromPlan, 1)) * 100);
-    const nextDate = routine.nextDueDate && routine.nextDueDate > plan.startDate ? routine.nextDueDate : null;
-    const daysLeft = nextDate && nextDate > today ? Math.max(1, daysUntil(today, nextDate)) : 0;
-    const perDay = daysLeft > 0 ? remaining / daysLeft : 0;
-
-    els.allowancePlanCard.innerHTML = `
-      <div class="plan-header allowance-simple-head">
-        <div><p class="eyebrow">Current allowance</p><h2 class="allowance-left money-value">${currency(remaining, true)} left</h2><p>${escapeHtml(expectedText)}</p></div>
-        <span class="status-pill neutral">${escapeHtml(frequencyLabel(routine.frequency))}</span>
-      </div>
-      <div class="plan-progress" aria-label="Allowance spent"><span style="width:${usedPercent.toFixed(1)}%"></span></div>
-      <div class="allowance-simple-footer">
-        <strong class="money-value">${daysLeft > 0 ? `About ${currency(perDay, true)}/day` : 'Spend at your own pace'}</strong>
-        <span>${state.settings.privacy ? 'Spending hidden' : `${currency(spent, true)} spent from this allowance`}</span>
-      </div>
-      <p class="allowance-settings-note">Allowance income is recorded from Settings.</p>`;
+  function walletModeTone(account) {
+    if (account.type === 'cash') return 'is-cash';
+    if (account.type === 'ewallet') return 'is-ewallet';
+    return 'is-other';
   }
 
-  function topGoal() {
-    return [...state.goals].sort((a, b) => {
-      const aProgress = Number(a.current || 0) / Math.max(Number(a.target || 1), 1);
-      const bProgress = Number(b.current || 0) / Math.max(Number(b.target || 1), 1);
-      return bProgress - aProgress;
-    })[0] || null;
+  function walletModeTypeLabel(account) {
+    if (account.type === 'cash') return 'Cash wallet';
+    if (account.type === 'ewallet') return 'E-wallet';
+    return 'Wallet';
+  }
+
+  function updateWalletModeHeader(index) {
+    const count = state.accounts.length;
+    if (!count) return;
+    walletModeIndex = Math.max(0, Math.min(index, count - 1));
+    const account = state.accounts[walletModeIndex];
+    els.walletModeTitle.textContent = account?.name || 'Wallet';
+    els.walletModeCounter.textContent = `${walletModeIndex + 1} / ${count}`;
+    els.walletModeHint.textContent = count > 1 ? 'Swipe to switch wallets' : 'Add another wallet from Settings';
+    els.walletCarouselPrev.disabled = walletModeIndex <= 0;
+    els.walletCarouselNext.disabled = walletModeIndex >= count - 1;
+    els.walletModeIndicators.querySelectorAll('button').forEach((button, buttonIndex) => {
+      const active = buttonIndex === walletModeIndex;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-current', active ? 'true' : 'false');
+    });
+  }
+
+  function updateWalletCarouselTransforms() {
+    walletCarouselFrame = 0;
+    const carousel = els.walletCarousel;
+    const cards = [...carousel.querySelectorAll('.wallet-mode-card')];
+    if (!cards.length || !carousel.clientWidth) return;
+
+    const center = carousel.scrollLeft + carousel.clientWidth / 2;
+    let closestIndex = 0;
+    let closestDistance = Infinity;
+
+    cards.forEach((card, index) => {
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+      const rawDistance = (cardCenter - center) / Math.max(carousel.clientWidth, 1);
+      const distance = Math.max(-1.25, Math.min(1.25, rawDistance));
+      const magnitude = Math.min(1, Math.abs(distance));
+      const absolutePixels = Math.abs(cardCenter - center);
+      if (absolutePixels < closestDistance) {
+        closestDistance = absolutePixels;
+        closestIndex = index;
+      }
+
+      card.style.setProperty('--wallet-rotate', `${(-distance * 20).toFixed(2)}deg`);
+      card.style.setProperty('--wallet-scale', (1 - magnitude * 0.085).toFixed(3));
+      card.style.setProperty('--wallet-lift', `${(magnitude * 8).toFixed(1)}px`);
+      card.style.setProperty('--wallet-opacity', (1 - magnitude * 0.34).toFixed(3));
+      card.style.setProperty('--wallet-glow-shift', `${(distance * 34).toFixed(1)}px`);
+      card.classList.toggle('is-current', index === closestIndex);
+    });
+
+    updateWalletModeHeader(closestIndex);
+  }
+
+  function queueWalletCarouselTransforms() {
+    if (walletCarouselFrame) return;
+    walletCarouselFrame = requestAnimationFrame(updateWalletCarouselTransforms);
+  }
+
+  function scrollToWalletMode(index, behavior = 'smooth') {
+    const cards = [...els.walletCarousel.querySelectorAll('.wallet-mode-card')];
+    if (!cards.length) return;
+    const targetIndex = Math.max(0, Math.min(index, cards.length - 1));
+    const card = cards[targetIndex];
+    const left = card.offsetLeft - (els.walletCarousel.clientWidth - card.offsetWidth) / 2;
+    walletModeIndex = targetIndex;
+    els.walletCarousel.scrollTo({ left: Math.max(0, left), behavior });
+    updateWalletModeHeader(targetIndex);
+    queueWalletCarouselTransforms();
   }
 
   function renderHome() {
-    const today = localDateKey();
-    const todayTransactions = transactionsForDate(today);
-    const spent = todayTransactions.filter((tx) => tx.type === 'expense').reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const plan = activeAllowancePlan();
-    const routine = state.allowanceRoutine;
-    const nextDate = routine?.nextDueDate;
-    const daysLeft = nextDate && nextDate > today ? Math.max(1, daysUntil(today, nextDate)) : 0;
-    const perDay = plan && daysLeft > 0 ? allowancePlanRemaining(plan) / daysLeft : 0;
+    const accounts = state.accounts;
+    walletModeIndex = Math.max(0, Math.min(walletModeIndex, Math.max(0, accounts.length - 1)));
 
-    els.currentBalance.textContent = currency(totalBalance());
-    els.todaySpent.textContent = currency(spent, true);
-    els.homeWalletCount.textContent = `${state.accounts.length} wallet${state.accounts.length === 1 ? '' : 's'}`;
-    els.homeDailyPace.textContent = perDay > 0 ? currency(perDay, true) : '—';
-    els.homeDailyPaceHint.textContent = perDay > 0
-      ? `Suggested pace until the next expected allowance.`
-      : routine ? 'Record an allowance to start a pace guide.' : 'Set a usual allowance to get a simple pace guide.';
-    replayAnimation(els.currentBalance, 'amount-pop');
-    replayAnimation(els.homeDailyPace, 'amount-pop');
-    renderAllowancePlan();
+    els.walletCarousel.innerHTML = accounts.map((account, index) => {
+      const balance = currency(accountBalance(account.id));
+      const savings = currency(walletSavingsBalance(account.id));
+      const iconId = account.type === 'cash' ? 'i-wallet' : 'i-phone';
+      return `
+        <article class="wallet-mode-card ${walletModeTone(account)}" data-wallet-index="${index}" data-wallet-id="${escapeHtml(account.id)}" aria-label="${escapeHtml(account.name)} wallet">
+          <span class="wallet-mode-card-glow" aria-hidden="true"></span>
+          <div class="wallet-mode-card-top">
+            <div>
+              <p class="wallet-mode-card-kicker">${escapeHtml(walletModeTypeLabel(account))}</p>
+              <h3>${escapeHtml(account.name)}</h3>
+            </div>
+            <span class="wallet-mode-card-icon">${icon(iconId)}</span>
+          </div>
+          <div class="wallet-mode-card-balances">
+            <div class="wallet-mode-main-balance">
+              <span>Current balance</span>
+              <strong class="money-value">${balance}</strong>
+            </div>
+            <div class="wallet-mode-savings-balance">
+              <span>${icon('i-savings')} Savings balance</span>
+              <strong class="money-value">${savings}</strong>
+            </div>
+          </div>
+          <div class="wallet-mode-card-footer">
+            <span>${account.isPrimary ? 'Main wallet' : 'Optional wallet'}</span>
+            <span>${index + 1} of ${accounts.length}</span>
+          </div>
+        </article>`;
+    }).join('');
+
+    els.walletModeIndicators.innerHTML = accounts.map((account, index) => `
+      <button type="button" data-wallet-mode-index="${index}" aria-label="Show ${escapeHtml(account.name)}"${index === walletModeIndex ? ' class="is-active" aria-current="true"' : ''}></button>`).join('');
+
+    requestAnimationFrame(() => {
+      scrollToWalletMode(walletModeIndex, 'auto');
+      updateWalletCarouselTransforms();
+    });
   }
 
   function filteredActivity() {
@@ -738,6 +771,7 @@
     document.querySelectorAll('[data-view-panel]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.viewPanel === view));
     document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((button) => button.classList.toggle('is-active', button.dataset.view === view));
     renderHeader();
+    if (view === 'home') requestAnimationFrame(() => scrollToWalletMode(walletModeIndex, 'auto'));
     if (view === 'activity') renderActivity();
     if (view === 'savings') renderSavings();
     if (updateHash) history.replaceState(null, '', `#${view}`);
@@ -1466,8 +1500,8 @@
 
   function cacheElements() {
     [
-      'todayLabel', 'viewTitle', 'contentScroll', 'currentBalance', 'todaySpent', 'homeWalletCount',
-      'homeDailyPace', 'homeDailyPaceHint', 'allowancePlanCard',
+      'todayLabel', 'viewTitle', 'contentScroll', 'walletModeTitle', 'walletModeCounter', 'walletCarousel',
+      'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'walletModeHint',
       'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
       'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'themeIcon',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'allowanceRoutineAmount', 'allowanceRoutineSummary', 'allowanceRecordSummary', 'walletsList', 'importFile',
@@ -1502,6 +1536,31 @@
 
     els.activitySearch.addEventListener('input', renderActivity);
     els.activityType.addEventListener('change', renderActivity);
+
+    els.walletCarousel.addEventListener('scroll', queueWalletCarouselTransforms, { passive: true });
+    els.walletCarousel.addEventListener('wheel', (event) => {
+      if (state.accounts.length <= 1) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      els.walletCarousel.scrollBy({ left: event.deltaY, behavior: 'auto' });
+    }, { passive: false });
+    els.walletCarousel.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        scrollToWalletMode(walletModeIndex - 1);
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        scrollToWalletMode(walletModeIndex + 1);
+      }
+    });
+    els.walletCarouselPrev.addEventListener('click', () => scrollToWalletMode(walletModeIndex - 1));
+    els.walletCarouselNext.addEventListener('click', () => scrollToWalletMode(walletModeIndex + 1));
+    els.walletModeIndicators.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-wallet-mode-index]');
+      if (!button) return;
+      scrollToWalletMode(Number(button.dataset.walletModeIndex));
+    });
 
     document.getElementById('allowanceRoutineAmountChips').addEventListener('click', (event) => {
       const button = event.target.closest('[data-routine-amount]');
@@ -1650,6 +1709,10 @@
     });
 
     window.addEventListener('hashchange', () => setView(location.hash.slice(1), false));
+    window.addEventListener('resize', () => {
+      if (currentView !== 'home') return;
+      requestAnimationFrame(() => scrollToWalletMode(walletModeIndex, 'auto'));
+    });
     window.addEventListener('storage', (event) => {
       if (event.key === STORAGE_KEY) {
         state = loadState();
