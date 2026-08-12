@@ -42,6 +42,7 @@
     <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 5h4m-3 14h2"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.2-2.1L20 11M4 13l2.7 4.1A7 7 0 0 0 17.9 15"/></symbol>
+    <symbol id="i-backspace" viewBox="0 0 24 24"><path d="m9 6-6 6 6 6h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2Z"/><path d="m13 9 5 6m0-6-5 6"/></symbol>
   </svg>
 
 
@@ -334,17 +335,37 @@
     </form>
   </dialog>
 
-  <dialog id="expenseDialog" class="app-dialog">
-    <form method="dialog" class="dialog-panel" id="expenseForm">
-      <div class="dialog-header">
-        <div><p class="eyebrow">New expense</p><h2>What did you spend?</h2></div>
+  <dialog id="expenseDialog" class="app-dialog expense-dialog">
+    <form method="dialog" class="dialog-panel expense-panel" id="expenseForm">
+      <div class="dialog-header expense-header">
+        <div><h2>Add expense</h2><p class="dialog-subtitle">Amount, category, done.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
-      <div class="dialog-body">
-        <label class="field-label" for="expenseAmount">Amount</label>
-        <div class="amount-field"><span>₱</span><input id="expenseAmount" name="expenseAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
+      <div class="dialog-body expense-body">
+        <section class="expense-entry" aria-label="Expense amount">
+          <div class="expense-amount-card" id="expenseAmountCard">
+            <div class="expense-amount-meta"><span>Amount</span><small id="expenseAvailable">Available ₱0</small></div>
+            <div class="expense-amount-display"><span>₱</span><input id="expenseAmount" name="expenseAmount" type="text" inputmode="none" autocomplete="off" placeholder="0" readonly required aria-label="Expense amount"></div>
+            <p id="expenseAmountHint">Tap the keypad below.</p>
+          </div>
 
-        <fieldset class="category-picker" id="categoryPicker">
+          <div class="expense-keypad" id="expenseKeypad" aria-label="Amount keypad">
+            <button type="button" data-expense-key="1">1</button>
+            <button type="button" data-expense-key="2">2</button>
+            <button type="button" data-expense-key="3">3</button>
+            <button type="button" data-expense-key="4">4</button>
+            <button type="button" data-expense-key="5">5</button>
+            <button type="button" data-expense-key="6">6</button>
+            <button type="button" data-expense-key="7">7</button>
+            <button type="button" data-expense-key="8">8</button>
+            <button type="button" data-expense-key="9">9</button>
+            <button type="button" data-expense-key=".">.</button>
+            <button type="button" data-expense-key="0">0</button>
+            <button type="button" data-expense-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
+          </div>
+        </section>
+
+        <fieldset class="category-picker expense-category-picker" id="categoryPicker">
           <legend>Category</legend>
           <label><input type="radio" name="expenseCategory" value="Food" checked><span><svg><use href="#i-food"/></svg>Food</span></label>
           <label><input type="radio" name="expenseCategory" value="Transport"><span><svg><use href="#i-transport"/></svg>Transport</span></label>
@@ -354,16 +375,20 @@
           <label><input type="radio" name="expenseCategory" value="Other"><span><svg><use href="#i-more"/></svg>Other</span></label>
         </fieldset>
 
-        <div class="field-grid">
-          <div class="field-group"><label class="field-label" for="expenseAccount">Paid from</label><select class="text-input" id="expenseAccount"></select></div>
-          <div class="field-group"><label class="field-label" for="expenseDate">Date</label><input class="text-input" id="expenseDate" type="date" required></div>
-        </div>
-
-        <div class="field-group"><label class="field-label" for="expenseNote">Note <span>optional</span></label><input class="text-input" id="expenseNote" type="text" maxlength="80" placeholder="Lunch, printing, jeep fare…"></div>
+        <details class="expense-details" id="expenseDetails">
+          <summary><span>More details</span><small id="expenseDetailsSummary">Wallet · Today</small><svg><use href="#i-chevron"/></svg></summary>
+          <div class="expense-details-content">
+            <div class="field-grid">
+              <div class="field-group"><label class="field-label" for="expenseAccount">Paid from</label><select class="text-input" id="expenseAccount"></select></div>
+              <div class="field-group"><label class="field-label" for="expenseDate">Date</label><input class="text-input" id="expenseDate" type="date" required></div>
+            </div>
+            <div class="field-group"><label class="field-label" for="expenseNote">Note <span>optional</span></label><input class="text-input" id="expenseNote" type="text" maxlength="80" placeholder="Lunch, printing, jeep fare…"></div>
+          </div>
+        </details>
       </div>
-      <div class="dialog-footer">
+      <div class="dialog-footer expense-footer">
         <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
-        <button class="button-primary" type="submit" value="default">Save expense</button>
+        <button class="button-primary" id="expenseSaveButton" type="submit" value="default" disabled>Save expense</button>
       </div>
     </form>
   </dialog>

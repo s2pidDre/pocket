@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.3.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -549,8 +549,69 @@
 
   function populateAccounts() {
     const current = els.expenseAccount.value;
-    els.expenseAccount.innerHTML = state.accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)} · ${currency(accountBalance(account.id), true)}</option>`).join('');
+    els.expenseAccount.innerHTML = state.accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)} · ${state.settings.privacy ? '₱••••' : currency(accountBalance(account.id), true)}</option>`).join('');
     if (state.accounts.some((account) => account.id === current)) els.expenseAccount.value = current;
+  }
+
+  function updateExpenseDetailsSummary() {
+    const account = state.accounts.find((item) => item.id === els.expenseAccount.value) || state.accounts[0];
+    const date = els.expenseDate.value || localDateKey();
+    const dateLabel = date === localDateKey() ? 'Today' : DATE_LABEL.format(fromDateKey(date));
+    els.expenseDetailsSummary.textContent = `${account?.name || 'Wallet'} · ${dateLabel}`;
+  }
+
+  function updateExpenseEntry() {
+    const amount = Number(els.expenseAmount.value || 0);
+    const accountId = els.expenseAccount.value || state.accounts[0]?.id;
+    const account = state.accounts.find((item) => item.id === accountId);
+    const available = Math.max(0, accountBalance(accountId));
+    const isValid = Number.isFinite(amount) && amount > 0;
+    const isOver = isValid && amount > available;
+
+    els.expenseAvailable.textContent = state.settings.privacy ? 'Available ₱••••' : `Available ${currency(available, true)}`;
+    els.expenseAmountCard.classList.toggle('is-over-limit', isOver);
+
+    if (available <= 0) {
+      els.expenseAmountHint.textContent = `${account?.name || 'Wallet'} has no spendable money right now.`;
+    } else if (isOver) {
+      els.expenseAmountHint.textContent = state.settings.privacy ? `Over your available ${account?.name || 'wallet'} balance.` : `${currency(amount - available, true)} over your available ${account?.name || 'wallet'} balance.`;
+    } else if (isValid) {
+      els.expenseAmountHint.textContent = state.settings.privacy ? 'This fits your available balance.' : `${currency(available - amount, true)} will remain available.`;
+    } else {
+      els.expenseAmountHint.textContent = 'Tap the keypad below.';
+    }
+
+    els.expenseSaveButton.disabled = !isValid || isOver;
+    els.expenseSaveButton.textContent = isValid ? `Save ${currency(amount, true)}` : 'Save expense';
+  }
+
+  function setExpenseAmountValue(value) {
+    els.expenseAmount.value = value;
+    updateExpenseEntry();
+    replayAnimation(els.expenseAmountCard, 'is-keyed');
+  }
+
+  function handleExpenseKey(key) {
+    let value = els.expenseAmount.value || '';
+
+    if (key === 'backspace') {
+      setExpenseAmountValue(value.slice(0, -1));
+      return;
+    }
+
+    if (key === '.') {
+      if (!value.includes('.')) setExpenseAmountValue(value ? `${value}.` : '0.');
+      return;
+    }
+
+    if (!/^\d$/.test(key)) return;
+    const [whole = '', decimals] = value.split('.');
+    if (decimals !== undefined && decimals.length >= 2) return;
+    if (decimals === undefined && whole.replace(/^0+/, '').length >= 7) return;
+
+    if (value === '0') value = key;
+    else value += key;
+    setExpenseAmountValue(value);
   }
 
   function setView(view, updateHash = true) {
@@ -611,6 +672,7 @@
 
   function openExpense(prefill = {}) {
     els.expenseForm.reset();
+    els.expenseDetails.open = false;
     els.expenseDate.value = prefill.date || localDateKey();
     els.expenseAmount.value = prefill.amount || '';
     if (prefill.category) {
@@ -620,8 +682,9 @@
     els.expenseNote.value = prefill.note || '';
     populateAccounts();
     if (prefill.accountId && state.accounts.some((account) => account.id === prefill.accountId)) els.expenseAccount.value = prefill.accountId;
+    updateExpenseDetailsSummary();
+    updateExpenseEntry();
     openDialog(els.expenseDialog);
-    requestAnimationFrame(() => els.expenseAmount.focus());
   }
 
   function coverageDaysFromForm() {
@@ -1015,7 +1078,8 @@
       'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'themeIcon',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'importFile', 'allowanceDialog', 'allowanceForm', 'allowanceAmount',
       'allowanceEndDate', 'customDateWrap', 'allowanceSuggestion', 'applySuggestedSaving', 'expenseDialog', 'expenseForm',
-      'expenseAmount', 'expenseAccount', 'expenseDate', 'expenseNote', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
+      'expenseAmount', 'expenseAmountCard', 'expenseAvailable', 'expenseAmountHint', 'expenseKeypad', 'expenseAccount',
+      'expenseDate', 'expenseNote', 'expenseDetails', 'expenseDetailsSummary', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
       'goalCurrent', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount',
       'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
@@ -1062,6 +1126,25 @@
       event.preventDefault();
       addAllowance();
     });
+    els.expenseKeypad.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-expense-key]');
+      if (!button) return;
+      handleExpenseKey(button.dataset.expenseKey);
+    });
+    els.expenseAccount.addEventListener('change', () => {
+      updateExpenseDetailsSummary();
+      updateExpenseEntry();
+    });
+    els.expenseDate.addEventListener('change', updateExpenseDetailsSummary);
+    els.expenseDialog.addEventListener('keydown', (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.target.matches('input:not(#expenseAmount), select, textarea, [contenteditable="true"]')) return;
+      const key = event.key === 'Backspace' ? 'backspace' : event.key === 'Decimal' ? '.' : event.key;
+      if (!/^\d$/.test(key) && key !== '.' && key !== 'backspace') return;
+      event.preventDefault();
+      handleExpenseKey(key);
+    });
+
     els.expenseForm.addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
