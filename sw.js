@@ -1,11 +1,16 @@
-const CACHE_NAME = 'pocket-student-v2.5.1';
+const CACHE_NAME = 'pocket-student-v2.5.2';
 const APP_ASSETS = [
   './',
   './index.html',
   './css/style.css',
   './js/app.js',
   './manifest.json',
-  './assets/icon.svg'
+  './assets/icon.svg',
+  './assets/logo.png',
+  './assets/icon-192.png',
+  './assets/icon-512.png',
+  './assets/icon-maskable-512.png',
+  './assets/apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (event) => {
