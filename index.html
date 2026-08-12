@@ -1,8 +1,7 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#5b5bd6">
   <meta name="description" content="A simple student allowance tracker with smart saving suggestions and minimal manual entry.">
@@ -28,6 +27,7 @@
     <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4m8-4v4M3 10h18"/></symbol>
     <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5Zm7 11 .8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10m-7 6h4"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m-9 0 1 14h10l1-14"/></symbol>
@@ -45,9 +45,9 @@
   </svg>
 
 
-  <div class="update-banner" id="updateBanner" inert>
+  <aside class="update-banner" id="updateBanner" aria-live="polite" aria-hidden="true">
     <span class="round-icon accent-soft"><svg><use href="#i-refresh"/></svg></span>
-    <div class="update-banner-copy" role="status" aria-live="polite" aria-atomic="true">
+    <div class="update-banner-copy">
       <strong>Update available</strong>
       <small>A newer version is ready to use.</small>
     </div>
@@ -55,20 +55,20 @@
       <button class="text-button" type="button" data-action="dismiss-update">Later</button>
       <button class="button-primary" type="button" data-action="apply-update">Refresh now</button>
     </div>
-  </div>
+  </aside>
 
   <div class="app-shell">
-    <aside class="sidebar" aria-label="Pocket sidebar">
+    <aside class="sidebar" aria-label="Primary navigation">
       <a class="brand" href="#home" aria-label="Pocket home">
         <span class="brand-mark">P</span>
         <span class="brand-copy"><strong>Pocket</strong><small>Student money</small></span>
       </a>
 
-      <nav class="sidebar-nav" aria-label="Desktop primary navigation">
-        <button class="nav-item is-active" type="button" data-view="home" aria-current="page"><svg><use href="#i-home"/></svg><span>Home</span></button>
-        <button class="nav-item" type="button" data-view="activity"><svg><use href="#i-activity"/></svg><span>Activity</span></button>
-        <button class="nav-item" type="button" data-view="savings"><svg><use href="#i-savings"/></svg><span>Savings</span></button>
-        <button class="nav-item" type="button" data-view="more"><svg><use href="#i-more"/></svg><span>More</span></button>
+      <nav class="sidebar-nav">
+        <button class="nav-item is-active" data-view="home"><svg><use href="#i-home"/></svg><span>Home</span></button>
+        <button class="nav-item" data-view="activity"><svg><use href="#i-activity"/></svg><span>Activity</span></button>
+        <button class="nav-item" data-view="savings"><svg><use href="#i-savings"/></svg><span>Savings</span></button>
+        <button class="nav-item" data-view="more"><svg><use href="#i-more"/></svg><span>More</span></button>
       </nav>
 
       <div class="sidebar-footer">
@@ -80,7 +80,7 @@
       </div>
     </aside>
 
-    <main class="main-area" aria-labelledby="viewTitle">
+    <main class="main-area">
       <header class="topbar">
         <div>
           <p class="eyebrow" id="todayLabel"></p>
@@ -90,21 +90,21 @@
           <button class="icon-button privacy-mobile" type="button" data-action="toggle-privacy" aria-label="Hide amounts">
             <svg class="privacy-icon"><use href="#i-eye"/></svg>
           </button>
-          <button class="button-primary top-add" type="button" data-action="open-expense" aria-label="Add expense">
+          <button class="button-primary top-add" type="button" data-action="open-expense">
             <svg><use href="#i-plus"/></svg><span>Add expense</span>
           </button>
         </div>
       </header>
 
       <div class="content-scroll" id="contentScroll">
-        <section class="view is-active" id="view-home" data-view-panel="home">
+        <section class="view is-active" id="view-home" data-view-panel="home" aria-labelledby="viewTitle">
           <div id="allowancePrompt"></div>
 
           <div class="balance-grid">
             <article class="card balance-card">
               <div class="card-heading-row">
                 <div>
-                  <p class="label">Current balance</p>
+                  <p class="label">Available to spend</p>
                   <p class="balance-value money-value" id="currentBalance">₱0.00</p>
                 </div>
                 <span class="round-icon accent-soft"><svg><use href="#i-wallet"/></svg></span>
@@ -115,15 +115,15 @@
               </div>
             </article>
 
-            <article class="card safe-card">
+            <article class="card savings-balance-card">
               <div class="card-heading-row">
                 <div>
-                  <p class="label">Safe to spend</p>
-                  <p class="metric-value money-value" id="safeToSpend">₱0.00</p>
+                  <p class="label">Savings</p>
+                  <p class="metric-value money-value" id="homeSavings">₱0.00</p>
                 </div>
-                <span class="round-icon green-soft"><svg><use href="#i-check"/></svg></span>
+                <span class="round-icon purple-soft"><svg><use href="#i-savings"/></svg></span>
               </div>
-              <p class="muted" id="safeToSpendHint">After savings and planned essentials.</p>
+              <p class="muted" id="homeSavingsHint">Kept separate from spending.</p>
             </article>
 
             <article class="card guide-card">
@@ -162,11 +162,11 @@
           </div>
         </section>
 
-        <section class="view" id="view-activity" data-view-panel="activity">
+        <section class="view" id="view-activity" data-view-panel="activity" aria-labelledby="viewTitle">
           <div class="section-toolbar card">
             <div class="search-field">
               <svg><use href="#i-search"/></svg>
-              <input type="search" id="activitySearch" placeholder="Search transactions" autocomplete="off" aria-label="Search transactions">
+              <input type="search" id="activitySearch" placeholder="Search transactions" autocomplete="off">
             </div>
             <select id="activityType" aria-label="Filter by transaction type">
               <option value="all">All activity</option>
@@ -192,12 +192,12 @@
           </article>
         </section>
 
-        <section class="view" id="view-savings" data-view-panel="savings">
+        <section class="view" id="view-savings" data-view-panel="savings" aria-labelledby="viewTitle">
           <div class="savings-hero card">
             <div>
-              <p class="eyebrow">Protected money</p>
+              <p class="eyebrow">Savings</p>
               <h2 class="money-value" id="totalSavings">₱0.00</h2>
-              <p>Reserved inside your current balance, so it stays out of your safe-to-spend amount.</p>
+              <p>Money here is separate from your wallet and cannot be used for expenses.</p>
             </div>
             <button class="button-primary" type="button" data-action="open-goal"><svg><use href="#i-plus"/></svg><span>New goal</span></button>
           </div>
@@ -213,7 +213,7 @@
           </article>
         </section>
 
-        <section class="view" id="view-more" data-view-panel="more">
+        <section class="view" id="view-more" data-view-panel="more" aria-labelledby="viewTitle">
           <div class="settings-grid">
             <article class="card settings-card">
               <div class="section-heading compact"><div><p class="eyebrow">Preferences</p><h2>Appearance</h2></div></div>
@@ -262,7 +262,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <div class="setting-row static">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 1.2.1</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 1.2.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </div>
               <button class="setting-row" type="button" data-action="check-update">
@@ -282,24 +282,24 @@
       </div>
     </main>
 
-    <nav class="bottom-nav" aria-label="Mobile primary navigation">
-      <button class="bottom-nav-item is-active" type="button" data-view="home" aria-current="page"><svg><use href="#i-home"/></svg><span>Home</span></button>
-      <button class="bottom-nav-item" type="button" data-view="activity"><svg><use href="#i-activity"/></svg><span>Activity</span></button>
+    <nav class="bottom-nav" aria-label="Primary navigation">
+      <button class="bottom-nav-item is-active" data-view="home"><svg><use href="#i-home"/></svg><span>Home</span></button>
+      <button class="bottom-nav-item" data-view="activity"><svg><use href="#i-activity"/></svg><span>Activity</span></button>
       <button class="bottom-add" type="button" data-action="open-expense" aria-label="Add expense"><svg><use href="#i-plus"/></svg></button>
-      <button class="bottom-nav-item" type="button" data-view="savings"><svg><use href="#i-savings"/></svg><span>Savings</span></button>
-      <button class="bottom-nav-item" type="button" data-view="more"><svg><use href="#i-more"/></svg><span>More</span></button>
+      <button class="bottom-nav-item" data-view="savings"><svg><use href="#i-savings"/></svg><span>Savings</span></button>
+      <button class="bottom-nav-item" data-view="more"><svg><use href="#i-more"/></svg><span>More</span></button>
     </nav>
   </div>
 
-  <dialog id="allowanceDialog" class="app-dialog" aria-labelledby="allowanceDialogTitle">
+  <dialog id="allowanceDialog" class="app-dialog">
     <form method="dialog" class="dialog-panel" id="allowanceForm">
       <div class="dialog-header">
-        <div><p class="eyebrow">Allowance received</p><h2 id="allowanceDialogTitle">Add money in seconds</h2></div>
+        <div><p class="eyebrow">Allowance received</p><h2>Add money in seconds</h2></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body">
         <label class="field-label" for="allowanceAmount">How much did you receive?</label>
-        <div class="amount-field"><span>₱</span><input id="allowanceAmount" name="allowanceAmount" type="number" min="1" max="1000000000000" step="1" inputmode="decimal" placeholder="0" required></div>
+        <div class="amount-field"><span>₱</span><input id="allowanceAmount" name="allowanceAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
         <div class="amount-chips" id="allowanceAmountChips">
           <button type="button" data-amount="100">₱100</button><button type="button" data-amount="200">₱200</button><button type="button" data-amount="500">₱500</button><button type="button" data-amount="1000">₱1,000</button>
         </div>
@@ -319,7 +319,7 @@
 
         <div class="smart-box" id="allowanceSuggestion">
           <span class="round-icon purple-soft"><svg><use href="#i-sparkle"/></svg></span>
-          <div><strong>Enter an amount for a saving suggestion.</strong><p>We’ll protect only what looks comfortable.</p></div>
+          <div><strong>Enter an amount for a saving suggestion.</strong><p>We’ll suggest an amount you can move out of spending.</p></div>
         </div>
 
         <label class="check-row">
@@ -334,15 +334,15 @@
     </form>
   </dialog>
 
-  <dialog id="expenseDialog" class="app-dialog" aria-labelledby="expenseDialogTitle">
+  <dialog id="expenseDialog" class="app-dialog">
     <form method="dialog" class="dialog-panel" id="expenseForm">
       <div class="dialog-header">
-        <div><p class="eyebrow">New expense</p><h2 id="expenseDialogTitle">What did you spend?</h2></div>
+        <div><p class="eyebrow">New expense</p><h2>What did you spend?</h2></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body">
         <label class="field-label" for="expenseAmount">Amount</label>
-        <div class="amount-field"><span>₱</span><input id="expenseAmount" name="expenseAmount" type="number" min="1" max="1000000000000" step="1" inputmode="decimal" placeholder="0" required></div>
+        <div class="amount-field"><span>₱</span><input id="expenseAmount" name="expenseAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
 
         <fieldset class="category-picker" id="categoryPicker">
           <legend>Category</legend>
@@ -368,16 +368,16 @@
     </form>
   </dialog>
 
-  <dialog id="goalDialog" class="app-dialog" aria-labelledby="goalDialogTitle">
+  <dialog id="goalDialog" class="app-dialog">
     <form method="dialog" class="dialog-panel" id="goalForm">
       <div class="dialog-header">
-        <div><p class="eyebrow">Savings goal</p><h2 id="goalDialogTitle">Create a goal</h2></div>
+        <div><p class="eyebrow">Savings goal</p><h2>Create a goal</h2></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body">
         <div class="field-group"><label class="field-label" for="goalName">What are you saving for?</label><input class="text-input" id="goalName" type="text" maxlength="40" placeholder="Emergency fund" required></div>
         <div class="field-grid">
-          <div class="field-group"><label class="field-label" for="goalTarget">Target amount</label><div class="compact-amount"><span>₱</span><input id="goalTarget" type="number" min="1" max="1000000000000" step="1" required></div></div>
+          <div class="field-group"><label class="field-label" for="goalTarget">Target amount</label><div class="compact-amount"><span>₱</span><input id="goalTarget" type="number" min="1" step="1" required></div></div>
           <div class="field-group"><label class="field-label" for="goalCurrent">Already saved</label><div class="compact-amount"><span>₱</span><input id="goalCurrent" type="number" min="0" step="1" value="0"></div></div>
         </div>
       </div>
@@ -388,7 +388,7 @@
     </form>
   </dialog>
 
-  <dialog id="contributeDialog" class="app-dialog compact-dialog" aria-labelledby="contributeTitle" aria-describedby="contributeLimitHint">
+  <dialog id="contributeDialog" class="app-dialog compact-dialog">
     <form method="dialog" class="dialog-panel" id="contributeForm">
       <div class="dialog-header">
         <div><p class="eyebrow">Add to savings</p><h2 id="contributeTitle">Goal</h2></div>
@@ -396,10 +396,9 @@
       </div>
       <div class="dialog-body">
         <input type="hidden" id="contributeGoalId">
-        <input type="hidden" id="contributeAllowanceId">
-        <label class="field-label" for="contributeAmount">Amount to protect</label>
+        <label class="field-label" for="contributeAmount">Amount to save</label>
         <div class="amount-field"><span>₱</span><input id="contributeAmount" type="number" min="1" step="1" required></div>
-        <p class="helper-text" id="contributeLimitHint">This stays inside your tracked balance but is removed from “safe to spend.”</p>
+        <p class="helper-text">This amount moves out of your available wallet balance and into savings.</p>
       </div>
       <div class="dialog-footer">
         <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
@@ -408,18 +407,18 @@
     </form>
   </dialog>
 
-  <dialog id="confirmDialog" class="app-dialog compact-dialog" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+  <dialog id="confirmDialog" class="app-dialog compact-dialog">
     <form method="dialog" class="dialog-panel">
       <div class="dialog-header">
         <div><p class="eyebrow">Please confirm</p><h2 id="confirmTitle">Are you sure?</h2></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body"><p id="confirmMessage" class="confirm-message"></p></div>
-      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-danger" id="confirmAction" type="submit" value="default">Continue</button></div>
+      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-danger" id="confirmAction" value="default">Continue</button></div>
     </form>
   </dialog>
 
-  <div class="toast" id="toast"><span id="toastMessage" role="status" aria-live="polite" aria-atomic="true"></span><button type="button" id="toastAction" aria-label="Undo last action"></button></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
   <script src="js/app.js" defer></script>
 </body>

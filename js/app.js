@@ -2,16 +2,9 @@
   'use strict';
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
-  const RECOVERY_STORAGE_KEY = `${STORAGE_KEY}-recovery`;
-  const SCHEMA_VERSION = 2;
-  const APP_VERSION = '1.2.1';
+  const SCHEMA_VERSION = 1;
+  const APP_VERSION = '1.2.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
-  const MAX_MONEY = 1_000_000_000_000;
-  const TRANSACTION_TYPES = new Set(['income', 'expense', 'saving', 'transfer']);
-  const EXPENSE_CATEGORIES = new Set(['Food', 'Transport', 'School', 'Load', 'Personal', 'Other']);
-  const ACCOUNT_TYPES = new Set(['cash', 'ewallet', 'bank']);
-  const PLAN_STATUSES = new Set(['active', 'completed', 'deleted']);
-  const SAVING_DECISIONS = new Set(['accepted', 'skipped', 'not_applicable', 'pending']);
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: 'PHP',
@@ -41,16 +34,13 @@
   const els = {};
   let state;
   let toastTimer = 0;
+  let pendingUndo = null;
   let pendingConfirm = null;
   let currentView = 'home';
   let serviceWorkerRegistration = null;
   let waitingServiceWorker = null;
   let refreshAfterUpdate = false;
   let lastUpdateCheck = 0;
-  let renderedDateKey = '';
-  let dateRefreshTimer = 0;
-  let stateLoadFailed = false;
-  let loadWarning = '';
 
   function localDateKey(date = new Date()) {
     const year = date.getFullYear();
@@ -102,14 +92,17 @@
     return `<svg aria-hidden="true"><use href="#${id}"></use></svg>`;
   }
 
-  function emptyState(settings = {}) {
+  function seedState() {
     return {
       version: SCHEMA_VERSION,
       settings: {
-        theme: settings.theme === 'dark' ? 'dark' : 'light',
-        privacy: Boolean(settings.privacy)
+        theme: 'light',
+        privacy: false,
+        demoData: false
       },
-      accounts: [{ id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0 }],
+      accounts: [
+        { id: uid('account'), name: 'Wallet', type: 'cash', openingBalance: 0 }
+      ],
       goals: [],
       allowancePlans: [],
       transactions: [],
@@ -117,343 +110,43 @@
     };
   }
 
-  function isRecord(value) {
-    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-  }
-
-  function validDateKey(value) {
-    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-    const parsed = fromDateKey(value);
-    return !Number.isNaN(parsed.getTime()) && localDateKey(parsed) === value;
-  }
-
-  function normalizeText(value, maxLength, fallback = '') {
-    if (typeof value !== 'string') return fallback;
-    return value.trim().slice(0, maxLength);
-  }
-
-  function normalizeNumber(value, min = -MAX_MONEY, max = MAX_MONEY) {
-    const number = Number(value);
-    return Number.isFinite(number) && number >= min && number <= max ? number : null;
-  }
-
-  function normalizeCreatedAt(value, fallbackDate) {
-    if (typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value))) return value;
-    return `${fallbackDate}T12:00:00`;
-  }
-
-  function removeLegacyDemoData(candidate) {
-    const transactionBySpec = (spec) => candidate.transactions.find((tx) => (
-      tx.type === spec.type
-      && tx.amount === spec.amount
-      && tx.category === spec.category
-      && tx.accountId === spec.accountId
-      && tx.date === spec.date
-      && tx.note === spec.note
-      && tx.createdAt === spec.createdAt
-      && (!spec.allowanceId || tx.allowanceId === spec.allowanceId)
-      && (!spec.goalId || tx.goalId === spec.goalId)
-    ));
-
-    const demoPlan = candidate.allowancePlans.find((plan) => (
-      plan.amount === 1800
-      && plan.savingsAmount === 180
-      && plan.endDate === addDays(plan.startDate, 6)
-      && plan.createdAt === `${plan.startDate}T08:00:00`
-    ));
-    if (!demoPlan) return false;
-
-    const demoIncome = candidate.transactions.find((tx) => (
-      tx.type === 'income'
-      && tx.amount === 1800
-      && tx.category === 'Allowance'
-      && tx.date === demoPlan.startDate
-      && tx.note === 'Weekly allowance'
-      && tx.allowanceId === demoPlan.id
-      && tx.createdAt === `${demoPlan.startDate}T08:00:00`
-    ));
-    const cashAccount = candidate.accounts.find((account) => (
-      account.name === 'Cash'
-      && account.type === 'cash'
-      && account.openingBalance === 240
-    ));
-    const demoGoal = candidate.goals.find((goal) => (
-      goal.name === 'Emergency fund'
-      && goal.target === 3000
-      && goal.current >= 0
-      && goal.createdAt === addDays(demoPlan.startDate, -19)
-    ));
-    const gcashAccount = candidate.accounts.find((account) => (
-      account.name === 'GCash'
-      && account.type === 'ewallet'
-      && account.openingBalance === 160
-    ));
-    if (!cashAccount || !demoGoal || !gcashAccount) return false;
-
-    const specs = [
-      { type: 'saving', amount: 180, category: 'Savings', accountId: cashAccount.id, date: demoPlan.startDate, note: 'Emergency fund', allowanceId: demoPlan.id, goalId: demoGoal.id, createdAt: `${demoPlan.startDate}T08:02:00` },
-      { type: 'expense', amount: 80, category: 'Food', accountId: cashAccount.id, date: demoPlan.startDate, note: 'Lunch', createdAt: `${demoPlan.startDate}T12:30:00` },
-      { type: 'expense', amount: 60, category: 'Transport', accountId: cashAccount.id, date: demoPlan.startDate, note: 'Jeep fare', createdAt: `${demoPlan.startDate}T17:20:00` },
-      { type: 'expense', amount: 35, category: 'School', accountId: cashAccount.id, date: addDays(demoPlan.startDate, 1), note: 'Printing', createdAt: `${addDays(demoPlan.startDate, 1)}T10:15:00` },
-      { type: 'expense', amount: 95, category: 'Food', accountId: cashAccount.id, date: addDays(demoPlan.startDate, 1), note: 'Meal', createdAt: `${addDays(demoPlan.startDate, 1)}T13:05:00` },
-      { type: 'expense', amount: 50, category: 'Load', accountId: gcashAccount.id, date: addDays(demoPlan.startDate, 2), note: 'Mobile data', createdAt: `${addDays(demoPlan.startDate, 2)}T09:10:00` }
-    ];
-    const matchedTransactions = specs.map(transactionBySpec);
-    const demoSaving = matchedTransactions[0];
-    const matchedIncome = demoIncome?.accountId === cashAccount.id ? demoIncome : null;
-    const demoTransactions = [matchedIncome, ...matchedTransactions].filter(Boolean);
-
-    const demoTransactionIds = new Set(demoTransactions.map((tx) => tx.id));
-    candidate.transactions = candidate.transactions.filter((tx) => !demoTransactionIds.has(tx.id));
-    candidate.allowancePlans = candidate.allowancePlans.filter((plan) => plan.id !== demoPlan.id);
-    cashAccount.openingBalance = 0;
-    gcashAccount.openingBalance = 0;
-    const remainingDemoSavings = 170 + (demoSaving ? 180 : 0);
-    demoGoal.current = Math.max(0, demoGoal.current - remainingDemoSavings);
-
-    const goalStillUsed = candidate.transactions.some((tx) => tx.type === 'saving' && tx.goalId === demoGoal.id);
-    if (!goalStillUsed && demoGoal.current === 0) {
-      candidate.goals = candidate.goals.filter((goal) => goal.id !== demoGoal.id);
-    }
-
-    const gcashStillUsed = candidate.transactions.some((tx) => (
-      tx.accountId === gcashAccount.id || tx.fromAccountId === gcashAccount.id || tx.toAccountId === gcashAccount.id
-    ));
-    if (!gcashStillUsed) candidate.accounts = candidate.accounts.filter((account) => account.id !== gcashAccount.id);
-    return true;
-  }
-
-  function syncSavingsState(candidate) {
-    const goalTotals = new Map(candidate.goals.map((goal) => [goal.id, 0]));
-    const planTotals = new Map(candidate.allowancePlans.map((plan) => [plan.id, 0]));
-    candidate.transactions.forEach((tx) => {
-      if (tx.type !== 'saving') return;
-      if (goalTotals.has(tx.goalId)) goalTotals.set(tx.goalId, goalTotals.get(tx.goalId) + tx.amount);
-      if (planTotals.has(tx.allowanceId)) planTotals.set(tx.allowanceId, planTotals.get(tx.allowanceId) + tx.amount);
-    });
-    candidate.goals.forEach((goal) => { goal.current = goalTotals.get(goal.id) || 0; });
-    candidate.allowancePlans.forEach((plan) => { plan.savingsAmount = planTotals.get(plan.id) || 0; });
-  }
-
-  function migrateSavingsState(candidate, sourceVersion) {
-    if (sourceVersion < 2) {
-      candidate.transactions.forEach((tx) => {
-        if (tx.type !== 'saving' || tx.goalId) return;
-        const matchingGoals = candidate.goals.filter((goal) => goal.name === tx.note);
-        if (matchingGoals.length === 1) tx.goalId = matchingGoals[0].id;
-      });
-
-      candidate.goals.forEach((goal) => {
-        const recorded = candidate.transactions
-          .filter((tx) => tx.type === 'saving' && tx.goalId === goal.id)
-          .reduce((sum, tx) => sum + tx.amount, 0);
-        const difference = Math.max(0, goal.current - recorded);
-        if (!difference) return;
-        const date = validDateKey(goal.createdAt) ? goal.createdAt : localDateKey();
-        candidate.transactions.push({
-          id: uid('tx'),
-          type: 'saving',
-          amount: difference,
-          category: 'Savings',
-          accountId: candidate.accounts[0].id,
-          date,
-          note: goal.name,
-          goalId: goal.id,
-          createdAt: `${date}T12:00:00`
-        });
-      });
-    }
-
-    syncSavingsState(candidate);
-    candidate.allowancePlans.forEach((plan) => {
-      if (!SAVING_DECISIONS.has(plan.savingDecision)) {
-        plan.savingDecision = plan.savingsAmount > 0 ? 'accepted' : 'skipped';
-      }
-      if (!Number.isFinite(plan.suggestedSavings)) plan.suggestedSavings = plan.savingsAmount;
-    });
-  }
-
-  function normalizeState(candidate, { strict = false } = {}) {
-    const invalid = (message) => {
-      if (strict) throw new Error(message);
-      return null;
-    };
-    if (!isRecord(candidate)) throw new Error('Backup root must be an object.');
-
-    const sourceVersion = Number.isInteger(candidate.version) ? candidate.version : 1;
-    if (strict && (!Number.isInteger(candidate.version) || sourceVersion < 1 || sourceVersion > SCHEMA_VERSION)) {
-      throw new Error('Unsupported backup version.');
-    }
-    if (sourceVersion > SCHEMA_VERSION) throw new Error('This backup was created by a newer Pocket version.');
-
-    const settingsSource = isRecord(candidate.settings) ? candidate.settings : {};
-    if (strict && (!isRecord(candidate.settings) || !['light', 'dark'].includes(settingsSource.theme) || typeof settingsSource.privacy !== 'boolean')) {
-      throw new Error('Invalid settings data.');
-    }
-
-    const sourceAccounts = Array.isArray(candidate.accounts) ? candidate.accounts : [];
-    if (strict && !Array.isArray(candidate.accounts)) throw new Error('Accounts must be an array.');
-    const accounts = [];
-    const accountIds = new Set();
-    sourceAccounts.forEach((item) => {
-      const id = isRecord(item) ? normalizeText(item.id, 100) : '';
-      const name = isRecord(item) ? normalizeText(item.name, 50) : '';
-      const openingBalance = isRecord(item) ? normalizeNumber(item.openingBalance) : null;
-      if (!id || !name || openingBalance === null || accountIds.has(id) || !ACCOUNT_TYPES.has(item.type)) {
-        invalid('Invalid account entry.');
-        return;
-      }
-      accountIds.add(id);
-      accounts.push({ id, name, type: item.type, openingBalance });
-    });
-    if (!accounts.length) {
-      if (strict) throw new Error('At least one valid account is required.');
-      accounts.push({ id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0 });
-      accountIds.add(accounts[0].id);
-    }
-
-    const sourceGoals = Array.isArray(candidate.goals) ? candidate.goals : [];
-    if (strict && !Array.isArray(candidate.goals)) throw new Error('Goals must be an array.');
-    const goals = [];
-    const goalIds = new Set();
-    sourceGoals.forEach((item) => {
-      const id = isRecord(item) ? normalizeText(item.id, 100) : '';
-      const name = isRecord(item) ? normalizeText(item.name, 40) : '';
-      const target = isRecord(item) ? normalizeNumber(item.target, 1) : null;
-      const current = isRecord(item) ? normalizeNumber(item.current, 0) : null;
-      const createdAt = isRecord(item) && (validDateKey(item.createdAt) || (typeof item.createdAt === 'string' && Number.isFinite(Date.parse(item.createdAt)))) ? item.createdAt : localDateKey();
-      if (!id || !name || target === null || current === null || goalIds.has(id)) {
-        invalid('Invalid savings goal entry.');
-        return;
-      }
-      goalIds.add(id);
-      goals.push({ id, name, target, current, createdAt });
-    });
-
-    const sourcePlans = Array.isArray(candidate.allowancePlans) ? candidate.allowancePlans : [];
-    if (strict && !Array.isArray(candidate.allowancePlans)) throw new Error('Allowance plans must be an array.');
-    const allowancePlans = [];
-    const planIds = new Set();
-    sourcePlans.forEach((item) => {
-      const id = isRecord(item) ? normalizeText(item.id, 100) : '';
-      const amount = isRecord(item) ? normalizeNumber(item.amount, 0) : null;
-      const savingsAmount = isRecord(item) ? normalizeNumber(item.savingsAmount, 0) : null;
-      const suggestedSavings = isRecord(item) ? normalizeNumber(item.suggestedSavings, 0) : null;
-      if (!id || amount === null || savingsAmount === null || !validDateKey(item.startDate) || !validDateKey(item.endDate) || item.endDate < item.startDate || planIds.has(id) || !PLAN_STATUSES.has(item.status)) {
-        invalid('Invalid allowance plan entry.');
-        return;
-      }
-      planIds.add(id);
-      allowancePlans.push({
-        id,
-        amount,
-        startDate: item.startDate,
-        endDate: item.endDate,
-        savingsAmount,
-        suggestedSavings: suggestedSavings ?? savingsAmount,
-        savingDecision: SAVING_DECISIONS.has(item.savingDecision) ? item.savingDecision : '',
-        status: item.status,
-        createdAt: normalizeCreatedAt(item.createdAt, item.startDate)
-      });
-    });
-
-    const sourceTransactions = Array.isArray(candidate.transactions) ? candidate.transactions : [];
-    if (strict && !Array.isArray(candidate.transactions)) throw new Error('Transactions must be an array.');
-    const transactions = [];
-    const transactionIds = new Set();
-    sourceTransactions.forEach((item) => {
-      const id = isRecord(item) ? normalizeText(item.id, 100) : '';
-      const type = isRecord(item) ? item.type : '';
-      const amount = isRecord(item) ? normalizeNumber(item.amount, 0.01) : null;
-      const note = isRecord(item) ? normalizeText(item.note, 80) : '';
-      const accountId = isRecord(item) ? normalizeText(item.accountId, 100) : '';
-      const fromAccountId = isRecord(item) ? normalizeText(item.fromAccountId, 100) : '';
-      const toAccountId = isRecord(item) ? normalizeText(item.toAccountId, 100) : '';
-      const validAccounts = type === 'transfer'
-        ? accountIds.has(fromAccountId) && accountIds.has(toAccountId) && fromAccountId !== toAccountId
-        : accountIds.has(accountId);
-      let category = isRecord(item) ? normalizeText(item.category, 30) : '';
-      if (type === 'expense' && !EXPENSE_CATEGORIES.has(category)) category = strict ? '' : 'Other';
-      if (type === 'income') category = 'Allowance';
-      if (type === 'saving') category = 'Savings';
-      if (type === 'transfer') category = 'Other';
-      if (!id || transactionIds.has(id) || !TRANSACTION_TYPES.has(type) || amount === null || !validDateKey(item.date) || !validAccounts || !category) {
-        invalid('Invalid transaction entry.');
-        return;
-      }
-
-      const goalId = normalizeText(item.goalId, 100);
-      const allowanceId = normalizeText(item.allowanceId, 100);
-      if ((goalId && !goalIds.has(goalId)) || (allowanceId && !planIds.has(allowanceId)) || (strict && sourceVersion >= 2 && type === 'saving' && !goalId)) {
-        invalid('Transaction references missing data.');
-        return;
-      }
-
-      transactionIds.add(id);
-      transactions.push({
-        id,
-        type,
-        amount,
-        category,
-        ...(type === 'transfer' ? { fromAccountId, toAccountId } : { accountId }),
-        date: item.date,
-        note,
-        ...(goalId ? { goalId } : {}),
-        ...(allowanceId ? { allowanceId } : {}),
-        createdAt: normalizeCreatedAt(item.createdAt, item.date)
-      });
-    });
-
-    const checkins = {};
-    if (strict && !isRecord(candidate.checkins)) throw new Error('Check-ins must be an object.');
-    if (isRecord(candidate.checkins)) {
-      Object.entries(candidate.checkins).forEach(([date, item]) => {
-        if (!validDateKey(date) || !isRecord(item) || !['yes', 'no', 'later'].includes(item.status)) {
-          invalid('Invalid check-in entry.');
-          return;
-        }
-        checkins[date] = { status: item.status, updatedAt: normalizeCreatedAt(item.updatedAt, date) };
-      });
-    }
-
-    const normalized = {
+  function normalizeState(candidate) {
+    if (!candidate || typeof candidate !== 'object') return seedState();
+    return {
       version: SCHEMA_VERSION,
       settings: {
-        theme: settingsSource.theme === 'dark' ? 'dark' : 'light',
-        privacy: Boolean(settingsSource.privacy)
+        theme: candidate.settings?.theme === 'dark' ? 'dark' : 'light',
+        privacy: Boolean(candidate.settings?.privacy),
+        demoData: Boolean(candidate.settings?.demoData)
       },
-      accounts,
-      goals,
-      allowancePlans,
-      transactions,
-      checkins
+      accounts: Array.isArray(candidate.accounts) && candidate.accounts.length ? candidate.accounts : [{ id: uid('account'), name: 'Wallet', type: 'cash', openingBalance: 0 }],
+      goals: Array.isArray(candidate.goals) ? candidate.goals : [],
+      allowancePlans: Array.isArray(candidate.allowancePlans) ? candidate.allowancePlans : [],
+      transactions: Array.isArray(candidate.transactions) ? candidate.transactions : [],
+      checkins: candidate.checkins && typeof candidate.checkins === 'object' ? candidate.checkins : {}
     };
-    removeLegacyDemoData(normalized);
-    migrateSavingsState(normalized, sourceVersion);
-    return normalized;
   }
 
   function loadState() {
-    stateLoadFailed = false;
-    loadWarning = '';
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? normalizeState(JSON.parse(stored)) : emptyState();
+      if (!stored) return seedState();
+      const normalized = normalizeState(JSON.parse(stored));
+      if (normalized.settings.demoData) {
+        const clean = seedState();
+        clean.settings.theme = normalized.settings.theme;
+        clean.settings.privacy = normalized.settings.privacy;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+        return clean;
+      }
+      return normalized;
     } catch (error) {
       console.warn('Unable to load saved data.', error);
-      stateLoadFailed = true;
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        try { localStorage.setItem(RECOVERY_STORAGE_KEY, stored); } catch (storageError) { console.warn('Unable to preserve recovery data.', storageError); }
-      }
-      loadWarning = 'Saved data could not be loaded. Pocket kept a recovery copy and started with an empty tracker.';
-      return emptyState();
+      return seedState();
     }
   }
 
   function saveState() {
-    syncSavingsState(state);
-    state.version = SCHEMA_VERSION;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
@@ -463,6 +156,7 @@
     return state.transactions.reduce((balance, tx) => {
       if (tx.type === 'income' && tx.accountId === accountId) return balance + Number(tx.amount || 0);
       if (tx.type === 'expense' && tx.accountId === accountId) return balance - Number(tx.amount || 0);
+      if (tx.type === 'saving' && tx.accountId === accountId) return balance - Number(tx.amount || 0);
       if (tx.type === 'transfer') {
         if (tx.fromAccountId === accountId) return balance - Number(tx.amount || 0);
         if (tx.toAccountId === accountId) return balance + Number(tx.amount || 0);
@@ -477,10 +171,6 @@
 
   function totalSavings() {
     return state.goals.reduce((total, goal) => total + Number(goal.current || 0), 0);
-  }
-
-  function safeToSpend() {
-    return Math.max(0, totalBalance() - totalSavings());
   }
 
   function activeAllowancePlan() {
@@ -524,12 +214,12 @@
     return Math.max(50, total / Math.max(1, activeDays));
   }
 
-  function savingRecommendation(amount, coverageDays = 7, incomingPending = true) {
+  function savingRecommendation(amount, coverageDays = 7) {
     const received = Number(amount) || 0;
     if (received <= 0) return { amount: 0, percent: 0, message: 'Enter an amount for a saving suggestion.' };
 
     const expectedEssentials = averageEssentialDaily() * Math.min(Math.max(coverageDays, 1), 31);
-    const availableAfterReceiving = safeToSpend() + (incomingPending ? received : 0);
+    const availableAfterReceiving = Math.max(0, totalBalance()) + received;
     const coverageRatio = availableAfterReceiving / Math.max(expectedEssentials, 1);
     let percent = 0;
 
@@ -543,10 +233,10 @@
 
     let message;
     if (percent === 0) message = 'Your recent spending suggests keeping this allowance available for essentials.';
-    else if (percent <= 5) message = 'A small amount looks safest while your current balance stays flexible.';
+    else if (percent <= 5) message = 'A small amount looks safest while keeping enough money available for daily needs.';
     else if (percent <= 10) message = 'This keeps most of the allowance available for everyday school expenses.';
-    else if (percent <= 15) message = 'Your current balance appears able to cover your usual essentials.';
-    else message = 'Your current balance gives you enough room to protect a larger share.';
+    else if (percent <= 15) message = 'Your available money appears able to cover your usual essentials.';
+    else message = 'Your available money gives you enough room to save a larger share.';
 
     return { amount: suggested, percent, message };
   }
@@ -563,18 +253,19 @@
     const plan = activeAllowancePlan();
     if (!plan) return { value: 0, days: 0 };
     const days = daysInclusive(localDateKey(), plan.endDate);
-    return { value: safeToSpend() / Math.max(1, days), days };
+    return { value: Math.max(0, totalBalance()) / Math.max(1, days), days };
   }
 
   function transactionTitle(tx) {
     if (tx.type === 'income') return tx.note || 'Allowance received';
-    if (tx.type === 'saving') return tx.note || 'Savings protected';
+    if (tx.type === 'saving') return tx.note || 'Moved to savings';
     return tx.note || tx.category || 'Expense';
   }
 
   function transactionSubtitle(tx) {
     const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Account';
     const label = DATE_LABEL.format(fromDateKey(tx.date));
+    if (tx.type === 'saving') return `Saved from ${account} · ${label}`;
     return `${tx.category || 'Transaction'} · ${account} · ${label}`;
   }
 
@@ -596,7 +287,7 @@
           </div>
           <div class="transaction-amount">
             <strong class="money-value">${amountLabel}</strong>
-            <small>${escapeHtml(tx.type === 'saving' ? 'protected' : tx.type)}</small>
+            <small>${tx.type === 'saving' ? 'saved' : tx.type}</small>
           </div>
           ${full ? `<div class="transaction-actions"><button class="row-delete" type="button" data-action="delete-transaction" data-id="${escapeHtml(tx.id)}" aria-label="Delete transaction">${icon('i-trash')}</button></div>` : ''}
         </div>`;
@@ -627,7 +318,7 @@
 
     const messages = {
       yes: `<strong>Allowance recorded today.</strong> Your balance and daily guide are updated.`,
-      no: `<strong>No allowance today.</strong> Your current balance carried forward.`,
+      no: `<strong>No allowance today.</strong> Your available money carried forward.`,
       later: `<strong>Waiting for your answer.</strong> We will ask again when you reopen the question.`
     };
     holder.innerHTML = `
@@ -664,38 +355,24 @@
       <div class="plan-stats">
         <div class="plan-stat"><span>Remaining from plan</span><strong class="money-value">${currency(remaining, true)}</strong></div>
         <div class="plan-stat"><span>Spent in period</span><strong class="money-value">${currency(spent, true)}</strong></div>
-        <div class="plan-stat"><span>Protected savings</span><strong class="money-value">${currency(plan.savingsAmount || 0, true)}</strong></div>
+        <div class="plan-stat"><span>Saved from plan</span><strong class="money-value">${currency(plan.savingsAmount || 0, true)}</strong></div>
       </div>`;
   }
 
-  function sortGoalsByProgress(goals) {
-    return [...goals].sort((a, b) => {
+  function topGoal() {
+    return [...state.goals].sort((a, b) => {
       const aProgress = Number(a.current || 0) / Math.max(Number(a.target || 1), 1);
       const bProgress = Number(b.current || 0) / Math.max(Number(b.target || 1), 1);
-      return bProgress - aProgress || String(b.createdAt).localeCompare(String(a.createdAt));
-    });
-  }
-
-  function preferredGoal() {
-    return sortGoalsByProgress(state.goals.filter((goal) => Number(goal.current || 0) < Number(goal.target || 0)))[0] || null;
-  }
-
-  function featuredGoal() {
-    return preferredGoal() || sortGoalsByProgress(state.goals)[0] || null;
-  }
-
-  function goalForPlan(plan) {
-    if (!plan) return null;
-    const saving = state.transactions.find((tx) => tx.type === 'saving' && tx.allowanceId === plan.id && tx.goalId);
-    return saving ? state.goals.find((goal) => goal.id === saving.goalId) || null : null;
+      return bProgress - aProgress;
+    })[0] || null;
   }
 
   function renderRecommendation() {
     const latestIncome = [...state.transactions]
       .filter((tx) => tx.type === 'income')
       .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)))[0];
-    const plan = state.allowancePlans.find((item) => item.id === latestIncome?.allowanceId) || activeAllowancePlan();
-    const goal = preferredGoal();
+    const active = activeAllowancePlan();
+    const goal = topGoal();
 
     if (!latestIncome) {
       els.recommendationCard.innerHTML = `
@@ -706,37 +383,23 @@
       return;
     }
 
-    const planSaved = Number(plan?.savingsAmount || 0);
-    const coverage = plan ? daysInclusive(plan.startDate, plan.endDate) : 7;
-    const recommendation = savingRecommendation(latestIncome.amount, coverage, false);
-    const suggestedAmount = Number(plan?.suggestedSavings ?? recommendation.amount);
-    const goalRemaining = goal ? Math.max(0, Number(goal.target) - Number(goal.current)) : 0;
-    const remainingSuggestion = Math.min(Math.max(0, suggestedAmount - planSaved), goalRemaining, safeToSpend());
-    const savedGoal = goalForPlan(plan);
+    const planSaved = Number(active?.savingsAmount || 0);
+    const coverage = active ? daysInclusive(active.startDate, active.endDate) : 7;
+    const recommendation = savingRecommendation(latestIncome.amount, coverage);
+    const remainingSuggestion = Math.max(0, recommendation.amount - planSaved);
 
-    if (planSaved > 0 || plan?.savingDecision === 'accepted') {
+    if (planSaved > 0) {
       els.recommendationCard.innerHTML = `
         <div class="recommendation-top"><span class="round-icon purple-soft">${icon('i-sparkle')}</span><strong>Smart saving</strong></div>
-        <p class="recommendation-amount money-value">${currency(planSaved, true)} protected</p>
-        <p class="recommendation-copy">You saved part of your latest allowance${savedGoal ? ` toward ${escapeHtml(savedGoal.name)}` : ''}. Your daily guide already excludes protected money.</p>
+        <p class="recommendation-amount money-value">${currency(planSaved, true)} saved</p>
+        <p class="recommendation-copy">You saved part of your latest allowance${goal ? ` toward ${escapeHtml(goal.name)}` : ''}. Your daily guide already excludes that saved money.</p>
         <button class="button-secondary" type="button" data-view="savings">View savings</button>`;
-    } else if (plan?.savingDecision === 'skipped' || plan?.savingDecision === 'not_applicable') {
-      els.recommendationCard.innerHTML = `
-        <div class="recommendation-top"><span class="round-icon amber-soft">${icon('i-sparkle')}</span><strong>Smart saving</strong></div>
-        <p class="recommendation-amount">Keep it flexible</p>
-        <p class="recommendation-copy">You kept this allowance available for essentials. Pocket will make a fresh suggestion the next time you add an allowance.</p>`;
-    } else if (remainingSuggestion > 0 && goal && plan) {
+    } else if (remainingSuggestion > 0 && goal) {
       els.recommendationCard.innerHTML = `
         <div class="recommendation-top"><span class="round-icon purple-soft">${icon('i-sparkle')}</span><strong>Smart saving</strong></div>
         <p class="recommendation-amount money-value">Save ${currency(remainingSuggestion, true)}</p>
         <p class="recommendation-copy">About ${recommendation.percent}% of your latest allowance looks comfortable based on your recent essential spending.</p>
-        <div class="recommendation-actions"><button class="button-primary" type="button" data-action="quick-save" data-goal-id="${escapeHtml(goal.id)}" data-allowance-id="${escapeHtml(plan.id)}" data-amount="${remainingSuggestion}">Save it</button><button class="button-secondary" type="button" data-action="dismiss-saving" data-allowance-id="${escapeHtml(plan.id)}">Skip</button></div>`;
-    } else if (!goal && plan?.savingDecision === 'pending') {
-      els.recommendationCard.innerHTML = `
-        <div class="recommendation-top"><span class="round-icon purple-soft">${icon('i-sparkle')}</span><strong>Smart saving</strong></div>
-        <p class="recommendation-amount">Choose a goal</p>
-        <p class="recommendation-copy">Create a savings goal before protecting part of this allowance.</p>
-        <button class="button-primary" type="button" data-action="open-goal">Create goal</button>`;
+        <div class="recommendation-actions"><button class="button-primary" type="button" data-action="quick-save" data-goal-id="${escapeHtml(goal.id)}" data-amount="${remainingSuggestion}">Save it</button><button class="button-secondary" type="button" data-action="dismiss-saving">Skip</button></div>`;
     } else {
       els.recommendationCard.innerHTML = `
         <div class="recommendation-top"><span class="round-icon amber-soft">${icon('i-sparkle')}</span><strong>Smart saving</strong></div>
@@ -746,9 +409,9 @@
   }
 
   function renderSavingsMini() {
-    const goal = featuredGoal();
+    const goal = topGoal();
     if (!goal) {
-      els.savingsMini.innerHTML = `<div class="empty-plan"><div><p class="eyebrow">Savings</p><h2>Create your first goal</h2><p>Protected money stays inside your balance but out of safe-to-spend.</p></div><button class="button-primary" type="button" data-action="open-goal">Add</button></div>`;
+      els.savingsMini.innerHTML = `<div class="empty-plan"><div><p class="eyebrow">Savings</p><h2>Create your first goal</h2><p>Saved money stays separate from what you can spend.</p></div><button class="button-primary" type="button" data-action="open-goal">Add</button></div>`;
       return;
     }
     const percent = Math.min(100, Number(goal.current || 0) / Math.max(Number(goal.target || 1), 1) * 100);
@@ -768,10 +431,12 @@
     els.currentBalance.textContent = currency(totalBalance());
     els.todayReceived.textContent = currency(received, true);
     els.todaySpent.textContent = currency(spent, true);
-    els.safeToSpend.textContent = currency(safeToSpend());
-    els.safeToSpendHint.textContent = totalSavings() > 0 ? `${currency(totalSavings(), true)} is currently protected in savings.` : 'No money is protected in savings yet.';
+    els.homeSavings.textContent = currency(totalSavings());
+    els.homeSavingsHint.textContent = totalSavings() > 0 ? 'Separate from your spending money.' : 'Nothing saved yet.';
     els.dailyGuide.textContent = guide.days ? currency(guide.value) : currency(0);
     els.dailyGuideHint.textContent = guide.days ? `Suggested average for the next ${guide.days} day${guide.days === 1 ? '' : 's'}.` : 'Add an allowance period to calculate a guide.';
+    replayAnimation(els.currentBalance, 'amount-pop');
+    replayAnimation(els.homeSavings, 'amount-pop');
 
     renderAllowancePrompt();
     renderAllowancePlan();
@@ -807,14 +472,14 @@
 
   function renderSavings() {
     els.totalSavings.textContent = currency(totalSavings());
+    replayAnimation(els.totalSavings, 'amount-pop');
     if (!state.goals.length) {
-      els.goalsGrid.innerHTML = `<article class="card goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal to protect part of your allowance.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
+      els.goalsGrid.innerHTML = `<article class="card goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and move money out of your spendable wallet.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = state.goals.map((goal) => {
         const current = Number(goal.current || 0);
         const target = Math.max(Number(goal.target || 1), 1);
         const percent = Math.min(100, current / target * 100);
-        const complete = current >= target;
         return `
           <article class="card goal-card">
             <div class="goal-card-head">
@@ -822,19 +487,19 @@
               <span class="round-icon green-soft">${icon('i-target')}</span>
             </div>
             <div class="goal-progress"><span style="width:${percent.toFixed(1)}%"></span></div>
-            <div class="goal-footer"><small>${Math.round(percent)}% complete</small><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${complete ? ' disabled' : ''}>${complete ? 'Completed' : 'Add savings'}</button></div>
+            <div class="goal-footer"><small>${Math.round(percent)}% complete</small><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}">Add savings</button></div>
           </article>`;
       }).join('');
     }
 
-    const goal = preferredGoal() || featuredGoal();
+    const goal = topGoal();
     const essential = averageEssentialDaily();
     if (goal) {
       const remaining = Math.max(0, Number(goal.target) - Number(goal.current));
       const sample = savingRecommendation(Math.max(200, essential * 2), 7);
       els.savingsInsight.textContent = remaining > 0
-        ? `Based on your recent essential spending, a flexible target of around ${currency(sample.amount || 20, true)} whenever you receive a moderate allowance could move “${goal.name}” forward without forcing a fixed contribution.`
-        : `You completed “${goal.name}.” Create another goal only when you have something specific you want to protect money for.`;
+        ? `Based on your recent essential spending, saving around ${currency(sample.amount || 20, true)} when you receive a moderate allowance could move “${goal.name}” forward without squeezing daily spending.`
+        : `You completed “${goal.name}.” Create another goal when you have something specific you want to save for.`;
     } else {
       els.savingsInsight.textContent = 'Create a goal first. Pocket will then direct accepted saving suggestions to that goal automatically.';
     }
@@ -845,9 +510,6 @@
     els.themeIcon.innerHTML = `<use href="#${state.settings.theme === 'dark' ? 'i-sun' : 'i-moon'}"></use>`;
     els.privacyLabel.textContent = state.settings.privacy ? 'Amounts hidden' : 'Amounts visible';
     els.privacySwitch.classList.toggle('is-on', state.settings.privacy);
-    document.querySelectorAll('[data-action="toggle-privacy"]').forEach((button) => {
-      button.setAttribute('aria-pressed', String(state.settings.privacy));
-    });
   }
 
   function renderHeader() {
@@ -875,8 +537,6 @@
   }
 
   function renderAll() {
-    syncSavingsState(state);
-    renderedDateKey = localDateKey();
     document.documentElement.dataset.theme = state.settings.theme;
     renderHeader();
     renderPrivacy();
@@ -885,33 +545,6 @@
     renderSavings();
     renderSettings();
     populateAccounts();
-  }
-
-  function refreshDateInputs() {
-    const today = localDateKey();
-    els.allowanceEndDate.min = today;
-    if (!els.expenseDialog.open) els.expenseDate.value = today;
-    if (!els.allowanceDialog.open) els.allowanceEndDate.value = addDays(today, 6);
-  }
-
-  function scheduleDateRefresh() {
-    clearTimeout(dateRefreshTimer);
-    const nextMidnight = new Date();
-    nextMidnight.setHours(24, 0, 1, 0);
-    dateRefreshTimer = window.setTimeout(() => {
-      refreshForDateChange();
-      scheduleDateRefresh();
-    }, Math.max(1000, nextMidnight.getTime() - Date.now()));
-  }
-
-  function refreshForDateChange() {
-    if (renderedDateKey === localDateKey()) {
-      renderHeader();
-      return false;
-    }
-    refreshDateInputs();
-    renderAll();
-    return true;
   }
 
   function populateAccounts() {
@@ -924,17 +557,31 @@
     if (!['home', 'activity', 'savings', 'more'].includes(view)) view = 'home';
     currentView = view;
     document.querySelectorAll('[data-view-panel]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.viewPanel === view));
-    document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((button) => {
-      const active = button.dataset.view === view;
-      button.classList.toggle('is-active', active);
-      if (active) button.setAttribute('aria-current', 'page');
-      else button.removeAttribute('aria-current');
-    });
+    document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((button) => button.classList.toggle('is-active', button.dataset.view === view));
     renderHeader();
     if (view === 'activity') renderActivity();
     if (view === 'savings') renderSavings();
     if (updateHash) history.replaceState(null, '', `#${view}`);
     els.contentScroll.scrollTop = 0;
+  }
+
+  function replayAnimation(element, className) {
+    if (!element) return;
+    element.classList.remove(className);
+    void element.offsetWidth;
+    element.classList.add(className);
+  }
+
+  function celebrateSavings() {
+    const burst = document.createElement('div');
+    burst.className = 'savings-celebration';
+    burst.setAttribute('aria-hidden', 'true');
+    const points = [
+      [-54, -32], [-26, -58], [8, -66], [42, -48], [58, -10], [34, 34], [-5, 48], [-42, 28]
+    ];
+    burst.innerHTML = points.map(([x, y], index) => `<span style="--x:${x}px;--y:${y}px;--delay:${index * 22}ms">${icon('i-sparkle')}</span>`).join('');
+    document.body.appendChild(burst);
+    window.setTimeout(() => burst.remove(), 900);
   }
 
   function showToast(message, actionLabel = '', action = null) {
@@ -987,7 +634,7 @@
     const amount = Number(els.allowanceAmount.value || 0);
     const suggestion = savingRecommendation(amount, coverageDaysFromForm());
     if (amount <= 0) {
-      els.allowanceSuggestion.innerHTML = `<span class="round-icon purple-soft">${icon('i-sparkle')}</span><div><strong>Enter an amount for a saving suggestion.</strong><p>We’ll protect only what looks comfortable.</p></div>`;
+      els.allowanceSuggestion.innerHTML = `<span class="round-icon purple-soft">${icon('i-sparkle')}</span><div><strong>Enter an amount for a saving suggestion.</strong><p>We’ll suggest an amount you can move out of spending.</p></div>`;
       return;
     }
     const title = suggestion.amount > 0 ? `Suggested saving: ${currency(suggestion.amount, true)} (${suggestion.percent}%)` : 'No saving suggested this time';
@@ -996,7 +643,7 @@
 
   function addAllowance() {
     const amount = Number(els.allowanceAmount.value);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) return;
+    if (!Number.isFinite(amount) || amount <= 0) return;
     const today = localDateKey();
     const coverage = els.allowanceForm.elements.coverage.value;
     const endDate = coverageEndDate(coverage, els.allowanceEndDate.value);
@@ -1005,17 +652,7 @@
     const accountId = state.accounts[0]?.id;
     const planId = uid('allowance');
     const useSaving = els.applySuggestedSaving.checked && suggestion.amount > 0;
-    let goal = useSaving ? preferredGoal() : null;
-
-    if (useSaving && !goal) {
-      const hasEmergencyFund = state.goals.some((item) => item.name.toLowerCase() === 'emergency fund');
-      goal = { id: uid('goal'), name: hasEmergencyFund ? 'Next savings goal' : 'Emergency fund', target: 3000, current: 0, createdAt: today };
-      state.goals.push(goal);
-    }
-
-    const goalRemaining = goal ? Math.max(0, Number(goal.target) - Number(goal.current)) : 0;
-    const savingAmount = useSaving ? Math.min(suggestion.amount, goalRemaining) : 0;
-    const savingDecision = suggestion.amount <= 0 ? 'not_applicable' : savingAmount > 0 ? 'accepted' : 'skipped';
+    let savingAmount = useSaving ? suggestion.amount : 0;
 
     state.allowancePlans.forEach((plan) => {
       if (plan.status === 'active' && plan.endDate < today) plan.status = 'completed';
@@ -1027,8 +664,6 @@
       startDate: today,
       endDate,
       savingsAmount: savingAmount,
-      suggestedSavings: suggestion.amount,
-      savingDecision,
       status: 'active',
       createdAt: new Date().toISOString()
     };
@@ -1045,7 +680,13 @@
       createdAt: new Date().toISOString()
     });
 
-    if (savingAmount > 0 && goal) {
+    if (savingAmount > 0) {
+      let goal = topGoal();
+      if (!goal) {
+        goal = { id: uid('goal'), name: 'Emergency fund', target: 3000, current: 0, createdAt: today };
+        state.goals.push(goal);
+      }
+      goal.current = Number(goal.current || 0) + savingAmount;
       state.transactions.push({
         id: uid('tx'),
         type: 'saving',
@@ -1061,20 +702,27 @@
     }
 
     state.checkins[today] = { status: 'yes', updatedAt: new Date().toISOString() };
+    state.settings.demoData = false;
     saveState();
     closeDialog(els.allowanceDialog);
     renderAll();
-    showToast(savingAmount > 0 ? `${currency(amount, true)} added and ${currency(savingAmount, true)} protected.` : `${currency(amount, true)} allowance added.`);
+    if (savingAmount > 0) celebrateSavings();
+    showToast(savingAmount > 0 ? `${currency(amount, true)} added and ${currency(savingAmount, true)} moved to savings.` : `${currency(amount, true)} allowance added.`);
   }
 
   function addExpense() {
     const amount = Number(els.expenseAmount.value);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) return;
+    if (!Number.isFinite(amount) || amount <= 0) return;
     const category = els.expenseForm.elements.expenseCategory.value;
     const accountId = els.expenseAccount.value || state.accounts[0]?.id;
     const date = els.expenseDate.value || localDateKey();
-    const note = els.expenseNote.value.trim().slice(0, 80);
-    if (!EXPENSE_CATEGORIES.has(category) || !state.accounts.some((account) => account.id === accountId) || !validDateKey(date)) return;
+    const note = els.expenseNote.value.trim();
+    const available = accountBalance(accountId);
+    if (amount > available) {
+      const accountName = state.accounts.find((account) => account.id === accountId)?.name || 'this account';
+      showToast(`Only ${currency(Math.max(0, available), true)} is available in ${accountName}. Savings stays separate.`);
+      return;
+    }
 
     state.transactions.push({
       id: uid('tx'),
@@ -1086,57 +734,44 @@
       note,
       createdAt: new Date().toISOString()
     });
+    state.settings.demoData = false;
     saveState();
     closeDialog(els.expenseDialog);
     renderAll();
-    const remaining = accountBalance(accountId);
-    showToast(remaining < 0 ? `Expense saved. ${state.accounts.find((a) => a.id === accountId)?.name || 'Account'} is now below zero.` : `${currency(amount, true)} expense saved.`);
+    showToast(`${currency(amount, true)} expense saved.`);
   }
 
   function addGoal() {
-    const name = els.goalName.value.trim().slice(0, 40);
+    const name = els.goalName.value.trim();
     const target = Number(els.goalTarget.value);
     const current = Math.max(0, Number(els.goalCurrent.value || 0));
-    if (!name || !Number.isFinite(target) || target <= 0 || target > MAX_MONEY || !Number.isFinite(current)) return;
-    const maximumInitialSaving = Math.min(target, safeToSpend());
-    if (current > maximumInitialSaving) {
-      els.goalCurrent.setCustomValidity(`Enter no more than ${currency(maximumInitialSaving, true)}, based on your available balance and goal target.`);
-      els.goalCurrent.reportValidity();
+    if (!name || !Number.isFinite(target) || target <= 0) return;
+    const startingAmount = Math.min(current, target);
+    const accountId = state.accounts[0]?.id;
+    const available = accountBalance(accountId);
+    if (startingAmount > available) {
+      showToast(`You only have ${currency(Math.max(0, available), true)} available to move into savings.`);
       return;
     }
-
-    els.goalCurrent.setCustomValidity('');
-    const goalId = uid('goal');
-    state.goals.push({ id: goalId, name, target, current: 0, createdAt: localDateKey() });
-    if (current > 0) {
-      state.transactions.push({ id: uid('tx'), type: 'saving', amount: current, category: 'Savings', accountId: state.accounts[0]?.id, date: localDateKey(), note: name, goalId, createdAt: new Date().toISOString() });
+    state.goals.push({ id: uid('goal'), name, target, current: startingAmount, createdAt: localDateKey() });
+    if (startingAmount > 0) {
+      state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: localDateKey(), note: name, createdAt: new Date().toISOString() });
     }
+    state.settings.demoData = false;
     saveState();
     closeDialog(els.goalDialog);
     renderAll();
     setView('savings');
+    if (startingAmount > 0) celebrateSavings();
     showToast(`“${name}” goal created.`);
   }
 
-  function contributionLimit(goal) {
-    return Math.max(0, Math.min(safeToSpend(), Number(goal.target) - Number(goal.current)));
-  }
-
-  function openContribution(goalId, suggestedAmount = '', allowanceId = '') {
+  function openContribution(goalId, suggestedAmount = '') {
     const goal = state.goals.find((item) => item.id === goalId);
     if (!goal) return;
-    const limit = contributionLimit(goal);
-    if (limit <= 0) {
-      showToast(Number(goal.current) >= Number(goal.target) ? 'This savings goal is already complete.' : 'No unprotected balance is available for savings right now.');
-      return;
-    }
     els.contributeGoalId.value = goal.id;
-    els.contributeAllowanceId.value = state.allowancePlans.some((plan) => plan.id === allowanceId) ? allowanceId : '';
     els.contributeTitle.textContent = goal.name;
-    els.contributeAmount.max = String(limit);
-    els.contributeAmount.setCustomValidity('');
-    els.contributeAmount.value = suggestedAmount ? String(Math.min(Number(suggestedAmount), limit)) : '';
-    els.contributeLimitHint.textContent = `You can protect up to ${currency(limit, true)} without exceeding your available balance or this goal’s target.`;
+    els.contributeAmount.value = suggestedAmount || '';
     openDialog(els.contributeDialog);
     requestAnimationFrame(() => els.contributeAmount.focus());
   }
@@ -1145,72 +780,63 @@
     const goal = state.goals.find((item) => item.id === els.contributeGoalId.value);
     const amount = Number(els.contributeAmount.value);
     if (!goal || !Number.isFinite(amount) || amount <= 0) return;
-    const limit = contributionLimit(goal);
-    if (amount > limit) {
-      els.contributeAmount.setCustomValidity(`Enter no more than ${currency(limit, true)}.`);
-      els.contributeAmount.reportValidity();
+    const accountId = state.accounts[0]?.id;
+    const available = accountBalance(accountId);
+    if (amount > available) {
+      showToast(`You only have ${currency(Math.max(0, available), true)} available to move into savings.`);
       return;
     }
-
-    els.contributeAmount.setCustomValidity('');
-    const allowanceId = els.contributeAllowanceId.value;
-    const plan = state.allowancePlans.find((item) => item.id === allowanceId);
+    goal.current = Number(goal.current || 0) + amount;
     state.transactions.push({
-      id: uid('tx'), type: 'saving', amount, category: 'Savings', accountId: state.accounts[0]?.id,
-      date: localDateKey(), note: goal.name, goalId: goal.id, ...(plan ? { allowanceId: plan.id } : {}), createdAt: new Date().toISOString()
+      id: uid('tx'), type: 'saving', amount, category: 'Savings', accountId,
+      date: localDateKey(), note: goal.name, goalId: goal.id, createdAt: new Date().toISOString()
     });
-    if (plan) plan.savingDecision = 'accepted';
+    state.settings.demoData = false;
     saveState();
     closeDialog(els.contributeDialog);
     renderAll();
-    showToast(`${currency(amount, true)} protected for ${goal.name}.`);
+    celebrateSavings();
+    showToast(`${currency(amount, true)} saved for ${goal.name}.`);
   }
 
   function deleteTransaction(id) {
     const index = state.transactions.findIndex((tx) => tx.id === id);
     if (index < 0) return;
     const deleted = state.transactions[index];
-    const removalIds = new Set([deleted.id]);
+    state.transactions.splice(index, 1);
+
+    if (deleted.type === 'saving' && deleted.goalId) {
+      const goal = state.goals.find((item) => item.id === deleted.goalId);
+      if (goal) goal.current = Math.max(0, Number(goal.current || 0) - Number(deleted.amount || 0));
+      if (deleted.allowanceId) {
+        const plan = state.allowancePlans.find((item) => item.id === deleted.allowanceId);
+        if (plan) plan.savingsAmount = Math.max(0, Number(plan.savingsAmount || 0) - Number(deleted.amount || 0));
+      }
+    }
     if (deleted.type === 'income' && deleted.allowanceId) {
-      state.transactions.forEach((tx) => {
-        if (tx.type === 'saving' && tx.allowanceId === deleted.allowanceId) removalIds.add(tx.id);
-      });
+      const plan = state.allowancePlans.find((item) => item.id === deleted.allowanceId);
+      if (plan) plan.status = 'deleted';
     }
 
-    const removedRecords = state.transactions
-      .map((transaction, originalIndex) => ({ transaction, originalIndex }))
-      .filter(({ transaction }) => removalIds.has(transaction.id));
-    const affectedPlanIds = new Set(removedRecords.map(({ transaction }) => transaction.allowanceId).filter(Boolean));
-    const planSnapshots = [...affectedPlanIds].map((planId) => {
-      const plan = state.allowancePlans.find((item) => item.id === planId);
-      return plan ? { plan, status: plan.status, savingDecision: plan.savingDecision } : null;
-    }).filter(Boolean);
-    const hadCheckin = Object.hasOwn(state.checkins, deleted.date);
-    const checkinSnapshot = hadCheckin ? { ...state.checkins[deleted.date] } : null;
-
-    state.transactions = state.transactions.filter((tx) => !removalIds.has(tx.id));
-    planSnapshots.forEach(({ plan }) => {
-      if (deleted.type === 'income' && deleted.allowanceId === plan.id) plan.status = 'deleted';
-      else plan.savingDecision = 'skipped';
-    });
-    if (deleted.type === 'income' && !state.transactions.some((tx) => tx.type === 'income' && tx.date === deleted.date)) {
-      delete state.checkins[deleted.date];
-    }
+    pendingUndo = { deleted, index };
     saveState();
     renderAll();
-    const message = removedRecords.length > 1 ? 'Allowance and its linked savings removed.' : 'Transaction removed.';
-    showToast(message, 'Undo', () => {
-      removedRecords.sort((a, b) => a.originalIndex - b.originalIndex).forEach(({ transaction, originalIndex }) => {
-        if (!state.transactions.some((tx) => tx.id === transaction.id)) {
-          state.transactions.splice(Math.min(originalIndex, state.transactions.length), 0, transaction);
+    showToast('Transaction removed.', 'Undo', () => {
+      if (!pendingUndo) return;
+      state.transactions.splice(pendingUndo.index, 0, pendingUndo.deleted);
+      if (pendingUndo.deleted.type === 'saving' && pendingUndo.deleted.goalId) {
+        const goal = state.goals.find((item) => item.id === pendingUndo.deleted.goalId);
+        if (goal) goal.current = Number(goal.current || 0) + Number(pendingUndo.deleted.amount || 0);
+        if (pendingUndo.deleted.allowanceId) {
+          const plan = state.allowancePlans.find((item) => item.id === pendingUndo.deleted.allowanceId);
+          if (plan) plan.savingsAmount = Number(plan.savingsAmount || 0) + Number(pendingUndo.deleted.amount || 0);
         }
-      });
-      planSnapshots.forEach(({ plan, status, savingDecision }) => {
-        plan.status = status;
-        plan.savingDecision = savingDecision;
-      });
-      if (hadCheckin) state.checkins[deleted.date] = checkinSnapshot;
-      else delete state.checkins[deleted.date];
+      }
+      if (pendingUndo.deleted.type === 'income' && pendingUndo.deleted.allowanceId) {
+        const plan = state.allowancePlans.find((item) => item.id === pendingUndo.deleted.allowanceId);
+        if (plan) plan.status = 'active';
+      }
+      pendingUndo = null;
       saveState();
       renderAll();
     });
@@ -1225,8 +851,15 @@
   }
 
   function resetAllData() {
-    state = emptyState({ theme: state.settings.theme, privacy: false });
-    localStorage.removeItem(RECOVERY_STORAGE_KEY);
+    state = {
+      version: SCHEMA_VERSION,
+      settings: { theme: state.settings.theme, privacy: false, demoData: false },
+      accounts: [{ id: uid('account'), name: 'Wallet', type: 'cash', openingBalance: 0 }],
+      goals: [],
+      allowancePlans: [],
+      transactions: [],
+      checkins: {}
+    };
     saveState();
     renderAll();
     setView('home');
@@ -1248,12 +881,10 @@
 
   async function importData(file) {
     try {
-      if (file.size > 5 * 1024 * 1024) throw new Error('Backup file is too large.');
       const text = await file.text();
-      const imported = normalizeState(JSON.parse(text), { strict: true });
+      const imported = normalizeState(JSON.parse(text));
       confirmAction('Restore this backup?', 'Your current locally stored tracker data will be replaced by the selected backup.', 'Restore data', () => {
         state = imported;
-        localStorage.removeItem(RECOVERY_STORAGE_KEY);
         saveState();
         renderAll();
         setView('home');
@@ -1270,15 +901,15 @@
   function showUpdateAvailable(worker) {
     if (!worker) return;
     waitingServiceWorker = worker;
-    els.updateBanner.removeAttribute('inert');
     els.updateBanner.classList.add('is-visible');
+    els.updateBanner.setAttribute('aria-hidden', 'false');
     els.updateStatus.textContent = 'Available';
     els.updateStatus.classList.remove('success');
   }
 
   function hideUpdateAvailable() {
     els.updateBanner.classList.remove('is-visible');
-    els.updateBanner.setAttribute('inert', '');
+    els.updateBanner.setAttribute('aria-hidden', 'true');
   }
 
   function applyAvailableUpdate() {
@@ -1340,7 +971,7 @@
     }
     if (action === 'allowance-no') {
       state.checkins[localDateKey()] = { status: 'no', updatedAt: new Date().toISOString() };
-      saveState(); renderAll(); showToast('Balance carried forward.');
+      saveState(); renderAll(); showToast('Available money carried forward.');
     }
     if (action === 'allowance-later') {
       state.checkins[localDateKey()] = { status: 'later', updatedAt: new Date().toISOString() };
@@ -1356,22 +987,12 @@
     if (action === 'open-goal') {
       els.goalForm.reset();
       els.goalCurrent.value = '0';
-      els.goalCurrent.max = String(Math.max(0, safeToSpend()));
-      els.goalCurrent.setCustomValidity('');
       openDialog(els.goalDialog);
       requestAnimationFrame(() => els.goalName.focus());
     }
     if (action === 'open-contribution') openContribution(button.dataset.goalId);
-    if (action === 'quick-save') openContribution(button.dataset.goalId, button.dataset.amount, button.dataset.allowanceId);
-    if (action === 'dismiss-saving') {
-      const plan = state.allowancePlans.find((item) => item.id === button.dataset.allowanceId);
-      if (plan) {
-        plan.savingDecision = 'skipped';
-        saveState();
-        renderAll();
-      }
-      showToast('Saving suggestion skipped.');
-    }
+    if (action === 'quick-save') openContribution(button.dataset.goalId, button.dataset.amount);
+    if (action === 'dismiss-saving') showToast('Saving suggestion skipped.');
     if (action === 'delete-transaction') deleteTransaction(button.dataset.id);
     if (action === 'toggle-theme') {
       state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark';
@@ -1389,14 +1010,13 @@
   function cacheElements() {
     [
       'todayLabel', 'viewTitle', 'contentScroll', 'allowancePrompt', 'currentBalance', 'todayReceived', 'todaySpent',
-      'safeToSpend', 'safeToSpendHint', 'dailyGuide', 'dailyGuideHint', 'allowancePlanCard', 'recommendationCard',
+      'homeSavings', 'homeSavingsHint', 'dailyGuide', 'dailyGuideHint', 'allowancePlanCard', 'recommendationCard',
       'recentTransactions', 'savingsMini', 'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
       'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'themeIcon',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'importFile', 'allowanceDialog', 'allowanceForm', 'allowanceAmount',
       'allowanceEndDate', 'customDateWrap', 'allowanceSuggestion', 'applySuggestedSaving', 'expenseDialog', 'expenseForm',
       'expenseAmount', 'expenseAccount', 'expenseDate', 'expenseNote', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
-      'goalCurrent', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAllowanceId',
-      'contributeAmount', 'contributeLimitHint',
+      'goalCurrent', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount',
       'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
@@ -1438,35 +1058,33 @@
     });
 
     els.allowanceForm.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
       addAllowance();
     });
     els.expenseForm.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
       addExpense();
     });
     els.goalForm.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
       addGoal();
     });
     els.contributeForm.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
       addContribution();
     });
     els.confirmDialog.querySelector('form').addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') { pendingConfirm = null; return; }
       event.preventDefault();
       const action = pendingConfirm;
       pendingConfirm = null;
       closeDialog(els.confirmDialog);
       if (action) action();
     });
-
-    [els.goalTarget, els.goalCurrent].forEach((input) => input.addEventListener('input', () => {
-      els.goalCurrent.setCustomValidity('');
-      const target = Number(els.goalTarget.value);
-      els.goalCurrent.max = String(Math.max(0, Math.min(Number.isFinite(target) && target > 0 ? target : MAX_MONEY, safeToSpend())));
-    }));
-    els.contributeAmount.addEventListener('input', () => els.contributeAmount.setCustomValidity(''));
 
     els.importFile.addEventListener('change', () => {
       const file = els.importFile.files?.[0];
@@ -1478,10 +1096,7 @@
         if (event.target !== dialog) return;
         const rect = dialog.getBoundingClientRect();
         const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
-        if (!inside) closeDialog(dialog);
-      });
-      dialog.addEventListener('close', () => {
-        if (dialog === els.confirmDialog) pendingConfirm = null;
+        if (!inside) dialog.close();
       });
     });
 
@@ -1489,15 +1104,11 @@
     window.addEventListener('storage', (event) => {
       if (event.key === STORAGE_KEY) {
         state = loadState();
-        if (!stateLoadFailed) saveState();
         renderAll();
       }
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        refreshForDateChange();
-        checkForUpdates();
-      }
+      if (document.visibilityState === 'visible') checkForUpdates();
     });
     window.addEventListener('online', () => checkForUpdates({ force: true }));
   }
@@ -1542,14 +1153,13 @@
     cacheElements();
     els.appVersion.textContent = `Version ${APP_VERSION}`;
     state = loadState();
-    if (!stateLoadFailed) saveState();
     bindEvents();
     renderAll();
     setView(location.hash.slice(1) || 'home', false);
-    refreshDateInputs();
-    scheduleDateRefresh();
+    els.expenseDate.value = localDateKey();
+    els.allowanceEndDate.min = localDateKey();
+    els.allowanceEndDate.value = addDays(localDateKey(), 6);
     registerServiceWorker();
-    if (loadWarning) showToast(loadWarning);
   }
 
   document.addEventListener('DOMContentLoaded', init);
