@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '1.9.0';
+  const APP_VERSION = '2.0.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -28,7 +28,8 @@
     Personal: { icon: 'i-user', tone: 'red-soft' },
     Other: { icon: 'i-more', tone: 'neutral-soft' },
     Allowance: { icon: 'i-arrow-down', tone: 'green-soft' },
-    Savings: { icon: 'i-savings', tone: 'purple-soft' }
+    Savings: { icon: 'i-savings', tone: 'purple-soft' },
+    Transfer: { icon: 'i-transfer', tone: 'accent-soft' }
   };
 
   const els = {};
@@ -43,6 +44,7 @@
   let lastUpdateCheck = 0;
   let currentExpenseEditId = null;
   let currentAllowanceEditId = null;
+  let currentTransferEditId = null;
   let walletModeIndex = 0;
   let walletCarouselFrame = 0;
   let walletCarouselResizeObserver = null;
@@ -125,7 +127,7 @@
   }
 
   function canEditTransaction(tx) {
-    return (tx?.type === 'expense' || tx?.type === 'income') && canModifyTransaction(tx);
+    return (tx?.type === 'expense' || tx?.type === 'income' || tx?.type === 'transfer') && canModifyTransaction(tx);
   }
 
   function transactionWindowLabel(tx) {
@@ -395,6 +397,10 @@
   function transactionTitle(tx) {
     if (tx.type === 'income') return tx.note || 'Allowance received';
     if (tx.type === 'saving') return tx.note || 'Moved to savings';
+    if (tx.type === 'transfer') {
+      const destination = state.accounts.find((item) => item.id === tx.toAccountId)?.name || 'wallet';
+      return tx.note || `Transfer to ${destination}`;
+    }
     return tx.note || tx.category || 'Expense';
   }
 
@@ -402,6 +408,11 @@
     const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Account';
     const label = DATE_LABEL.format(fromDateKey(tx.date));
     if (tx.type === 'saving') return `Saved from ${account} · ${label}`;
+    if (tx.type === 'transfer') {
+      const from = state.accounts.find((item) => item.id === tx.fromAccountId)?.name || 'Wallet';
+      const to = state.accounts.find((item) => item.id === tx.toAccountId)?.name || 'Wallet';
+      return `${from} → ${to} · ${label}`;
+    }
     return `${tx.category || 'Transaction'} · ${account} · ${label}`;
   }
 
@@ -452,14 +463,45 @@
     return 'Wallet';
   }
 
+  function selectedWalletAccount() {
+    return state.accounts[walletModeIndex] || state.accounts[0] || null;
+  }
+
+  function walletExpenseSummary(accountId, startDate, endDate) {
+    const expenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.accountId === accountId && tx.date >= startDate && tx.date <= endDate);
+    const spent = expenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const categories = expenses.reduce((map, tx) => {
+      const name = tx.category || 'Other';
+      map[name] = (map[name] || 0) + Number(tx.amount || 0);
+      return map;
+    }, {});
+    const top = Object.entries(categories).sort((a, b) => b[1] - a[1])[0] || null;
+    return { expenses, spent, top };
+  }
+
+  function renderHomeWalletDetails(index = walletModeIndex) {
+    const account = state.accounts[index];
+    if (!account || !els.homeWalletTodaySpent) return;
+    const today = localDateKey();
+    const month = monthRange();
+    const todaySummary = walletExpenseSummary(account.id, today, today);
+    const monthSummary = walletExpenseSummary(account.id, month.start, month.end);
+    const topShare = monthSummary.top && monthSummary.spent > 0 ? Math.min(100, (monthSummary.top[1] / monthSummary.spent) * 100) : 0;
+    const monthName = new Intl.DateTimeFormat('en-PH', { month: 'long' }).format(new Date());
+
+    els.homeWalletTodaySpent.textContent = state.settings.privacy ? '₱•••• spent' : `${currency(todaySummary.spent, true)} spent`;
+    els.homeWalletTodayEntries.textContent = `${todaySummary.expenses.length} ${todaySummary.expenses.length === 1 ? 'entry' : 'entries'}`;
+    els.homeWalletMonthLabel.textContent = monthName;
+    els.homeWalletMonthSpent.textContent = state.settings.privacy ? '₱•••• spent' : `${currency(monthSummary.spent, true)} spent`;
+    els.homeWalletTopCategory.textContent = monthSummary.top ? `${monthSummary.top[0]} · biggest category` : 'No spending yet';
+    els.homeWalletMonthBar.style.width = `${topShare.toFixed(1)}%`;
+  }
+
   function updateWalletModeHeader(index) {
     const count = state.accounts.length;
     if (!count) return;
     walletModeIndex = Math.max(0, Math.min(index, count - 1));
-    const account = state.accounts[walletModeIndex];
-    els.walletModeTitle.textContent = count > 1 ? 'Your wallets' : 'Your wallet';
     els.walletModeCounter.textContent = `${walletModeIndex + 1} / ${count}`;
-    els.walletModeHint.textContent = count > 1 ? 'Swipe to switch wallets' : 'Add another wallet from Settings';
     els.walletCarouselPrev.disabled = walletModeIndex <= 0;
     els.walletCarouselNext.disabled = walletModeIndex >= count - 1;
     els.walletModeIndicators.querySelectorAll('button').forEach((button, buttonIndex) => {
@@ -467,6 +509,7 @@
       button.classList.toggle('is-active', active);
       button.setAttribute('aria-current', active ? 'true' : 'false');
     });
+    renderHomeWalletDetails(walletModeIndex);
   }
 
   function updateWalletCarouselTransforms() {
@@ -533,10 +576,15 @@
   function renderHome() {
     const accounts = state.accounts;
     walletModeIndex = Math.max(0, Math.min(walletModeIndex, Math.max(0, accounts.length - 1)));
+    const today = localDateKey();
 
     els.walletCarousel.innerHTML = accounts.map((account, index) => {
       const balance = state.settings.privacy ? '₱••••' : currency(accountBalance(account.id));
       const savings = state.settings.privacy ? '₱••••' : currency(walletSavingsBalance(account.id));
+      const todaySpent = state.transactions
+        .filter((tx) => tx.type === 'expense' && tx.accountId === account.id && tx.date === today)
+        .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+      const todayLabel = state.settings.privacy ? '₱••••' : (todaySpent > 0 ? `−${currency(todaySpent, true)}` : currency(0, true));
       const iconId = account.type === 'cash' ? 'i-wallet' : 'i-phone';
       return `
         <article class="wallet-mode-card ${walletModeTone(account)}" data-wallet-index="${index}" data-wallet-id="${escapeHtml(account.id)}" aria-label="${escapeHtml(account.name)} wallet">
@@ -548,19 +596,17 @@
             </div>
             <span class="wallet-mode-card-icon">${icon(iconId)}</span>
           </div>
-          <div class="wallet-mode-card-balances">
-            <div class="wallet-mode-main-balance">
-              <span>Current balance</span>
-              <strong class="money-value">${balance}</strong>
-            </div>
-            <div class="wallet-mode-savings-balance">
-              <span>${icon('i-savings')} Savings balance</span>
-              <strong class="money-value">${savings}</strong>
-            </div>
+          <div class="wallet-mode-main-balance">
+            <span>Current balance</span>
+            <strong class="money-value">${balance}</strong>
+          </div>
+          <div class="wallet-mode-savings-inline">
+            <span>${icon('i-savings')} Savings</span>
+            <strong class="money-value">${savings}</strong>
           </div>
           <div class="wallet-mode-card-footer">
-            <span>${account.isPrimary ? 'Main wallet' : 'Optional wallet'}</span>
-            <span>${index + 1} of ${accounts.length}</span>
+            <span>Today <b class="money-value">${todayLabel}</b></span>
+            <span>${account.isPrimary ? 'Main wallet' : 'Wallet'}</span>
           </div>
         </article>`;
     }).join('');
@@ -568,6 +614,7 @@
     els.walletModeIndicators.innerHTML = accounts.map((account, index) => `
       <button type="button" data-wallet-mode-index="${index}" aria-label="Show ${escapeHtml(account.name)}"${index === walletModeIndex ? ' class="is-active" aria-current="true"' : ''}></button>`).join('');
 
+    renderHomeWalletDetails(walletModeIndex);
     stabilizeWalletCarousel(walletModeIndex);
   }
 
@@ -616,16 +663,11 @@
     els.totalSavings.textContent = currency(shownBalance);
     replayAnimation(els.totalSavings, 'amount-pop');
 
-    els.savingsWalletBreakdown.innerHTML = accounts.map((account, index) => {
-      const amount = walletSavingsBalance(account.id);
-      const active = isWalletMode && index === savingsWalletIndex;
-      return `<button type="button" class="savings-wallet-summary ${active ? 'is-active' : ''}" data-savings-wallet-index="${index}" data-action="show-wallet-savings"><span>${escapeHtml(account.name)}</span><strong class="money-value">${state.settings.privacy ? '₱••••' : currency(amount, true)}</strong></button>`;
-    }).join('');
-
-    if (!state.goals.length) {
+    const visibleGoals = state.goals.filter((goal) => !goal.removedAt);
+    if (!visibleGoals.length) {
       els.goalsGrid.innerHTML = `<article class="card goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and choose which wallet the money comes from.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
-      els.goalsGrid.innerHTML = state.goals.map((goal) => {
+      els.goalsGrid.innerHTML = visibleGoals.map((goal) => {
         const totalCurrent = Number(goal.current || 0);
         const target = Math.max(Number(goal.target || 1), 1);
         const percent = Math.min(100, totalCurrent / target * 100);
@@ -641,7 +683,10 @@
           <article class="card goal-card">
             <div class="goal-card-head">
               <div><p class="eyebrow">Savings goal</p><h3>${escapeHtml(goal.name)}</h3><p class="goal-amount money-value">${escapeHtml(amountCopy)}</p></div>
-              <span class="round-icon green-soft">${icon('i-target')}</span>
+              <div class="goal-card-actions">
+                <span class="round-icon green-soft">${icon('i-target')}</span>
+                <button class="goal-remove" type="button" data-action="remove-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Remove ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}</button>
+              </div>
             </div>
             <div class="goal-progress"><span style="width:${percent.toFixed(1)}%"></span></div>
             <div class="goal-footer"><small>${escapeHtml(secondaryCopy)}</small><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${accountAttribute}>Add savings</button></div>
@@ -1044,6 +1089,142 @@
     currentExpenseEditId = null;
   }
 
+  function transferAvailableBalance(accountId, editingTransferId = null) {
+    let available = Math.max(0, accountBalance(accountId));
+    if (!editingTransferId) return available;
+    const original = state.transactions.find((tx) => tx.id === editingTransferId && tx.type === 'transfer');
+    if (original && original.fromAccountId === accountId) available += Number(original.amount || 0);
+    return available;
+  }
+
+  function populateTransferAccounts(preferredFrom = '', preferredTo = '') {
+    const accounts = state.accounts || [];
+    const fromCurrent = preferredFrom || els.transferFromAccount.value || accounts[0]?.id || '';
+    const toCurrent = preferredTo || els.transferToAccount.value || '';
+    const optionHtml = accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join('');
+    els.transferFromAccount.innerHTML = optionHtml;
+    els.transferToAccount.innerHTML = optionHtml;
+    if (accounts.some((account) => account.id === fromCurrent)) els.transferFromAccount.value = fromCurrent;
+    const firstDifferent = accounts.find((account) => account.id !== els.transferFromAccount.value)?.id || '';
+    const validTo = accounts.some((account) => account.id === toCurrent && account.id !== els.transferFromAccount.value) ? toCurrent : firstDifferent;
+    if (validTo) els.transferToAccount.value = validTo;
+  }
+
+  function setTransferAmountValue(value) {
+    els.transferAmount.value = value;
+    updateTransferEntry();
+    replayAnimation(els.transferAmountCard, 'is-keyed');
+  }
+
+  function handleTransferKey(key) {
+    setTransferAmountValue(applyAmountKey(els.transferAmount.value || '', key, { allowDecimal: true, maxWholeDigits: 8 }));
+  }
+
+  function updateTransferEntry() {
+    if (!els.transferFromAccount) return;
+    const fromId = els.transferFromAccount.value;
+    const toId = els.transferToAccount.value;
+    const amount = Number(els.transferAmount.value || 0);
+    const from = state.accounts.find((account) => account.id === fromId);
+    const to = state.accounts.find((account) => account.id === toId);
+    const available = transferAvailableBalance(fromId, currentTransferEditId);
+    const sameWallet = !fromId || !toId || fromId === toId;
+    const valid = Number.isFinite(amount) && amount > 0 && !sameWallet;
+    const over = valid && amount > available;
+
+    els.transferAvailable.textContent = state.settings.privacy ? 'Available ₱••••' : `Available ${currency(available, true)}`;
+    els.transferAmountCard.classList.toggle('is-over-limit', over || sameWallet);
+    if (sameWallet) {
+      els.transferAmountHint.textContent = 'Choose two different wallets.';
+    } else if (available <= 0) {
+      els.transferAmountHint.textContent = `${from?.name || 'This wallet'} has no spendable money to transfer.`;
+    } else if (over) {
+      els.transferAmountHint.textContent = state.settings.privacy ? 'This is more than the source wallet has available.' : `${currency(amount - available, true)} over the available ${from?.name || 'wallet'} balance.`;
+    } else if (valid) {
+      els.transferAmountHint.textContent = state.settings.privacy ? `Money will move from ${from?.name || 'source'} to ${to?.name || 'destination'}.` : `${currency(available - amount, true)} will remain in ${from?.name || 'the source wallet'}.`;
+    } else {
+      els.transferAmountHint.textContent = `Move money from ${from?.name || 'one wallet'} to ${to?.name || 'another wallet'}.`;
+    }
+    els.transferSaveButton.disabled = !valid || over;
+    els.transferSaveButton.textContent = valid ? `${currentTransferEditId ? 'Update' : 'Transfer'} ${currency(amount, true)}` : (currentTransferEditId ? 'Update transfer' : 'Transfer');
+  }
+
+  function openTransfer(prefill = {}) {
+    if (state.accounts.length < 2) {
+      setView('more');
+      showToast('Add another wallet first, then you can transfer between wallets.');
+      openWallet();
+      return;
+    }
+    currentTransferEditId = prefill.id || null;
+    els.transferForm.reset();
+    els.transferDialogTitle.textContent = currentTransferEditId ? 'Edit transfer' : 'Move money';
+    populateTransferAccounts(prefill.fromAccountId || selectedWalletAccount()?.id || '', prefill.toAccountId || '');
+    els.transferDate.max = localDateKey();
+    els.transferDate.value = prefill.date || localDateKey();
+    els.transferNote.value = prefill.note || '';
+    els.transferAmount.value = prefill.amount || '';
+    updateTransferEntry();
+    openDialog(els.transferDialog);
+    requestAnimationFrame(() => els.transferDialog.focus());
+  }
+
+  function saveTransfer() {
+    const amount = Number(els.transferAmount.value || 0);
+    const fromAccountId = els.transferFromAccount.value;
+    const toAccountId = els.transferToAccount.value;
+    const date = els.transferDate.value || localDateKey();
+    const note = els.transferNote.value.trim();
+    if (!Number.isFinite(amount) || amount <= 0 || !fromAccountId || !toAccountId || fromAccountId === toAccountId) return;
+    if (date > localDateKey()) {
+      showToast('Choose today or a past date for the transfer.');
+      return;
+    }
+    const available = transferAvailableBalance(fromAccountId, currentTransferEditId);
+    if (amount > available) {
+      const name = state.accounts.find((account) => account.id === fromAccountId)?.name || 'source wallet';
+      showToast(`Only ${currency(Math.max(0, available), true)} is available in ${name}.`);
+      return;
+    }
+
+    const editing = Boolean(currentTransferEditId);
+    let tx;
+    if (editing) {
+      tx = state.transactions.find((item) => item.id === currentTransferEditId && item.type === 'transfer');
+      if (!tx || !canModifyTransaction(tx)) {
+        showToast('This transfer is locked after 24 hours.');
+        closeDialog(els.transferDialog);
+        currentTransferEditId = null;
+        return;
+      }
+      Object.assign(tx, { amount, fromAccountId, toAccountId, date, note, category: 'Transfer', updatedAt: new Date().toISOString() });
+    } else {
+      tx = {
+        id: uid('tx'), type: 'transfer', category: 'Transfer', amount, fromAccountId, toAccountId,
+        date, note, createdAt: new Date().toISOString()
+      };
+      state.transactions.push(tx);
+    }
+    state.settings.demoData = false;
+    saveState();
+    closeDialog(els.transferDialog);
+    currentTransferEditId = null;
+    renderAll();
+    const from = state.accounts.find((account) => account.id === fromAccountId)?.name || 'wallet';
+    const to = state.accounts.find((account) => account.id === toAccountId)?.name || 'wallet';
+    showToast(state.settings.privacy ? (editing ? 'Transfer updated.' : 'Transfer completed.') : `${currency(amount, true)} ${editing ? 'updated' : 'moved'} from ${from} to ${to}.`);
+  }
+
+  function openGoal(preferredAccountId = '') {
+    els.goalForm.reset();
+    els.goalCurrent.value = '0';
+    populateAccounts();
+    const preferredGoalAccount = preferredAccountId || (savingsMode === 'wallet' ? state.accounts[savingsWalletIndex]?.id : state.accounts[0]?.id);
+    if (preferredGoalAccount && state.accounts.some((account) => account.id === preferredGoalAccount)) els.goalAccount.value = preferredGoalAccount;
+    openDialog(els.goalDialog);
+    requestAnimationFrame(() => els.goalName.focus());
+  }
+
   function addGoal() {
     const name = els.goalName.value.trim();
     const target = Number(els.goalTarget.value);
@@ -1069,6 +1250,26 @@
     setView('savings');
     if (startingAmount > 0) celebrateSavings();
     showToast(`“${name}” goal created.`);
+  }
+
+  function removeGoal(goalId) {
+    const goal = state.goals.find((item) => item.id === goalId && !item.removedAt);
+    if (!goal) return;
+    const saved = Math.max(0, Number(goal.current || 0));
+    const savedCopy = state.settings.privacy ? 'Money already saved will stay in Savings.' : `${currency(saved, true)} already saved will stay in Savings.`;
+    confirmAction(
+      `Remove “${goal.name}”?`,
+      saved > 0
+        ? `${savedCopy} Removing the goal will not return that money to your spendable wallets. Only the goal card will be removed.`
+        : 'This removes the goal card. No saved money will be affected.',
+      'Remove goal',
+      () => {
+        goal.removedAt = new Date().toISOString();
+        saveState();
+        renderAll();
+        showToast('Savings goal removed.');
+      }
+    );
   }
 
   function openContribution(goalId, suggestedAmount = '', accountId = '') {
@@ -1148,6 +1349,10 @@
     if (tx.type === 'income') {
       setView('more');
       openDifferentAllowance({ id: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date });
+      return;
+    }
+    if (tx.type === 'transfer') {
+      openTransfer({ id: tx.id, amount: String(tx.amount), fromAccountId: tx.fromAccountId, toAccountId: tx.toAccountId, date: tx.date, note: tx.note || '' });
       return;
     }
     showToast('Savings entries can be undone within 24 hours but are not edited separately.');
@@ -1359,26 +1564,29 @@
     if (!action) return;
 
     if (action === 'open-expense') openExpense();
+    if (action === 'home-add-expense') openExpense({ accountId: selectedWalletAccount()?.id || '' });
+    if (action === 'open-transfer') openTransfer({ fromAccountId: selectedWalletAccount()?.id || '' });
+    if (action === 'home-add-savings') {
+      const account = selectedWalletAccount();
+      const goals = state.goals.filter((goal) => !goal.removedAt);
+      if (!goals.length) {
+        openGoal(account?.id || '');
+      } else if (goals.length === 1) {
+        openContribution(goals[0].id, '', account?.id || '');
+      } else {
+        savingsMode = 'wallet';
+        savingsWalletIndex = Math.max(0, state.accounts.findIndex((item) => item.id === account?.id));
+        setView('savings');
+        showToast('Choose a savings goal to add money to.');
+      }
+    }
     if (action === 'open-allowance') openDifferentAllowance();
     if (action === 'apply-update') applyAvailableUpdate();
     if (action === 'dismiss-update') hideUpdateAvailable();
     if (action === 'check-update') checkForUpdates({ announce: true, force: true });
-    if (action === 'open-goal') {
-      els.goalForm.reset();
-      els.goalCurrent.value = '0';
-      populateAccounts();
-      const preferredGoalAccount = savingsMode === 'wallet' ? state.accounts[savingsWalletIndex]?.id : state.accounts[0]?.id;
-      if (preferredGoalAccount) els.goalAccount.value = preferredGoalAccount;
-      openDialog(els.goalDialog);
-      requestAnimationFrame(() => els.goalName.focus());
-    }
+    if (action === 'open-goal') openGoal();
     if (action === 'open-contribution') openContribution(button.dataset.goalId, '', button.dataset.accountId || '');
-    if (action === 'show-wallet-savings') {
-      savingsMode = 'wallet';
-      savingsWalletIndex = Number(button.dataset.savingsWalletIndex || 0);
-      renderSavings();
-      els.contentScroll.scrollTop = 0;
-    }
+    if (action === 'remove-goal') removeGoal(button.dataset.goalId);
     if (action === 'open-wallet') openWallet();
     if (action === 'remove-wallet') removeWallet(button.dataset.id);
     if (action === 'edit-transaction') editTransaction(button.dataset.id);
@@ -1400,15 +1608,16 @@
 
   function cacheElements() {
     [
-      'todayLabel', 'viewTitle', 'contentScroll', 'walletModeTitle', 'walletModeCounter', 'walletCarousel',
-      'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'walletModeHint',
+      'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
+      'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar',
       'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
-      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'savingsWalletBreakdown', 'themeIcon',
+      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'themeIcon',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
       'walletDialog', 'walletForm', 'walletCustomNameWrap', 'walletCustomName', 'walletOpeningBalance', 'walletKeypad',
+      'transferDialog', 'transferForm', 'transferDialogTitle', 'transferFromAccount', 'transferToAccount', 'transferAmountCard', 'transferAvailable', 'transferAmount', 'transferAmountHint', 'transferKeypad', 'transferDate', 'transferNote', 'transferSaveButton',
       'expenseAmount', 'expenseAmountCard', 'expenseAvailable', 'expenseAmountHint', 'expenseKeypad', 'expenseAccount',
       'expenseDate', 'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
       'goalCurrent', 'goalAccount', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount', 'contributeAccount', 'contributeWalletHint',
@@ -1528,6 +1737,30 @@
       event.preventDefault();
       addWallet();
     });
+    els.transferFromAccount.addEventListener('change', () => {
+      if (els.transferToAccount.value === els.transferFromAccount.value) {
+        const fallback = state.accounts.find((account) => account.id !== els.transferFromAccount.value)?.id || '';
+        if (fallback) els.transferToAccount.value = fallback;
+      }
+      updateTransferEntry();
+    });
+    els.transferToAccount.addEventListener('change', updateTransferEntry);
+    els.transferKeypad.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-transfer-key]');
+      if (!button) return;
+      handleTransferKey(button.dataset.transferKey);
+    });
+    els.transferDialog.addEventListener('keydown', (event) => {
+      const key = parseAmountKeyboardKey(event, true);
+      if (!key) return;
+      event.preventDefault();
+      handleTransferKey(key);
+    });
+    els.transferForm.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') return;
+      event.preventDefault();
+      saveTransfer();
+    });
     document.querySelector('.expense-quick-chips').addEventListener('click', (event) => {
       const button = event.target.closest('[data-expense-quick]');
       if (!button) return;
@@ -1585,6 +1818,9 @@
     els.allowanceDialog.addEventListener('close', () => {
       currentAllowanceEditId = null;
       els.allowanceKeypad.classList.add('is-hidden');
+    });
+    els.transferDialog.addEventListener('close', () => {
+      currentTransferEditId = null;
     });
 
     els.importFile.addEventListener('change', () => {
