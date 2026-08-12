@@ -2452,3 +2452,170 @@ dialog[open] .wallet-picker-panel {
 .category-picker input[value="Load"]:checked + span { border-color: var(--cat-load); background: color-mix(in srgb, var(--cat-load) 14%, var(--surface)); }
 .category-picker input[value="Personal"]:checked + span { border-color: var(--cat-personal); background: color-mix(in srgb, var(--cat-personal) 14%, var(--surface)); }
 .category-picker input[value="Other"]:checked + span { border-color: var(--cat-other); background: color-mix(in srgb, var(--cat-other) 14%, var(--surface)); }
+
+/* v2.5.1: true stacked Activity rows and collision-free Manage Goals mode */
+.activity-day-transactions.transaction-list {
+  display: block !important;
+  min-height: 0;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 0 10px 54px 0;
+  scroll-padding-bottom: 60px;
+  scrollbar-gutter: stable;
+  overscroll-behavior-y: contain;
+}
+.activity-day-transactions .transaction-row {
+  display: grid !important;
+  width: 100%;
+  min-height: 64px;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 11px 3px 12px 0 !important;
+  box-sizing: border-box;
+  grid-template-columns: 42px minmax(0, 1fr) auto !important;
+  grid-template-areas:
+    "icon copy amount"
+    "icon actions actions" !important;
+  grid-template-rows: auto auto;
+  column-gap: 12px !important;
+  row-gap: 8px !important;
+  align-items: start !important;
+  border-top: 1px solid var(--line);
+  overflow: visible !important;
+}
+.activity-day-transactions .transaction-row:first-child { border-top: 0; }
+.activity-day-transactions .transaction-row.has-actions { min-height: 94px; }
+.activity-day-transactions .transaction-row > .round-icon {
+  grid-area: icon !important;
+  align-self: start;
+}
+.activity-day-transactions .transaction-copy {
+  grid-area: copy !important;
+  min-width: 0;
+  padding: 0 !important;
+}
+.activity-day-transactions .transaction-copy strong {
+  display: block;
+  min-width: 0;
+  line-height: 1.22;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-day-transactions .transaction-copy small {
+  display: block;
+  margin-top: 4px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-day-transactions .transaction-amount {
+  grid-area: amount !important;
+  align-self: start !important;
+  min-width: max-content;
+  padding: 0 !important;
+  text-align: right;
+  white-space: nowrap;
+}
+.activity-day-transactions .transaction-actions {
+  grid-area: actions !important;
+  min-width: 0;
+  min-height: 30px;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  position: static !important;
+}
+.activity-day-transactions .transaction-actions-row {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 7px;
+}
+.activity-day-transactions .transaction-action {
+  flex: 0 0 auto;
+  min-height: 30px;
+}
+.activity-day-transactions .transaction-row:last-child {
+  margin-bottom: 0 !important;
+  padding-bottom: 18px !important;
+}
+.activity-swipe-hint {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  margin: 0 !important;
+  background: var(--surface);
+}
+
+/* Manage Goals is a focused mode: no dashboard/overview can collide with the card. */
+#view-savings.is-active.is-managing-goals {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: 10px;
+}
+#view-savings.is-managing-goals .savings-dashboard,
+#view-savings.is-managing-goals .savings-goal-overview {
+  display: none !important;
+}
+#view-savings.is-managing-goals .savings-goals-heading {
+  grid-row: 1;
+}
+#view-savings.is-managing-goals .goals-carousel {
+  grid-row: 2;
+  height: 100% !important;
+  min-height: 0;
+  align-self: stretch !important;
+  align-items: stretch;
+  padding-bottom: 6px;
+}
+#view-savings.is-managing-goals .goals-carousel .goal-card:not(.empty-goal-card) {
+  height: 100% !important;
+  max-height: 100%;
+  min-height: 0;
+  align-self: stretch !important;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  justify-content: flex-start;
+  padding-bottom: 16px;
+}
+#view-savings.is-managing-goals .goal-manage-actions {
+  flex: 0 0 auto;
+}
+#view-savings.is-managing-goals .goal-footer {
+  flex: 0 0 auto;
+  margin-top: 10px;
+}
+
+@media (max-width: 560px) {
+  .activity-day-transactions.transaction-list { padding-right: 7px; padding-bottom: 58px; }
+  .activity-day-transactions .transaction-row {
+    grid-template-columns: 38px minmax(0, 1fr) auto !important;
+    column-gap: 9px !important;
+    row-gap: 7px !important;
+    min-height: 60px;
+    padding-top: 10px !important;
+    padding-bottom: 11px !important;
+  }
+  .activity-day-transactions .transaction-row.has-actions { min-height: 88px; }
+  #view-savings.is-managing-goals .goals-carousel .goal-card:not(.empty-goal-card) {
+    padding-bottom: 14px;
+  }
+}
+
+@media (max-width: 390px) and (max-height: 700px) {
+  .activity-day-transactions .transaction-row.has-actions { min-height: 82px; }
+  #view-savings.is-active.is-managing-goals { gap: 7px; }
+  #view-savings.is-managing-goals .goals-carousel .goal-card:not(.empty-goal-card) {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  #view-savings.is-managing-goals .goal-card-metrics,
+  #view-savings.is-managing-goals .goal-progress-block,
+  #view-savings.is-managing-goals .goal-footer { margin-top: 7px; }
+  #view-savings.is-managing-goals .goal-manage-actions { margin-top: 7px; }
+}
+.activity-day-transactions .transaction-row:not(:last-child) { margin-bottom: 2px !important; }

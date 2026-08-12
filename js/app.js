@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.5.0';
+  const APP_VERSION = '2.5.1';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -494,8 +494,10 @@
       const sign = tx.type === 'expense' ? '−' : tx.type === 'income' || tx.type === 'saving_return' ? '+' : '';
       const amountLabel = `${sign}${currency(tx.amount, true)}`;
       const amountKind = tx.type === 'saving_return' ? 'returned' : tx.type === 'saving' ? 'saved' : tx.type;
+      const actionMarkup = full ? renderTransactionActions(tx) : '';
+      const actionClass = actionMarkup ? ' has-actions' : '';
       return `
-        <div class="transaction-row ${escapeHtml(tx.type)}" data-transaction-id="${escapeHtml(tx.id)}">
+        <div class="transaction-row ${escapeHtml(tx.type)}${actionClass}" data-transaction-id="${escapeHtml(tx.id)}">
           <span class="round-icon ${meta.tone}">${icon(meta.icon)}</span>
           <div class="transaction-copy">
             <strong>${escapeHtml(transactionTitle(tx))}</strong>
@@ -505,7 +507,7 @@
             <strong class="money-value">${amountLabel}</strong>
             <small>${escapeHtml(amountKind)}</small>
           </div>
-          ${full ? renderTransactionActions(tx) : ''}
+          ${actionMarkup}
         </div>`;
     }).join('');
   }
@@ -820,10 +822,13 @@
     els.manageGoalsButton.disabled = visibleGoals.length === 0;
     els.manageGoalsButton.textContent = manageGoalsMode ? 'Done' : 'Manage goals';
     els.goalsGrid.classList.toggle('is-managing', manageGoalsMode);
+    document.getElementById('view-savings')?.classList.toggle('is-managing-goals', manageGoalsMode && visibleGoals.length > 0);
 
     if (!visibleGoals.length) {
       manageGoalsMode = false;
       els.manageGoalsButton.textContent = 'Manage goals';
+      els.goalsGrid.classList.remove('is-managing');
+      document.getElementById('view-savings')?.classList.remove('is-managing-goals');
       els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and choose which wallet the money comes from.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = visibleGoals.map((goal) => {
