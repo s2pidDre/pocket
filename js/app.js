@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.5.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -41,6 +41,8 @@
   let waitingServiceWorker = null;
   let refreshAfterUpdate = false;
   let lastUpdateCheck = 0;
+  let currentExpenseEditId = null;
+  let lastReceiptTransactionId = '';
 
   function localDateKey(date = new Date()) {
     const year = date.getFullYear();
@@ -104,6 +106,74 @@
 
   function icon(id) {
     return `<svg aria-hidden="true"><use href="#${id}"></use></svg>`;
+  }
+
+  function cloneStateSnapshot(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function transactionTimestampMs(tx) {
+    const raw = tx?.createdAt || (tx?.date ? `${tx.date}T12:00:00` : '');
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function canModifyTransaction(tx) {
+    return (Date.now() - transactionTimestampMs(tx)) < 24 * 60 * 60 * 1000;
+  }
+
+  function canEditTransaction(tx) {
+    return tx?.type === 'expense' && canModifyTransaction(tx);
+  }
+
+  function transactionWindowLabel(tx) {
+    if (!canModifyTransaction(tx)) return 'Locked after 24h';
+    const leftMs = Math.max(0, (24 * 60 * 60 * 1000) - (Date.now() - transactionTimestampMs(tx)));
+    const hours = Math.max(1, Math.ceil(leftMs / (60 * 60 * 1000)));
+    return `${hours}h left`;
+  }
+
+  function spendableAvailableForEntry(accountId, editingTransactionId = null) {
+    let available = Math.max(0, accountBalance(accountId));
+    if (!editingTransactionId) return available;
+    const original = state.transactions.find((tx) => tx.id === editingTransactionId && tx.type === 'expense');
+    if (original && original.accountId === accountId) available += Number(original.amount || 0);
+    return available;
+  }
+
+  function applyAmountKey(currentValue, key, { allowDecimal = true, maxWholeDigits = 7 } = {}) {
+    let value = String(currentValue || '');
+
+    if (key === 'backspace') return value.slice(0, -1);
+    if (key === 'clear') return '';
+    if (key === '.') {
+      if (!allowDecimal || value.includes('.')) return value;
+      return value ? `${value}.` : '0.';
+    }
+    if (key === '00') {
+      if (!value || value === '0') return '0';
+      const next = `${value}00`;
+      const [whole = '', decimals] = next.split('.');
+      if (decimals !== undefined && decimals.length > 2) return value;
+      if (whole.replace(/^0+/, '').length > maxWholeDigits) return value;
+      return next;
+    }
+    if (!/^\d$/.test(key)) return value;
+
+    const [whole = '', decimals] = value.split('.');
+    if (decimals !== undefined && decimals.length >= 2) return value;
+    if (decimals === undefined && whole.replace(/^0+/, '').length >= maxWholeDigits) return value;
+    if (value === '0') return key;
+    return `${value}${key}`;
+  }
+
+  function parseAmountKeyboardKey(event, allowDecimal = true) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return null;
+    if (event.target.matches('input:not([readonly]), select, textarea, [contenteditable="true"]')) return null;
+    if (event.key === 'Backspace') return 'backspace';
+    if (allowDecimal && (event.key === '.' || event.key === 'Decimal')) return '.';
+    if (/^\d$/.test(event.key)) return event.key;
+    return null;
   }
 
   function seedState() {
@@ -305,6 +375,16 @@
     return `${tx.category || 'Transaction'} · ${account} · ${label}`;
   }
 
+  function renderTransactionActions(tx) {
+    if (!canModifyTransaction(tx)) {
+      return `<div class="transaction-actions"><span class="transaction-lock">${icon('i-lock')} Locked</span><small class="transaction-window">Older than 24 hours</small></div>`;
+    }
+    const actions = [];
+    if (canEditTransaction(tx)) actions.push(`<button class="transaction-action" type="button" data-action="edit-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')} Edit</button>`);
+    actions.push(`<button class="transaction-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')} Undo</button>`);
+    return `<div class="transaction-actions"><div class="transaction-actions-row">${actions.join('')}</div><small class="transaction-window">${escapeHtml(transactionWindowLabel(tx))}</small></div>`;
+  }
+
   function renderTransactionRows(transactions, full = false) {
     if (!transactions.length) {
       return `<div class="empty-state"><span class="round-icon neutral-soft">${icon('i-activity')}</span><strong>No transactions found</strong><span>Your activity will appear here.</span></div>`;
@@ -325,7 +405,7 @@
             <strong class="money-value">${amountLabel}</strong>
             <small>${tx.type === 'saving' ? 'saved' : tx.type}</small>
           </div>
-          ${full ? `<div class="transaction-actions"><button class="row-delete" type="button" data-action="delete-transaction" data-id="${escapeHtml(tx.id)}" aria-label="Delete transaction">${icon('i-trash')}</button></div>` : ''}
+          ${full ? renderTransactionActions(tx) : ''}
         </div>`;
     }).join('');
   }
@@ -468,22 +548,65 @@
   function renderHome() {
     const today = localDateKey();
     const todayTransactions = transactionsForDate(today);
+    const todayExpenses = todayTransactions.filter((tx) => tx.type === 'expense');
     const received = todayTransactions.filter((tx) => tx.type === 'income').reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const spent = todayTransactions.filter((tx) => tx.type === 'expense').reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    els.currentBalance.textContent = currency(totalBalance());
+    const spent = todayExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const plan = activeAllowancePlan();
+    const totalAvailable = totalBalance();
+    const routine = state.allowanceRoutine;
+    const nextDate = routine?.nextDueDate || (plan ? addDays(plan.endDate, 1) : null);
+    const untilNext = nextDate && nextDate > today ? daysUntil(today, nextDate) : 0;
+    const perDay = untilNext > 0 ? Math.max(0, allowancePlanRemaining(plan)) / untilNext : 0;
+    const topCategoryEntry = Object.entries(todayExpenses.reduce((map, tx) => {
+      map[tx.category] = (map[tx.category] || 0) + Number(tx.amount || 0);
+      return map;
+    }, {})).sort((a, b) => b[1] - a[1])[0];
+    const topCategory = topCategoryEntry ? `${topCategoryEntry[0]} · ${currency(topCategoryEntry[1], true)}` : 'No spending yet';
+
+    els.currentBalance.textContent = currency(totalAvailable);
     els.todayReceived.textContent = currency(received, true);
     els.todaySpent.textContent = currency(spent, true);
-    els.homeSavings.textContent = currency(totalSavings());
-    els.homeSavingsHint.textContent = totalSavings() > 0 ? 'Separate from your spending money.' : 'Nothing saved yet.';
+    els.homeDailyPace.textContent = perDay > 0 ? currency(perDay, true) : currency(totalAvailable, true);
+    els.homeDailyPaceHint.textContent = perDay > 0
+      ? `About ${currency(perDay, true)} a day until your next allowance.`
+      : routine ? 'This shows what you can freely spend right now.' : 'Set a usual allowance to unlock daily pacing.';
     replayAnimation(els.currentBalance, 'amount-pop');
-    replayAnimation(els.homeSavings, 'amount-pop');
+    replayAnimation(els.homeDailyPace, 'amount-pop');
 
     renderAllowancePrompt();
     renderAllowancePlan();
-    renderSavingsMini();
 
-    const recent = [...state.transactions].sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))).slice(0, 5);
-    els.recentTransactions.innerHTML = renderTransactionRows(recent);
+    const leftForToday = perDay > 0 ? Math.max(0, perDay - spent) : totalAvailable;
+    els.homeOverview.innerHTML = `
+      <div class="section-heading">
+        <div><p class="eyebrow">Today</p><h2>Quick look</h2></div>
+        <span class="round-icon accent-soft">${icon('i-activity')}</span>
+      </div>
+      <p class="home-overview-copy">Simple at-a-glance info so Home stays clean.</p>
+      <div class="home-insight-grid">
+        <div class="home-insight-tile"><small>Spent today</small><strong class="money-value">${currency(spent, true)}</strong></div>
+        <div class="home-insight-tile"><small>Entries today</small><strong>${todayExpenses.length}</strong></div>
+        <div class="home-insight-tile"><small>Top category</small><strong>${escapeHtml(topCategory)}</strong></div>
+      </div>`;
+
+    const guideItems = [];
+    guideItems.push({ iconTone: 'accent-soft', iconId: 'i-wallet', title: 'Available now', copy: `${currency(totalAvailable, true)} is ready for spending.` });
+    if (plan && untilNext > 0) guideItems.push({ iconTone: 'purple-soft', iconId: 'i-calendar', title: 'Daily pace', copy: `${currency(leftForToday, true)} left for today from your suggested pace.` });
+    else guideItems.push({ iconTone: 'purple-soft', iconId: 'i-calendar', title: 'Allowance rhythm', copy: routine ? 'Record your next allowance when it arrives.' : 'Set your usual allowance so Pocket can guide your pace.' });
+    guideItems.push({ iconTone: 'amber-soft', iconId: 'i-food', title: 'Spending focus', copy: topCategoryEntry ? `${topCategoryEntry[0]} is the biggest spend today.` : 'No spending yet today. Nice and clean.' });
+
+    const secondaryAction = routine ? '<button class="button-secondary" type="button" data-view="activity">View activity</button>' : '<button class="button-secondary" type="button" data-action="open-allowance-routine">Set allowance</button>';
+    els.homeRhythm.innerHTML = `
+      <div class="section-heading">
+        <div><p class="eyebrow">Pocket guide</p><h2>Keep it easy</h2></div>
+        <span class="round-icon green-soft">${icon('i-sparkle')}</span>
+      </div>
+      <p class="home-rhythm-copy">A lighter home screen that keeps your most useful reminders front and center.</p>
+      <ul class="home-rhythm-list">${guideItems.map((item) => `<li><span class="round-icon ${item.iconTone}">${icon(item.iconId)}</span><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.copy)}</span></div></li>`).join('')}</ul>
+      <div class="home-rhythm-actions">
+        <button class="button-primary" type="button" data-action="open-expense">Add expense</button>
+        ${secondaryAction}
+      </div>`;
   }
 
   function filteredActivity() {
@@ -622,7 +745,7 @@
     const amount = Number(els.expenseAmount.value || 0);
     const accountId = els.expenseAccount.value || state.accounts[0]?.id;
     const account = state.accounts.find((item) => item.id === accountId);
-    const available = Math.max(0, accountBalance(accountId));
+    const available = spendableAvailableForEntry(accountId, currentExpenseEditId);
     const isValid = Number.isFinite(amount) && amount > 0;
     const isOver = isValid && amount > available;
 
@@ -636,11 +759,11 @@
     } else if (isValid) {
       els.expenseAmountHint.textContent = state.settings.privacy ? 'This fits your available balance.' : `${currency(available - amount, true)} will remain available.`;
     } else {
-      els.expenseAmountHint.textContent = 'Tap the keypad below.';
+      els.expenseAmountHint.textContent = 'Use the keypad below or your keyboard.';
     }
 
     els.expenseSaveButton.disabled = !isValid || isOver;
-    els.expenseSaveButton.textContent = isValid ? `Save ${currency(amount, true)}` : 'Save expense';
+    els.expenseSaveButton.textContent = isValid ? `${currentExpenseEditId ? 'Update' : 'Save'} ${currency(amount, true)}` : (currentExpenseEditId ? 'Update expense' : 'Save expense');
   }
 
   function setExpenseAmountValue(value) {
@@ -650,26 +773,29 @@
   }
 
   function handleExpenseKey(key) {
-    let value = els.expenseAmount.value || '';
+    setExpenseAmountValue(applyAmountKey(els.expenseAmount.value || '', key, { allowDecimal: true, maxWholeDigits: 7 }));
+  }
 
-    if (key === 'backspace') {
-      setExpenseAmountValue(value.slice(0, -1));
-      return;
+  function setAllowanceRoutineAmountValue(value) {
+    els.allowanceRoutineAmountInput.value = value;
+    const amount = Number(value || 0);
+    if (amount > 0) {
+      els.allowanceAutoSaveAmount.max = String(amount);
+      if (Number(els.allowanceAutoSaveAmount.value || 0) > amount) els.allowanceAutoSaveAmount.value = String(amount);
     }
+  }
 
-    if (key === '.') {
-      if (!value.includes('.')) setExpenseAmountValue(value ? `${value}.` : '0.');
-      return;
-    }
+  function handleRoutineAmountKey(key) {
+    setAllowanceRoutineAmountValue(applyAmountKey(els.allowanceRoutineAmountInput.value || '', key, { allowDecimal: false, maxWholeDigits: 7 }));
+  }
 
-    if (!/^\d$/.test(key)) return;
-    const [whole = '', decimals] = value.split('.');
-    if (decimals !== undefined && decimals.length >= 2) return;
-    if (decimals === undefined && whole.replace(/^0+/, '').length >= 7) return;
+  function setAllowanceAmountValue(value) {
+    els.allowanceAmount.value = value;
+    updateAllowanceAutoSaveHint(Number(value || 0));
+  }
 
-    if (value === '0') value = key;
-    else value += key;
-    setExpenseAmountValue(value);
+  function handleAllowanceAmountKey(key) {
+    setAllowanceAmountValue(applyAmountKey(els.allowanceAmount.value || '', key, { allowDecimal: false, maxWholeDigits: 7 }));
   }
 
   function setView(view, updateHash = true) {
@@ -729,8 +855,10 @@
   }
 
   function openExpense(prefill = {}) {
+    currentExpenseEditId = prefill.id || null;
     els.expenseForm.reset();
     els.expenseDetails.open = false;
+    els.expenseDialogTitle.textContent = currentExpenseEditId ? 'Edit expense' : 'Add expense';
     els.expenseDate.value = prefill.date || localDateKey();
     els.expenseAmount.value = prefill.amount || '';
     if (prefill.category) {
@@ -743,6 +871,7 @@
     updateExpenseDetailsSummary();
     updateExpenseEntry();
     openDialog(els.expenseDialog);
+    requestAnimationFrame(() => els.expenseDialog.focus());
   }
 
   function updateAllowanceAutoSaveUI() {
@@ -758,7 +887,7 @@
     const routine = state.allowanceRoutine;
     els.allowanceRoutineForm.reset();
     els.allowanceRoutineTitle.textContent = routine ? 'Edit your usual allowance' : 'Set your usual allowance';
-    els.allowanceRoutineAmountInput.value = routine?.amount || '';
+    setAllowanceRoutineAmountValue(routine?.amount || '');
     const frequency = routine?.frequency || 'weekly';
     const radio = els.allowanceRoutineForm.querySelector(`input[name="allowanceFrequency"][value="${CSS.escape(frequency)}"]`);
     if (radio) radio.checked = true;
@@ -768,7 +897,7 @@
     if (routine?.amount) els.allowanceAutoSaveAmount.max = String(routine.amount);
     updateAllowanceAutoSaveUI();
     openDialog(els.allowanceRoutineDialog);
-    requestAnimationFrame(() => els.allowanceRoutineAmountInput.focus());
+    requestAnimationFrame(() => els.allowanceRoutineDialog.focus());
   }
 
   function saveAllowanceRoutine() {
@@ -833,14 +962,14 @@
       return;
     }
     els.allowanceForm.reset();
-    els.allowanceAmount.value = routine.amount || '';
+    setAllowanceAmountValue(routine.amount || '');
     const irregular = routine.frequency === 'irregular';
     els.allowanceNextDateWrap.classList.toggle('is-hidden', !irregular);
     els.allowanceNextDate.min = addDays(localDateKey(), 1);
     els.allowanceNextDate.value = irregular && routine.nextDueDate && routine.nextDueDate > localDateKey() ? routine.nextDueDate : '';
     updateAllowanceAutoSaveHint();
     openDialog(els.allowanceDialog);
-    requestAnimationFrame(() => els.allowanceAmount.focus());
+    requestAnimationFrame(() => els.allowanceDialog.focus());
   }
 
   function receiveAllowance(amount, expectedNextDate = null) {
@@ -931,6 +1060,27 @@
     receiveAllowance(amount, expectedNextDate);
   }
 
+  function renderExpenseReceipt(tx, edited = false) {
+    const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Wallet';
+    const savedLabel = edited ? 'Updated' : 'Saved';
+    els.expenseReceiptDialog.dataset.transactionId = tx.id;
+    lastReceiptTransactionId = tx.id;
+    els.expenseReceiptContent.innerHTML = `
+      <div class="receipt-head">
+        <div><small class="eyebrow">Pocket receipt</small><strong>${escapeHtml(tx.category || 'Expense')}</strong></div>
+        <span class="receipt-stamp">${savedLabel}</span>
+      </div>
+      <div class="receipt-amount money-value">${currency(tx.amount, true)}</div>
+      <div class="receipt-divider"></div>
+      <div class="receipt-lines">
+        <div class="receipt-line"><span>Paid from</span><strong>${escapeHtml(account)}</strong></div>
+        <div class="receipt-line"><span>Date</span><strong>${escapeHtml(DATE_LABEL.format(fromDateKey(tx.date)))}</strong></div>
+        <div class="receipt-line"><span>Editable</span><strong>${escapeHtml(transactionWindowLabel(tx))}</strong></div>
+      </div>
+      ${tx.note ? `<div class="receipt-note">${escapeHtml(tx.note)}</div>` : ''}`;
+    openDialog(els.expenseReceiptDialog);
+  }
+
   function addExpense() {
     const amount = Number(els.expenseAmount.value);
     if (!Number.isFinite(amount) || amount <= 0) return;
@@ -938,28 +1088,46 @@
     const accountId = els.expenseAccount.value || state.accounts[0]?.id;
     const date = els.expenseDate.value || localDateKey();
     const note = els.expenseNote.value.trim();
-    const available = accountBalance(accountId);
+    const available = spendableAvailableForEntry(accountId, currentExpenseEditId);
     if (amount > available) {
       const accountName = state.accounts.find((account) => account.id === accountId)?.name || 'this account';
       showToast(`Only ${currency(Math.max(0, available), true)} is available in ${accountName}. Savings stays separate.`);
       return;
     }
 
-    state.transactions.push({
-      id: uid('tx'),
-      type: 'expense',
-      amount,
-      category,
-      accountId,
-      date,
-      note,
-      createdAt: new Date().toISOString()
-    });
+    let savedTransaction;
+    const editing = Boolean(currentExpenseEditId);
+    if (editing) {
+      const tx = state.transactions.find((item) => item.id === currentExpenseEditId && item.type === 'expense');
+      if (!tx) return;
+      if (!canModifyTransaction(tx)) {
+        showToast('This transaction is already locked after 24 hours.');
+        currentExpenseEditId = null;
+        closeDialog(els.expenseDialog);
+        return;
+      }
+      Object.assign(tx, { amount, category, accountId, date, note, updatedAt: new Date().toISOString() });
+      savedTransaction = tx;
+    } else {
+      savedTransaction = {
+        id: uid('tx'),
+        type: 'expense',
+        amount,
+        category,
+        accountId,
+        date,
+        note,
+        createdAt: new Date().toISOString()
+      };
+      state.transactions.push(savedTransaction);
+    }
+
     state.settings.demoData = false;
     saveState();
     closeDialog(els.expenseDialog);
     renderAll();
-    showToast(`${currency(amount, true)} expense saved.`);
+    renderExpenseReceipt(savedTransaction, editing);
+    currentExpenseEditId = null;
   }
 
   function addGoal() {
@@ -1040,48 +1208,57 @@
     }
   }
 
-  function deleteTransaction(id) {
-    const index = state.transactions.findIndex((tx) => tx.id === id);
-    if (index < 0) return;
-    const deleted = state.transactions[index];
-    state.transactions.splice(index, 1);
-
-    if (deleted.type === 'saving' && deleted.goalId) {
-      const goal = state.goals.find((item) => item.id === deleted.goalId);
-      if (goal) goal.current = Math.max(0, Number(goal.current || 0) - Number(deleted.amount || 0));
-      if (deleted.allowanceId) {
-        const plan = state.allowancePlans.find((item) => item.id === deleted.allowanceId);
-        if (plan) plan.savingsAmount = Math.max(0, Number(plan.savingsAmount || 0) - Number(deleted.amount || 0));
-      }
+  function editTransaction(id) {
+    const tx = state.transactions.find((item) => item.id === id);
+    if (!tx) return;
+    if (!canModifyTransaction(tx)) {
+      showToast('This transaction is locked after 24 hours.');
+      return;
     }
-    if (deleted.type === 'income' && deleted.allowanceId) {
-      const plan = state.allowancePlans.find((item) => item.id === deleted.allowanceId);
-      if (plan) plan.status = 'deleted';
-      syncAllowanceRoutineFromHistory();
+    if (tx.type !== 'expense') {
+      showToast('Only expense entries can be edited. Allowance and savings can still be undone within 24 hours.');
+      return;
+    }
+    closeDialog(els.expenseReceiptDialog);
+    openExpense({ id: tx.id, amount: String(tx.amount), category: tx.category, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
+  }
+
+  function undoTransaction(id) {
+    const tx = state.transactions.find((item) => item.id === id);
+    if (!tx) return;
+    if (!canModifyTransaction(tx)) {
+      showToast('This transaction is locked after 24 hours.');
+      return;
     }
 
-    pendingUndo = { deleted, index };
-    saveState();
-    renderAll();
-    showToast('Transaction removed.', 'Undo', () => {
-      if (!pendingUndo) return;
-      state.transactions.splice(pendingUndo.index, 0, pendingUndo.deleted);
-      if (pendingUndo.deleted.type === 'saving' && pendingUndo.deleted.goalId) {
-        const goal = state.goals.find((item) => item.id === pendingUndo.deleted.goalId);
-        if (goal) goal.current = Number(goal.current || 0) + Number(pendingUndo.deleted.amount || 0);
-        if (pendingUndo.deleted.allowanceId) {
-          const plan = state.allowancePlans.find((item) => item.id === pendingUndo.deleted.allowanceId);
-          if (plan) plan.savingsAmount = Number(plan.savingsAmount || 0) + Number(pendingUndo.deleted.amount || 0);
+    confirmAction('Undo this transaction?', 'You can undo or edit entries for 24 hours only. This action will remove the selected transaction now.', 'Undo transaction', () => {
+      const snapshot = cloneStateSnapshot(state);
+      const groupId = tx.allowanceId || null;
+      const removed = groupId ? state.transactions.filter((item) => item.allowanceId === groupId) : state.transactions.filter((item) => item.id === id);
+
+      removed.forEach((item) => {
+        if (item.type === 'saving' && item.goalId) {
+          const goal = state.goals.find((goalItem) => goalItem.id === item.goalId);
+          if (goal) goal.current = Math.max(0, Number(goal.current || 0) - Number(item.amount || 0));
         }
-      }
-      if (pendingUndo.deleted.type === 'income' && pendingUndo.deleted.allowanceId) {
-        const plan = state.allowancePlans.find((item) => item.id === pendingUndo.deleted.allowanceId);
-        if (plan) plan.status = 'active';
+      });
+
+      state.transactions = state.transactions.filter((item) => groupId ? item.allowanceId !== groupId : item.id !== id);
+      if (groupId) {
+        const plan = state.allowancePlans.find((item) => item.id === groupId);
+        if (plan) plan.status = 'deleted';
         syncAllowanceRoutineFromHistory();
       }
-      pendingUndo = null;
+
+      state.settings.demoData = false;
       saveState();
+      closeDialog(els.expenseReceiptDialog);
       renderAll();
+      showToast('Transaction undone.', 'Restore', () => {
+        state = cloneStateSnapshot(snapshot);
+        saveState();
+        renderAll();
+      });
     });
   }
 
@@ -1220,7 +1397,10 @@
       requestAnimationFrame(() => els.goalName.focus());
     }
     if (action === 'open-contribution') openContribution(button.dataset.goalId);
-    if (action === 'delete-transaction') deleteTransaction(button.dataset.id);
+    if (action === 'edit-transaction') editTransaction(button.dataset.id);
+    if (action === 'undo-transaction' || action === 'delete-transaction') undoTransaction(button.dataset.id);
+    if (action === 'edit-receipt-transaction') editTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
+    if (action === 'undo-receipt-transaction') undoTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'toggle-theme') {
       state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark';
       saveState(); renderAll();
@@ -1237,14 +1417,14 @@
   function cacheElements() {
     [
       'todayLabel', 'viewTitle', 'contentScroll', 'allowancePrompt', 'currentBalance', 'todayReceived', 'todaySpent',
-      'homeSavings', 'homeSavingsHint', 'allowancePlanCard',
-      'recentTransactions', 'savingsMini', 'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
+      'homeDailyPace', 'homeDailyPaceHint', 'allowancePlanCard', 'homeOverview', 'homeRhythm',
+      'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
       'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'themeIcon',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'allowanceRoutineAmount', 'allowanceRoutineSummary', 'importFile',
-      'allowanceRoutineDialog', 'allowanceRoutineForm', 'allowanceRoutineTitle', 'allowanceRoutineAmountInput',
-      'allowanceAutoSaveEnabled', 'allowanceAutoSaveWrap', 'allowanceAutoSaveAmount', 'allowanceDialog', 'allowanceForm', 'allowanceAmount',
+      'allowanceRoutineDialog', 'allowanceRoutineForm', 'allowanceRoutineTitle', 'allowanceRoutineAmountInput', 'allowanceRoutineKeypad',
+      'allowanceAutoSaveEnabled', 'allowanceAutoSaveWrap', 'allowanceAutoSaveAmount', 'allowanceDialog', 'allowanceForm', 'allowanceAmount', 'allowanceKeypad',
       'allowanceNextDateWrap', 'allowanceNextDate', 'allowanceAutoSaveHint', 'allowanceAutoSaveHintTitle', 'allowanceAutoSaveHintText',
-      'expenseDialog', 'expenseForm',
+      'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
       'expenseAmount', 'expenseAmountCard', 'expenseAvailable', 'expenseAmountHint', 'expenseKeypad', 'expenseAccount',
       'expenseDate', 'expenseNote', 'expenseDetails', 'expenseDetailsSummary', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
       'goalCurrent', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount',
@@ -1272,15 +1452,10 @@
     els.activitySearch.addEventListener('input', renderActivity);
     els.activityType.addEventListener('change', renderActivity);
 
-    els.allowanceRoutineAmountInput.addEventListener('input', () => {
-      const amount = Number(els.allowanceRoutineAmountInput.value || 0);
-      if (amount > 0) els.allowanceAutoSaveAmount.max = String(amount);
-    });
     document.getElementById('allowanceRoutineAmountChips').addEventListener('click', (event) => {
       const button = event.target.closest('[data-routine-amount]');
       if (!button) return;
-      els.allowanceRoutineAmountInput.value = button.dataset.routineAmount;
-      els.allowanceAutoSaveAmount.max = button.dataset.routineAmount;
+      setAllowanceRoutineAmountValue(button.dataset.routineAmount);
     });
     els.allowanceAutoSaveEnabled.addEventListener('change', updateAllowanceAutoSaveUI);
     els.allowanceRoutineForm.addEventListener('submit', (event) => {
@@ -1293,13 +1468,41 @@
     document.getElementById('allowanceAmountChips').addEventListener('click', (event) => {
       const button = event.target.closest('[data-amount]');
       if (!button) return;
-      els.allowanceAmount.value = button.dataset.amount;
-      updateAllowanceAutoSaveHint();
+      setAllowanceAmountValue(button.dataset.amount);
     });
     els.allowanceForm.addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
       addAllowance();
+    });
+    els.allowanceRoutineKeypad.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-routine-key]');
+      if (!button) return;
+      handleRoutineAmountKey(button.dataset.routineKey);
+    });
+    els.allowanceKeypad.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-allowance-key]');
+      if (!button) return;
+      handleAllowanceAmountKey(button.dataset.allowanceKey);
+    });
+    els.allowanceRoutineDialog.addEventListener('keydown', (event) => {
+      const key = parseAmountKeyboardKey(event, false);
+      if (!key) return;
+      event.preventDefault();
+      handleRoutineAmountKey(key);
+    });
+    els.allowanceDialog.addEventListener('keydown', (event) => {
+      const key = parseAmountKeyboardKey(event, false);
+      if (!key) return;
+      event.preventDefault();
+      handleAllowanceAmountKey(key);
+    });
+    document.querySelector('.expense-quick-chips').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-expense-quick]');
+      if (!button) return;
+      const current = Number(els.expenseAmount.value || 0);
+      const next = current + Number(button.dataset.expenseQuick || 0);
+      setExpenseAmountValue(String(next));
     });
     els.expenseKeypad.addEventListener('click', (event) => {
       const button = event.target.closest('[data-expense-key]');
@@ -1312,10 +1515,8 @@
     });
     els.expenseDate.addEventListener('change', updateExpenseDetailsSummary);
     els.expenseDialog.addEventListener('keydown', (event) => {
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.target.matches('input:not(#expenseAmount), select, textarea, [contenteditable="true"]')) return;
-      const key = event.key === 'Backspace' ? 'backspace' : event.key === 'Decimal' ? '.' : event.key;
-      if (!/^\d$/.test(key) && key !== '.' && key !== 'backspace') return;
+      const key = parseAmountKeyboardKey(event, true);
+      if (!key) return;
       event.preventDefault();
       handleExpenseKey(key);
     });
@@ -1342,6 +1543,10 @@
       pendingConfirm = null;
       closeDialog(els.confirmDialog);
       if (action) action();
+    });
+
+    els.expenseDialog.addEventListener('close', () => {
+      currentExpenseEditId = null;
     });
 
     els.importFile.addEventListener('change', () => {

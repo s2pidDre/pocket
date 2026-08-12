@@ -43,6 +43,8 @@
     <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.2-2.1L20 11M4 13l2.7 4.1A7 7 0 0 0 17.9 15"/></symbol>
     <symbol id="i-backspace" viewBox="0 0 24 24"><path d="m9 6-6 6 6 6h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2Z"/><path d="m13 9 5 6m0-6-5 6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-5 1 1-5Z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 1 1 8 0v3"/></symbol>
   </svg>
 
 
@@ -119,34 +121,22 @@
             <article class="card savings-balance-card">
               <div class="card-heading-row">
                 <div>
-                  <p class="label">Savings</p>
-                  <p class="metric-value money-value" id="homeSavings">₱0.00</p>
+                  <p class="label">Today pace</p>
+                  <p class="metric-value money-value" id="homeDailyPace">₱0.00</p>
                 </div>
-                <span class="round-icon purple-soft"><svg><use href="#i-savings"/></svg></span>
+                <span class="round-icon purple-soft"><svg><use href="#i-calendar"/></svg></span>
               </div>
-              <p class="muted" id="homeSavingsHint">Kept separate from spending.</p>
+              <p class="muted" id="homeDailyPaceHint">This is your suggested daily pace.</p>
             </article>
 
           </div>
 
-          <div class="home-layout">
-            <div class="home-main-column">
-              <article class="card allowance-plan-card" id="allowancePlanCard"></article>
+          <div class="home-layout simple-home-layout">
+            <article class="card allowance-plan-card" id="allowancePlanCard"></article>
 
-              <article class="card section-card">
-                <div class="section-heading">
-                  <div>
-                    <p class="eyebrow">Activity</p>
-                    <h2>Recent transactions</h2>
-                  </div>
-                  <button class="text-button" type="button" data-view="activity">See all <svg><use href="#i-chevron"/></svg></button>
-                </div>
-                <div class="transaction-list" id="recentTransactions"></div>
-              </article>
-            </div>
-
-            <div class="home-side-column">
-              <article class="card section-card savings-mini" id="savingsMini"></article>
+            <div class="home-simple-grid">
+              <article class="card section-card" id="homeOverview"></article>
+              <article class="card section-card" id="homeRhythm"></article>
             </div>
           </div>
         </section>
@@ -283,9 +273,15 @@
       </div>
       <div class="dialog-body">
         <label class="field-label" for="allowanceRoutineAmountInput">Usual amount</label>
-        <div class="amount-field"><span>₱</span><input id="allowanceRoutineAmountInput" name="allowanceRoutineAmountInput" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
+        <div class="amount-field soft-amount-field"><span>₱</span><input id="allowanceRoutineAmountInput" name="allowanceRoutineAmountInput" type="text" inputmode="none" autocomplete="off" placeholder="0" readonly required></div>
         <div class="amount-chips" id="allowanceRoutineAmountChips">
           <button type="button" data-routine-amount="100">₱100</button><button type="button" data-routine-amount="200">₱200</button><button type="button" data-routine-amount="500">₱500</button><button type="button" data-routine-amount="1000">₱1,000</button>
+        </div>
+        <div class="soft-keypad compact-keypad" id="allowanceRoutineKeypad" aria-label="Usual allowance keypad">
+          <button type="button" data-routine-key="1">1</button><button type="button" data-routine-key="2">2</button><button type="button" data-routine-key="3">3</button>
+          <button type="button" data-routine-key="4">4</button><button type="button" data-routine-key="5">5</button><button type="button" data-routine-key="6">6</button>
+          <button type="button" data-routine-key="7">7</button><button type="button" data-routine-key="8">8</button><button type="button" data-routine-key="9">9</button>
+          <button type="button" class="soft-key utility" data-routine-key="00">00</button><button type="button" data-routine-key="0">0</button><button type="button" class="soft-key utility" data-routine-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
         </div>
 
         <fieldset class="choice-group allowance-frequency">
@@ -321,9 +317,15 @@
       </div>
       <div class="dialog-body">
         <label class="field-label" for="allowanceAmount">Amount received</label>
-        <div class="amount-field"><span>₱</span><input id="allowanceAmount" name="allowanceAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
+        <div class="amount-field soft-amount-field"><span>₱</span><input id="allowanceAmount" name="allowanceAmount" type="text" inputmode="none" autocomplete="off" placeholder="0" readonly required></div>
         <div class="amount-chips" id="allowanceAmountChips">
           <button type="button" data-amount="100">₱100</button><button type="button" data-amount="200">₱200</button><button type="button" data-amount="500">₱500</button><button type="button" data-amount="1000">₱1,000</button>
+        </div>
+        <div class="soft-keypad compact-keypad" id="allowanceKeypad" aria-label="Allowance keypad">
+          <button type="button" data-allowance-key="1">1</button><button type="button" data-allowance-key="2">2</button><button type="button" data-allowance-key="3">3</button>
+          <button type="button" data-allowance-key="4">4</button><button type="button" data-allowance-key="5">5</button><button type="button" data-allowance-key="6">6</button>
+          <button type="button" data-allowance-key="7">7</button><button type="button" data-allowance-key="8">8</button><button type="button" data-allowance-key="9">9</button>
+          <button type="button" class="soft-key utility" data-allowance-key="00">00</button><button type="button" data-allowance-key="0">0</button><button type="button" class="soft-key utility" data-allowance-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
         </div>
 
         <div class="field-group is-hidden" id="allowanceNextDateWrap">
@@ -346,7 +348,7 @@
   <dialog id="expenseDialog" class="app-dialog expense-dialog">
     <form method="dialog" class="dialog-panel expense-panel" id="expenseForm">
       <div class="dialog-header expense-header">
-        <div><h2>Add expense</h2><p class="dialog-subtitle">Amount, category, done.</p></div>
+        <div><h2 id="expenseDialogTitle">Add expense</h2><p class="dialog-subtitle">Enter the amount, choose a category, then save.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body expense-body">
@@ -354,10 +356,17 @@
           <div class="expense-amount-card" id="expenseAmountCard">
             <div class="expense-amount-meta"><span>Amount</span><small id="expenseAvailable">Available ₱0</small></div>
             <div class="expense-amount-display"><span>₱</span><input id="expenseAmount" name="expenseAmount" type="text" inputmode="none" autocomplete="off" placeholder="0" readonly required aria-label="Expense amount"></div>
-            <p id="expenseAmountHint">Tap the keypad below.</p>
+            <p id="expenseAmountHint">Use the keypad below or your keyboard.</p>
           </div>
 
-          <div class="expense-keypad" id="expenseKeypad" aria-label="Amount keypad">
+          <div class="amount-chips expense-quick-chips">
+            <button type="button" data-expense-quick="50">+₱50</button>
+            <button type="button" data-expense-quick="100">+₱100</button>
+            <button type="button" data-expense-quick="200">+₱200</button>
+            <button type="button" data-expense-quick="500">+₱500</button>
+          </div>
+
+          <div class="soft-keypad expense-soft-keypad" id="expenseKeypad" aria-label="Amount keypad">
             <button type="button" data-expense-key="1">1</button>
             <button type="button" data-expense-key="2">2</button>
             <button type="button" data-expense-key="3">3</button>
@@ -367,9 +376,9 @@
             <button type="button" data-expense-key="7">7</button>
             <button type="button" data-expense-key="8">8</button>
             <button type="button" data-expense-key="9">9</button>
-            <button type="button" data-expense-key=".">.</button>
+            <button type="button" class="soft-key utility" data-expense-key=".">.</button>
             <button type="button" data-expense-key="0">0</button>
-            <button type="button" data-expense-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
+            <button type="button" class="soft-key utility" data-expense-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
           </div>
         </section>
 
@@ -419,6 +428,31 @@
         <button class="button-primary" type="submit" value="default">Create goal</button>
       </div>
     </form>
+  </dialog>
+
+
+  <dialog id="expenseReceiptDialog" class="app-dialog compact-dialog">
+    <div class="dialog-panel receipt-panel">
+      <div class="dialog-header receipt-dialog-header">
+        <div><p class="eyebrow">Saved</p><h2>Expense recorded</h2><p class="dialog-subtitle">A cute little receipt for your entry.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <div class="receipt-hero">
+          <span class="receipt-sticker">✨</span>
+          <div>
+            <strong>Receipt ready</strong>
+            <p>Your expense has been added to Pocket.</p>
+          </div>
+        </div>
+        <div class="receipt-card" id="expenseReceiptContent"></div>
+      </div>
+      <div class="dialog-footer receipt-footer">
+        <button class="button-secondary" type="button" data-action="undo-receipt-transaction">Undo</button>
+        <button class="button-secondary" type="button" data-action="edit-receipt-transaction">Edit</button>
+        <button class="button-primary" type="button" data-close-dialog>Done</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="contributeDialog" class="app-dialog compact-dialog">
