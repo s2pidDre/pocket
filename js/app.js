@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.1.0';
+  const APP_VERSION = '2.2.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -54,6 +54,7 @@
   let manageGoalsMode = false;
   let activitySwipeStartX = null;
   let lastReceiptTransactionId = '';
+  let activeWalletPickerTarget = '';
 
   function localDateKey(date = new Date()) {
     const year = date.getFullYear();
@@ -806,6 +807,86 @@
     if (state.accounts.some((account) => account.id === allowanceCurrent)) els.allowanceAccount.value = allowanceCurrent;
     if (state.accounts.some((account) => account.id === goalCurrent)) els.goalAccount.value = goalCurrent;
     if (state.accounts.some((account) => account.id === contributionCurrent)) els.contributeAccount.value = contributionCurrent;
+    syncWalletPickerTriggers();
+  }
+
+  function walletPickerContext(targetId) {
+    const contexts = {
+      expenseAccount: ['Pay from', 'Choose the wallet this expense came from.'],
+      allowanceAccount: ['Receive into', 'Choose where the allowance was actually received.'],
+      goalAccount: ['Save from', 'Choose which wallet will fund this savings goal.'],
+      contributeAccount: ['Save from', 'Choose which wallet this savings contribution comes from.'],
+      transferFromAccount: ['Transfer from', 'Choose the wallet sending the money.'],
+      transferToAccount: ['Transfer to', 'Choose the wallet receiving the money.']
+    };
+    return contexts[targetId] || ['Choose wallet', 'Pick a wallet for this transaction.'];
+  }
+
+  function walletPickerAccounts(targetId) {
+    if (targetId === 'transferToAccount') {
+      const fromId = els.transferFromAccount?.value || '';
+      return state.accounts.filter((account) => account.id !== fromId);
+    }
+    return state.accounts;
+  }
+
+  function walletPickerBalanceCopy(account) {
+    if (!account) return 'Select a wallet';
+    if (state.settings.privacy) return 'Available ₱•••• · Savings ₱••••';
+    return `Available ${currency(Math.max(0, accountBalance(account.id)), true)} · Savings ${currency(walletSavingsBalance(account.id), true)}`;
+  }
+
+  function syncWalletPickerTriggers() {
+    document.querySelectorAll('[data-wallet-select]').forEach((button) => {
+      const select = document.getElementById(button.dataset.walletSelect);
+      if (!select) return;
+      const account = state.accounts.find((item) => item.id === select.value) || state.accounts[0];
+      const copy = button.querySelector('.wallet-picker-trigger-copy');
+      if (copy) {
+        copy.innerHTML = account
+          ? `<strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(walletPickerBalanceCopy(account))}</small>`
+          : '<strong>No wallet</strong><small>Add a wallet in Settings</small>';
+      }
+      button.disabled = !account;
+    });
+  }
+
+  function renderWalletPickerList() {
+    const target = document.getElementById(activeWalletPickerTarget);
+    const accounts = walletPickerAccounts(activeWalletPickerTarget);
+    if (!accounts.length) {
+      els.walletPickerList.innerHTML = '<div class="wallet-picker-empty">No other wallet is available for this choice.</div>';
+      return;
+    }
+    els.walletPickerList.innerHTML = accounts.map((account) => {
+      const selected = target?.value === account.id;
+      return `<button class="wallet-picker-option${selected ? ' is-selected' : ''}" type="button" data-wallet-picker-account="${escapeHtml(account.id)}">
+        <span class="wallet-picker-option-icon">${icon('i-wallet')}</span>
+        <span class="wallet-picker-option-copy"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(walletPickerBalanceCopy(account))}</small></span>
+        <span class="wallet-picker-option-check">${icon('i-check')}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function openWalletPicker(targetId) {
+    const select = document.getElementById(targetId);
+    if (!select || !state.accounts.length) return;
+    activeWalletPickerTarget = targetId;
+    const [title, subtitle] = walletPickerContext(targetId);
+    els.walletPickerTitle.textContent = title;
+    els.walletPickerSubtitle.textContent = subtitle;
+    renderWalletPickerList();
+    openDialog(els.walletPickerDialog);
+  }
+
+  function chooseWalletFromPicker(accountId) {
+    const select = document.getElementById(activeWalletPickerTarget);
+    if (!select || !state.accounts.some((account) => account.id === accountId)) return;
+    select.value = accountId;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    syncWalletPickerTriggers();
+    closeDialog(els.walletPickerDialog);
+    activeWalletPickerTarget = '';
   }
 
 
@@ -844,7 +925,7 @@
     els.expenseBackButton.classList.toggle('is-hidden', !details);
     els.expenseSaveButton.classList.toggle('is-hidden', !details);
     const subtitle = els.expenseDialog.querySelector('.dialog-subtitle');
-    if (subtitle) subtitle.textContent = details ? 'Choose a category, wallet, date, and optional note.' : 'Enter the amount first.';
+    if (subtitle) subtitle.textContent = details ? 'Choose a category, date, and optional note.' : 'Enter the amount first.';
     els.expenseDialog.querySelector('.dialog-body')?.scrollTo({ top: 0, behavior: 'auto' });
   }
 
@@ -943,6 +1024,7 @@
     els.expenseNote.value = prefill.note || '';
     populateAccounts();
     if (prefill.accountId && state.accounts.some((account) => account.id === prefill.accountId)) els.expenseAccount.value = prefill.accountId;
+    syncWalletPickerTriggers();
     updateExpenseEntry();
     showExpenseStep('amount');
     openDialog(els.expenseDialog);
@@ -959,6 +1041,7 @@
     els.allowanceReceivedDate.value = prefill.date || localDateKey();
     const targetAccount = prefill.accountId || state.accounts[0]?.id;
     if (targetAccount && state.accounts.some((account) => account.id === targetAccount)) els.allowanceAccount.value = targetAccount;
+    syncWalletPickerTriggers();
     els.allowanceKeypad.classList.add('is-hidden');
     els.allowanceCustomAmountButton.textContent = 'Custom amount';
     els.allowanceSaveButton.textContent = currentAllowanceEditId ? 'Update allowance' : 'Add allowance';
@@ -1136,6 +1219,7 @@
     const firstDifferent = accounts.find((account) => account.id !== els.transferFromAccount.value)?.id || '';
     const validTo = accounts.some((account) => account.id === toCurrent && account.id !== els.transferFromAccount.value) ? toCurrent : firstDifferent;
     if (validTo) els.transferToAccount.value = validTo;
+    syncWalletPickerTriggers();
   }
 
   function setTransferAmountValue(value) {
@@ -1249,8 +1333,8 @@
     populateAccounts();
     const preferredGoalAccount = preferredAccountId || (savingsMode === 'wallet' ? state.accounts[savingsWalletIndex]?.id : state.accounts[0]?.id);
     if (preferredGoalAccount && state.accounts.some((account) => account.id === preferredGoalAccount)) els.goalAccount.value = preferredGoalAccount;
+    syncWalletPickerTriggers();
     openDialog(els.goalDialog);
-    requestAnimationFrame(() => els.goalName.focus());
   }
 
   function addGoal() {
@@ -1310,6 +1394,7 @@
     populateAccounts();
     const preferredAccount = accountId || (savingsMode === 'wallet' ? state.accounts[savingsWalletIndex]?.id : '') || state.accounts[0]?.id;
     if (preferredAccount && state.accounts.some((account) => account.id === preferredAccount)) els.contributeAccount.value = preferredAccount;
+    syncWalletPickerTriggers();
     updateContributionWalletHint();
     openDialog(els.contributeDialog);
     requestAnimationFrame(() => els.contributeAmount.focus());
@@ -1651,6 +1736,7 @@
       'expenseAmount', 'expenseAmountCard', 'expenseAvailable', 'expenseAmountHint', 'expenseKeypad', 'expenseAccount',
       'expenseDate', 'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
       'goalCurrent', 'goalAccount', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount', 'contributeAccount', 'contributeWalletHint',
+      'walletPickerDialog', 'walletPickerTitle', 'walletPickerSubtitle', 'walletPickerList',
       'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
@@ -1661,6 +1747,16 @@
       const closeButton = event.target.closest('[data-close-dialog]');
       if (closeButton) {
         closeDialog(closeButton.closest('dialog'));
+        return;
+      }
+      const walletTrigger = event.target.closest('[data-wallet-select]');
+      if (walletTrigger) {
+        openWalletPicker(walletTrigger.dataset.walletSelect);
+        return;
+      }
+      const walletOption = event.target.closest('[data-wallet-picker-account]');
+      if (walletOption) {
+        chooseWalletFromPicker(walletOption.dataset.walletPickerAccount);
         return;
       }
       const viewButton = event.target.closest('[data-view]');
@@ -1741,6 +1837,7 @@
       els.allowanceKeypad.classList.add('is-hidden');
       els.allowanceCustomAmountButton.textContent = 'Custom amount';
     });
+    els.allowanceAccount.addEventListener('change', syncWalletPickerTriggers);
     els.allowanceForm.addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
@@ -1790,9 +1887,10 @@
         const fallback = state.accounts.find((account) => account.id !== els.transferFromAccount.value)?.id || '';
         if (fallback) els.transferToAccount.value = fallback;
       }
+      syncWalletPickerTriggers();
       updateTransferEntry();
     });
-    els.transferToAccount.addEventListener('change', updateTransferEntry);
+    els.transferToAccount.addEventListener('change', () => { syncWalletPickerTriggers(); updateTransferEntry(); });
     els.transferKeypad.addEventListener('click', (event) => {
       const button = event.target.closest('[data-transfer-key]');
       if (!button) return;
@@ -1821,7 +1919,7 @@
       if (!button) return;
       handleExpenseKey(button.dataset.expenseKey);
     });
-    els.expenseAccount.addEventListener('change', updateExpenseEntry);
+    els.expenseAccount.addEventListener('change', () => { syncWalletPickerTriggers(); updateExpenseEntry(); });
     els.expenseNextButton.addEventListener('click', () => {
       if (els.expenseNextButton.disabled) return;
       showExpenseStep('details');
@@ -1840,12 +1938,13 @@
       event.preventDefault();
       addExpense();
     });
+    els.goalAccount.addEventListener('change', syncWalletPickerTriggers);
     els.goalForm.addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
       addGoal();
     });
-    els.contributeAccount.addEventListener('change', updateContributionWalletHint);
+    els.contributeAccount.addEventListener('change', () => { syncWalletPickerTriggers(); updateContributionWalletHint(); });
     els.contributeForm.addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
@@ -1859,6 +1958,8 @@
       closeDialog(els.confirmDialog);
       if (action) action();
     });
+
+    els.walletPickerDialog.addEventListener('close', () => { activeWalletPickerTarget = ''; });
 
     els.expenseDialog.addEventListener('close', () => {
       currentExpenseEditId = null;

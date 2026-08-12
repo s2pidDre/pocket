@@ -266,7 +266,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <div class="setting-row static">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 2.1.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 2.2.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </div>
               <button class="setting-row" type="button" data-action="check-update">
@@ -296,7 +296,7 @@
   </div>
 
   <dialog id="allowanceDialog" class="app-dialog compact-dialog allowance-dialog">
-    <form method="dialog" class="dialog-panel" id="allowanceForm">
+    <form method="dialog" class="dialog-panel" id="allowanceForm" autocomplete="off">
       <div class="dialog-header allowance-record-header">
         <div><p class="eyebrow">Income</p><h2 id="allowanceDialogTitle">Add allowance</h2><p class="dialog-subtitle">Record what you actually received. No schedule required.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
@@ -322,8 +322,8 @@
             <input class="text-input" id="allowanceReceivedDate" type="date" required>
           </div>
           <div class="field-group">
-            <label class="field-label" for="allowanceAccount">Received into</label>
-            <select class="text-input" id="allowanceAccount"></select>
+            <label class="field-label" for="allowanceAccountPicker">Received into</label>
+            <select class="native-wallet-select" id="allowanceAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="allowanceAccountPicker" type="button" data-wallet-select="allowanceAccount" aria-label="Choose receiving wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button>
           </div>
         </div>
         <p class="helper-text allowance-anyday-help">Use the real received date, even if the allowance arrived days ago or on an unexpected day.</p>
@@ -337,15 +337,15 @@
   </dialog>
 
   <dialog id="expenseDialog" class="app-dialog expense-dialog">
-    <form method="dialog" class="dialog-panel expense-panel" id="expenseForm">
+    <form method="dialog" class="dialog-panel expense-panel" id="expenseForm" autocomplete="off">
       <div class="dialog-header expense-header">
         <div><h2 id="expenseDialogTitle">Add expense</h2><p class="dialog-subtitle">Enter the amount, choose a category, then save.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body expense-body">
         <div class="field-group expense-wallet-first">
-          <label class="field-label" for="expenseAccount">Paid from</label>
-          <select class="text-input" id="expenseAccount"></select>
+          <label class="field-label" for="expenseAccountPicker">Paid from</label>
+          <select class="native-wallet-select" id="expenseAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="expenseAccountPicker" type="button" data-wallet-select="expenseAccount" aria-label="Choose wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button>
         </div>
 
         <section class="expense-step" id="expenseStepAmount" aria-label="Expense amount">
@@ -388,7 +388,7 @@
             </div>
             <div class="field-group expense-note-field">
               <label class="field-label" for="expenseNote">Note <span>optional</span></label>
-              <input class="text-input" id="expenseNote" type="text" maxlength="80" placeholder="Lunch, printing, jeep fare…">
+              <input class="text-input" id="expenseNote" type="text" maxlength="80" placeholder="Lunch, printing, jeep fare…" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done">
             </div>
           </div>
         </section>
@@ -403,20 +403,20 @@
   </dialog>
 
   <dialog id="goalDialog" class="app-dialog">
-    <form method="dialog" class="dialog-panel" id="goalForm">
+    <form method="dialog" class="dialog-panel" id="goalForm" autocomplete="off">
       <div class="dialog-header">
         <div><p class="eyebrow">Savings goal</p><h2>Create a goal</h2></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body">
-        <div class="field-group"><label class="field-label" for="goalName">What are you saving for?</label><input class="text-input" id="goalName" type="text" maxlength="40" placeholder="Emergency fund" required></div>
+        <div class="field-group"><label class="field-label" for="goalName">What are you saving for?</label><input class="text-input" id="goalName" type="text" maxlength="40" placeholder="Emergency fund" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done" required></div>
         <div class="field-grid">
           <div class="field-group"><label class="field-label" for="goalTarget">Target amount</label><div class="compact-amount"><span>₱</span><input id="goalTarget" type="number" min="1" step="1" required></div></div>
           <div class="field-group"><label class="field-label" for="goalCurrent">Save now <span>optional</span></label><div class="compact-amount"><span>₱</span><input id="goalCurrent" type="number" min="0" step="1" value="0"></div></div>
         </div>
         <div class="field-group">
-          <label class="field-label" for="goalAccount">Save from</label>
-          <select class="text-input" id="goalAccount"></select>
+          <label class="field-label" for="goalAccountPicker">Save from</label>
+          <select class="native-wallet-select" id="goalAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="goalAccountPicker" type="button" data-wallet-select="goalAccount" aria-label="Choose wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button>
         </div>
       </div>
       <div class="dialog-footer">
@@ -428,7 +428,7 @@
 
 
   <dialog id="walletDialog" class="app-dialog compact-dialog">
-    <form method="dialog" class="dialog-panel" id="walletForm">
+    <form method="dialog" class="dialog-panel" id="walletForm" autocomplete="off">
       <div class="dialog-header">
         <div><p class="eyebrow">Wallet</p><h2>Add a wallet</h2><p class="dialog-subtitle">Cash is your main wallet. Add e-wallets only if you use them.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
@@ -442,7 +442,7 @@
         </fieldset>
         <div class="field-group is-hidden" id="walletCustomNameWrap">
           <label class="field-label" for="walletCustomName">Wallet name</label>
-          <input class="text-input" id="walletCustomName" type="text" maxlength="30" placeholder="ShopeePay, Bank, etc.">
+          <input class="text-input" id="walletCustomName" type="text" maxlength="30" placeholder="ShopeePay, Bank, etc." autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="done">
         </div>
         <div class="field-group">
           <label class="field-label" for="walletOpeningBalance">Current balance <span>optional</span></label>
@@ -464,16 +464,16 @@
   </dialog>
 
   <dialog id="transferDialog" class="app-dialog compact-dialog transfer-dialog">
-    <form method="dialog" class="dialog-panel" id="transferForm">
+    <form method="dialog" class="dialog-panel" id="transferForm" autocomplete="off">
       <div class="dialog-header">
         <div><p class="eyebrow">Wallet transfer</p><h2 id="transferDialogTitle">Move money</h2><p class="dialog-subtitle">Transfers move money between wallets without counting as spending or income.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body transfer-body">
         <div class="transfer-wallet-grid">
-          <div class="field-group"><label class="field-label" for="transferFromAccount">From</label><select class="text-input" id="transferFromAccount"></select></div>
+          <div class="field-group"><label class="field-label" for="transferFromAccountPicker">From</label><select class="native-wallet-select" id="transferFromAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="transferFromAccountPicker" type="button" data-wallet-select="transferFromAccount" aria-label="Choose source wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button></div>
           <div class="transfer-arrow" aria-hidden="true"><svg><use href="#i-transfer"/></svg></div>
-          <div class="field-group"><label class="field-label" for="transferToAccount">To</label><select class="text-input" id="transferToAccount"></select></div>
+          <div class="field-group"><label class="field-label" for="transferToAccountPicker">To</label><select class="native-wallet-select" id="transferToAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="transferToAccountPicker" type="button" data-wallet-select="transferToAccount" aria-label="Choose destination wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button></div>
         </div>
 
         <div class="expense-amount-card transfer-amount-card" id="transferAmountCard">
@@ -491,7 +491,7 @@
 
         <div class="field-grid transfer-details-grid">
           <div class="field-group"><label class="field-label" for="transferDate">Date</label><input class="text-input" id="transferDate" type="date" required></div>
-          <div class="field-group"><label class="field-label" for="transferNote">Note <span>optional</span></label><input class="text-input" id="transferNote" type="text" maxlength="80" placeholder="Cash to GCash"></div>
+          <div class="field-group"><label class="field-label" for="transferNote">Note <span>optional</span></label><input class="text-input" id="transferNote" type="text" maxlength="80" placeholder="Cash to GCash" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done"></div>
         </div>
       </div>
       <div class="dialog-footer">
@@ -499,6 +499,18 @@
         <button class="button-primary" id="transferSaveButton" type="submit" value="default" disabled>Transfer</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="walletPickerDialog" class="app-dialog compact-dialog wallet-picker-dialog">
+    <div class="dialog-panel wallet-picker-panel">
+      <div class="dialog-header wallet-picker-header">
+        <div><p class="eyebrow">Wallets</p><h2 id="walletPickerTitle">Choose wallet</h2><p class="dialog-subtitle" id="walletPickerSubtitle">Pick where this money belongs.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body wallet-picker-body">
+        <div class="wallet-picker-list" id="walletPickerList"></div>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="expenseReceiptDialog" class="app-dialog compact-dialog">
@@ -526,7 +538,7 @@
   </dialog>
 
   <dialog id="contributeDialog" class="app-dialog compact-dialog">
-    <form method="dialog" class="dialog-panel" id="contributeForm">
+    <form method="dialog" class="dialog-panel" id="contributeForm" autocomplete="off">
       <div class="dialog-header">
         <div><p class="eyebrow">Add to savings</p><h2 id="contributeTitle">Goal</h2></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
@@ -536,8 +548,8 @@
         <label class="field-label" for="contributeAmount">Amount to save</label>
         <div class="amount-field"><span>₱</span><input id="contributeAmount" type="number" min="1" step="1" required></div>
         <div class="field-group">
-          <label class="field-label" for="contributeAccount">Save from</label>
-          <select class="text-input" id="contributeAccount"></select>
+          <label class="field-label" for="contributeAccountPicker">Save from</label>
+          <select class="native-wallet-select" id="contributeAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="contributeAccountPicker" type="button" data-wallet-select="contributeAccount" aria-label="Choose wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button>
         </div>
         <p class="helper-text" id="contributeWalletHint">This amount moves out of the selected wallet and into savings.</p>
       </div>
