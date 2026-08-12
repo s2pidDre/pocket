@@ -149,11 +149,11 @@
             <button class="button-primary" type="button" data-action="open-expense"><svg><use href="#i-plus"/></svg><span>Add expense</span></button>
           </div>
 
-          <div class="activity-summary-grid">
-            <article class="card compact-metric"><span class="round-icon red-soft"><svg><use href="#i-arrow-up"/></svg></span><div><p class="label">Spent this month</p><strong class="money-value" id="monthSpent">₱0</strong></div></article>
-            <article class="card compact-metric"><span class="round-icon green-soft"><svg><use href="#i-arrow-down"/></svg></span><div><p class="label">Received this month</p><strong class="money-value" id="monthReceived">₱0</strong></div></article>
-            <article class="card compact-metric"><span class="round-icon purple-soft"><svg><use href="#i-savings"/></svg></span><div><p class="label">Saved this month</p><strong class="money-value" id="monthSaved">₱0</strong></div></article>
-          </div>
+          <article class="card activity-summary-strip" aria-label="This month summary">
+            <div class="activity-summary-item"><span class="summary-dot red-soft"><svg><use href="#i-arrow-up"/></svg></span><div><small>Spent</small><strong class="money-value" id="monthSpent">₱0</strong></div></div>
+            <div class="activity-summary-item"><span class="summary-dot green-soft"><svg><use href="#i-arrow-down"/></svg></span><div><small>Received</small><strong class="money-value" id="monthReceived">₱0</strong></div></div>
+            <div class="activity-summary-item"><span class="summary-dot purple-soft"><svg><use href="#i-savings"/></svg></span><div><small>Saved</small><strong class="money-value" id="monthSaved">₱0</strong></div></div>
+          </article>
 
           <article class="card section-card activity-card">
             <div class="section-heading">
@@ -201,11 +201,16 @@
               </button>
             </article>
 
-            <article class="card settings-card">
-              <div class="section-heading compact"><div><p class="eyebrow">Allowance</p><h2>Usual allowance</h2></div></div>
+            <article class="card settings-card allowance-settings-card">
+              <div class="section-heading compact"><div><p class="eyebrow">Allowance</p><h2>Allowance</h2></div></div>
+              <button class="setting-row" type="button" data-action="open-allowance">
+                <span class="round-icon green-soft"><svg><use href="#i-arrow-down"/></svg></span>
+                <span><strong>Record allowance</strong><small id="allowanceRecordSummary">Add income whenever it actually arrives, including a past date.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
               <button class="setting-row" type="button" data-action="open-allowance-routine">
-                <span class="round-icon neutral-soft"><svg><use href="#i-wallet"/></svg></span>
-                <span><strong id="allowanceRoutineAmount">Not set</strong><small id="allowanceRoutineSummary">Set the usual pattern; record allowance whenever it actually arrives.</small></span>
+                <span class="round-icon neutral-soft"><svg><use href="#i-calendar"/></svg></span>
+                <span><strong id="allowanceRoutineAmount">Not set</strong><small id="allowanceRoutineSummary">Set your usual amount and schedule as a planning guide.</small></span>
                 <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
             </article>
@@ -237,7 +242,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <div class="setting-row static">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 1.6.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 1.7.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </div>
               <button class="setting-row" type="button" data-action="check-update">
@@ -310,51 +315,47 @@
     </form>
   </dialog>
 
-  <dialog id="allowanceDialog" class="app-dialog compact-dialog">
+  <dialog id="allowanceDialog" class="app-dialog compact-dialog allowance-dialog">
     <form method="dialog" class="dialog-panel" id="allowanceForm">
-      <div class="dialog-header">
-        <div><p class="eyebrow">Allowance</p><h2>Record allowance</h2><p class="dialog-subtitle">Record what you received, when it arrived, and where it went.</p></div>
+      <div class="dialog-header allowance-record-header">
+        <div><p class="eyebrow">Allowance</p><h2 id="allowanceDialogTitle">Record allowance</h2><p class="dialog-subtitle">Amount, date, and wallet — all in one place.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body allowance-record-body">
-        <section class="allowance-record-step" id="allowanceStepAmount">
-          <label class="field-label" for="allowanceAmount">Amount received</label>
-          <div class="amount-field soft-amount-field"><span>₱</span><input id="allowanceAmount" name="allowanceAmount" type="text" inputmode="none" autocomplete="off" placeholder="0" readonly required></div>
-          <div class="amount-chips" id="allowanceAmountChips">
-            <button type="button" data-amount="100">₱100</button><button type="button" data-amount="200">₱200</button><button type="button" data-amount="500">₱500</button><button type="button" data-amount="1000">₱1,000</button>
-          </div>
-          <div class="soft-keypad compact-keypad" id="allowanceKeypad" aria-label="Allowance keypad">
-            <button type="button" data-allowance-key="1">1</button><button type="button" data-allowance-key="2">2</button><button type="button" data-allowance-key="3">3</button>
-            <button type="button" data-allowance-key="4">4</button><button type="button" data-allowance-key="5">5</button><button type="button" data-allowance-key="6">6</button>
-            <button type="button" data-allowance-key="7">7</button><button type="button" data-allowance-key="8">8</button><button type="button" data-allowance-key="9">9</button>
-            <button type="button" class="soft-key utility" data-allowance-key="00">00</button><button type="button" data-allowance-key="0">0</button><button type="button" class="soft-key utility" data-allowance-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
-          </div>
-        </section>
+        <div class="allowance-amount-entry" id="allowanceAmountEntry" role="button" tabindex="0" aria-label="Edit allowance amount">
+          <div class="allowance-amount-label"><span>Amount received</span><button class="text-button" id="allowanceCustomAmountButton" type="button">Custom amount</button></div>
+          <div class="allowance-amount-display"><span>₱</span><input id="allowanceAmount" name="allowanceAmount" type="text" inputmode="none" autocomplete="off" placeholder="0" readonly required></div>
+        </div>
+        <div class="amount-chips allowance-amount-chips" id="allowanceAmountChips">
+          <button type="button" data-amount="100">₱100</button><button type="button" data-amount="200">₱200</button><button type="button" data-amount="500">₱500</button><button type="button" data-amount="1000">₱1,000</button>
+        </div>
+        <div class="soft-keypad compact-keypad allowance-keypad is-hidden" id="allowanceKeypad" aria-label="Allowance keypad">
+          <button type="button" data-allowance-key="1">1</button><button type="button" data-allowance-key="2">2</button><button type="button" data-allowance-key="3">3</button>
+          <button type="button" data-allowance-key="4">4</button><button type="button" data-allowance-key="5">5</button><button type="button" data-allowance-key="6">6</button>
+          <button type="button" data-allowance-key="7">7</button><button type="button" data-allowance-key="8">8</button><button type="button" data-allowance-key="9">9</button>
+          <button type="button" class="soft-key utility allowance-clear-key" data-allowance-key="clear">Clear</button><button type="button" data-allowance-key="0">0</button><button type="button" class="soft-key utility" data-allowance-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
+        </div>
 
-        <section class="allowance-record-step is-hidden" id="allowanceStepDetails">
-          <div class="field-grid allowance-received-grid">
-            <div class="field-group">
-              <label class="field-label" for="allowanceReceivedDate">Received on</label>
-              <input class="text-input" id="allowanceReceivedDate" type="date" required>
-            </div>
-            <div class="field-group">
-              <label class="field-label" for="allowanceAccount">Received into</label>
-              <select class="text-input" id="allowanceAccount"></select>
-            </div>
+        <div class="allowance-received-grid">
+          <div class="field-group">
+            <label class="field-label" for="allowanceReceivedDate">Received on</label>
+            <input class="text-input" id="allowanceReceivedDate" type="date" required>
           </div>
-          <p class="helper-text allowance-anyday-help">This can be today or any past date. Your usual schedule is only a planning guide.</p>
+          <div class="field-group">
+            <label class="field-label" for="allowanceAccount">Received into</label>
+            <select class="text-input" id="allowanceAccount"></select>
+          </div>
+        </div>
+        <p class="helper-text allowance-anyday-help">You can record allowance on any day and backdate it when needed. The usual schedule is only a guide.</p>
 
-          <div class="smart-box is-hidden" id="allowanceAutoSaveHint">
-            <span class="round-icon purple-soft"><svg><use href="#i-savings"/></svg></span>
-            <div><strong id="allowanceAutoSaveHintTitle"></strong><p id="allowanceAutoSaveHintText"></p></div>
-          </div>
-        </section>
+        <div class="smart-box is-hidden" id="allowanceAutoSaveHint">
+          <span class="round-icon purple-soft"><svg><use href="#i-savings"/></svg></span>
+          <div><strong id="allowanceAutoSaveHintTitle"></strong><p id="allowanceAutoSaveHintText"></p></div>
+        </div>
       </div>
       <div class="dialog-footer allowance-record-footer">
-        <button class="button-secondary" id="allowanceCancelButton" type="button" data-close-dialog>Cancel</button>
-        <button class="button-secondary is-hidden" id="allowanceBackButton" type="button">Back</button>
-        <button class="button-primary" id="allowanceNextButton" type="button">Next</button>
-        <button class="button-primary is-hidden" id="allowanceSaveButton" type="submit" value="default">Record allowance</button>
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" id="allowanceSaveButton" type="submit" value="default">Record allowance</button>
       </div>
     </form>
   </dialog>

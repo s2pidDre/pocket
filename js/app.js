@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.7.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -42,6 +42,7 @@
   let refreshAfterUpdate = false;
   let lastUpdateCheck = 0;
   let currentExpenseEditId = null;
+  let currentAllowanceEditId = null;
   let lastReceiptTransactionId = '';
 
   function localDateKey(date = new Date()) {
@@ -123,14 +124,14 @@
   }
 
   function canEditTransaction(tx) {
-    return tx?.type === 'expense' && canModifyTransaction(tx);
+    return (tx?.type === 'expense' || tx?.type === 'income') && canModifyTransaction(tx);
   }
 
   function transactionWindowLabel(tx) {
     if (!canModifyTransaction(tx)) return 'Locked after 24h';
     const leftMs = Math.max(0, (24 * 60 * 60 * 1000) - (Date.now() - transactionTimestampMs(tx)));
     const hours = Math.max(1, Math.ceil(leftMs / (60 * 60 * 1000)));
-    return `${hours}h left`;
+    return `${hours}h to edit`;
   }
 
   function spendableAvailableForEntry(accountId, editingTransactionId = null) {
@@ -397,7 +398,7 @@
 
   function renderTransactionActions(tx) {
     if (!canModifyTransaction(tx)) {
-      return `<div class="transaction-actions"><span class="transaction-lock">${icon('i-lock')} Locked</span><small class="transaction-window">Older than 24 hours</small></div>`;
+      return `<div class="transaction-actions"><span class="transaction-lock">${icon('i-lock')} Locked</span><small class="transaction-window">Edit window ended</small></div>`;
     }
     const actions = [];
     if (canEditTransaction(tx)) actions.push(`<button class="transaction-action" type="button" data-action="edit-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')} Edit</button>`);
@@ -438,14 +439,14 @@
     if (!routine) {
       els.allowancePlanCard.innerHTML = `
         <div class="empty-plan allowance-empty-plan">
-          <div><p class="eyebrow">Allowance</p><h2>Set your usual allowance</h2><p>This is only a planning pattern. You can record allowance whenever it actually arrives.</p></div>
-          <button class="button-primary" type="button" data-action="open-allowance-routine">Set allowance</button>
+          <div><p class="eyebrow">Allowance</p><h2>No allowance plan yet</h2><p>Set your usual allowance from Settings whenever you want Pocket to calculate a daily pace.</p></div>
+          <span class="status-pill neutral">Manage in Settings</span>
         </div>`;
       return;
     }
 
     const expected = routine.nextDueDate;
-    let expectedText = routine.frequency === 'irregular' ? 'No fixed schedule' : `${frequencyLabel(routine.frequency)} pattern`;
+    let expectedText = routine.frequency === 'irregular' ? 'No fixed schedule' : `${frequencyLabel(routine.frequency)} planning pattern`;
     if (expected) {
       const expectedDate = DATE_LABEL.format(fromDateKey(expected));
       expectedText = expected < today ? `Expected around ${expectedDate}` : `Next expected ${expectedDate}`;
@@ -454,13 +455,10 @@
     if (!plan) {
       els.allowancePlanCard.innerHTML = `
         <div class="plan-header allowance-simple-head">
-          <div><p class="eyebrow">Usual allowance</p><h2 class="allowance-left money-value">${currency(routine.amount, true)}</h2><p>${escapeHtml(expectedText)}</p></div>
+          <div><p class="eyebrow">Allowance plan</p><h2 class="allowance-left money-value">${currency(routine.amount, true)}</h2><p>${escapeHtml(expectedText)}</p></div>
           <span class="status-pill neutral">Planning only</span>
         </div>
-        <div class="allowance-card-actions">
-          <button class="button-primary" type="button" data-action="open-allowance">Record allowance</button>
-          <button class="button-secondary" type="button" data-action="open-allowance-routine">Edit routine</button>
-        </div>`;
+        <p class="allowance-settings-note">Record allowance and manage the routine from Settings.</p>`;
       return;
     }
 
@@ -482,10 +480,7 @@
         <strong class="money-value">${daysLeft > 0 ? `About ${currency(perDay, true)}/day` : 'Spend at your own pace'}</strong>
         <span>${state.settings.privacy ? 'Spending hidden' : `${currency(spent, true)} spent from this allowance`}</span>
       </div>
-      <div class="allowance-card-actions">
-        <button class="button-primary" type="button" data-action="open-allowance">Record allowance</button>
-        <button class="button-secondary" type="button" data-action="open-allowance-routine">Edit routine</button>
-      </div>`;
+      <p class="allowance-settings-note">Allowance income is recorded from Settings.</p>`;
   }
 
   function topGoal() {
@@ -606,12 +601,14 @@
     if (!routine) {
       els.allowanceRoutineAmount.classList.remove('money-value');
       els.allowanceRoutineAmount.textContent = 'Not set';
-      els.allowanceRoutineSummary.textContent = 'Set the usual pattern; record allowance whenever it actually arrives.';
+      els.allowanceRoutineSummary.textContent = 'Set your usual amount and schedule as a planning guide.';
+      els.allowanceRecordSummary.textContent = 'Set the usual allowance first, then record income here.';
     } else {
       els.allowanceRoutineAmount.textContent = state.settings.privacy ? '₱•••• usual allowance' : `${currency(routine.amount, true)} usual allowance`;
       els.allowanceRoutineAmount.classList.toggle('money-value', !state.settings.privacy);
       const saving = Number(routine.autoSaveAmount || 0);
       els.allowanceRoutineSummary.textContent = `${frequencyLabel(routine.frequency)}${saving > 0 ? (state.settings.privacy ? ' · Automatic saving on' : ` · Saves ${currency(saving, true)} automatically`) : ' · No automatic saving'}`;
+      els.allowanceRecordSummary.textContent = state.settings.privacy ? 'Add allowance income on any current or past date.' : `Usual ${currency(routine.amount, true)} · choose the actual date and wallet.`;
     }
     renderWallets();
   }
@@ -727,24 +724,11 @@
   function setAllowanceAmountValue(value) {
     els.allowanceAmount.value = value;
     updateAllowanceAutoSaveHint(Number(value || 0));
-    if (els.allowanceNextButton) els.allowanceNextButton.disabled = !(Number(value || 0) > 0);
+    if (els.allowanceSaveButton) els.allowanceSaveButton.disabled = !(Number(value || 0) > 0);
   }
 
   function handleAllowanceAmountKey(key) {
     setAllowanceAmountValue(applyAmountKey(els.allowanceAmount.value || '', key, { allowDecimal: false, maxWholeDigits: 7 }));
-  }
-
-  function showAllowanceStep(step) {
-    const details = step === 'details';
-    els.allowanceStepAmount.classList.toggle('is-hidden', details);
-    els.allowanceStepDetails.classList.toggle('is-hidden', !details);
-    els.allowanceCancelButton.classList.toggle('is-hidden', details);
-    els.allowanceNextButton.classList.toggle('is-hidden', details);
-    els.allowanceBackButton.classList.toggle('is-hidden', !details);
-    els.allowanceSaveButton.classList.toggle('is-hidden', !details);
-    const subtitle = els.allowanceDialog.querySelector('.dialog-subtitle');
-    if (subtitle) subtitle.textContent = details ? 'Choose when it arrived and which wallet received it.' : 'Confirm or change the amount you received.';
-    els.allowanceDialog.querySelector('.dialog-body')?.scrollTo({ top: 0, behavior: 'auto' });
   }
 
   function setView(view, updateHash = true) {
@@ -904,20 +888,26 @@
       : `${currency(Math.max(0, Number(amount || 0) - autoSave), true)} from this allowance will stay available to spend.`;
   }
 
-  function openDifferentAllowance() {
+  function openDifferentAllowance(prefill = {}) {
     const routine = state.allowanceRoutine;
-    if (!routine) {
+    if (!routine && !prefill.id) {
       openAllowanceRoutine();
       return;
     }
+    currentAllowanceEditId = prefill.id || null;
     els.allowanceForm.reset();
-    setAllowanceAmountValue(routine.amount || '');
+    els.allowanceDialogTitle.textContent = currentAllowanceEditId ? 'Edit allowance' : 'Record allowance';
+    setAllowanceAmountValue(prefill.amount || routine?.amount || '');
     populateAccounts();
     els.allowanceReceivedDate.max = localDateKey();
-    els.allowanceReceivedDate.value = localDateKey();
-    if (state.accounts[0]) els.allowanceAccount.value = state.accounts[0].id;
+    els.allowanceReceivedDate.value = prefill.date || localDateKey();
+    const targetAccount = prefill.accountId || state.accounts[0]?.id;
+    if (targetAccount && state.accounts.some((account) => account.id === targetAccount)) els.allowanceAccount.value = targetAccount;
+    els.allowanceKeypad.classList.add('is-hidden');
+    els.allowanceCustomAmountButton.textContent = 'Custom amount';
     updateAllowanceAutoSaveHint();
-    showAllowanceStep('amount');
+    els.allowanceSaveButton.textContent = currentAllowanceEditId ? 'Update allowance' : 'Record allowance';
+    els.allowanceSaveButton.disabled = !(Number(els.allowanceAmount.value || 0) > 0);
     openDialog(els.allowanceDialog);
     requestAnimationFrame(() => els.allowanceDialog.focus());
   }
@@ -996,10 +986,81 @@
     showToast(state.settings.privacy ? `Allowance recorded in ${walletName}.` : `${currency(received, true)} recorded in ${walletName} for ${dateText}.`);
   }
 
+  function updateAllowanceTransaction(id, amount, receivedDate, accountId) {
+    const income = state.transactions.find((tx) => tx.id === id && tx.type === 'income');
+    if (!income || !canModifyTransaction(income)) {
+      showToast('This allowance is locked after 24 hours.');
+      return false;
+    }
+    const today = localDateKey();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate) || receivedDate > today) {
+      showToast('Choose today or a past date for the allowance.');
+      return false;
+    }
+    const routine = state.allowanceRoutine;
+    const frequency = routine?.frequency || 'irregular';
+    const plan = state.allowancePlans.find((item) => item.id === income.allowanceId);
+    const linkedSaving = state.transactions.find((tx) => tx.allowanceId === income.allowanceId && tx.type === 'saving');
+    const historicalSaving = plan ? Number(plan.savingsAmount || 0) : linkedSaving ? Number(linkedSaving.amount || 0) : Number(routine?.autoSaveAmount || 0);
+    const autoSaveAmount = Math.min(Number(amount), Math.max(0, historicalSaving));
+    const oldSavingAmount = Number(linkedSaving?.amount || 0);
+
+    income.amount = Number(amount);
+    income.accountId = accountId;
+    income.date = receivedDate;
+    income.note = frequency === 'irregular' ? 'Allowance received' : `${frequencyLabel(frequency)} allowance`;
+    income.updatedAt = new Date().toISOString();
+
+    if (plan) {
+      plan.amount = Number(amount);
+      plan.startDate = receivedDate;
+      const nextDueDate = frequency === 'irregular' ? null : nextDueDateForFrequency(frequency, receivedDate);
+      plan.endDate = coverageEndForFrequency(frequency, receivedDate, nextDueDate);
+      plan.savingsAmount = autoSaveAmount;
+    }
+
+    if (linkedSaving) {
+      const goal = state.goals.find((item) => item.id === linkedSaving.goalId);
+      if (goal) goal.current = Math.max(0, Number(goal.current || 0) + autoSaveAmount - oldSavingAmount);
+      linkedSaving.amount = autoSaveAmount;
+      linkedSaving.accountId = accountId;
+      linkedSaving.date = receivedDate;
+      linkedSaving.updatedAt = new Date().toISOString();
+      if (autoSaveAmount <= 0) state.transactions = state.transactions.filter((tx) => tx.id !== linkedSaving.id);
+    } else if (autoSaveAmount > 0) {
+      let goal = topGoal();
+      if (!goal) {
+        goal = { id: uid('goal'), name: 'Emergency fund', target: 3000, current: 0, createdAt: receivedDate };
+        state.goals.push(goal);
+      }
+      goal.current = Number(goal.current || 0) + autoSaveAmount;
+      state.transactions.push({
+        id: uid('tx'), type: 'saving', amount: autoSaveAmount, category: 'Savings', accountId,
+        date: receivedDate, note: goal.name, goalId: goal.id, allowanceId: income.allowanceId,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    syncAllowanceRoutineFromHistory();
+    state.settings.demoData = false;
+    saveState();
+    return true;
+  }
+
   function addAllowance() {
     const amount = Number(els.allowanceAmount.value);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    receiveAllowance(amount, els.allowanceReceivedDate.value || localDateKey(), els.allowanceAccount.value || state.accounts[0]?.id);
+    const date = els.allowanceReceivedDate.value || localDateKey();
+    const accountId = els.allowanceAccount.value || state.accounts[0]?.id;
+    if (currentAllowanceEditId) {
+      if (!updateAllowanceTransaction(currentAllowanceEditId, amount, date, accountId)) return;
+      closeDialog(els.allowanceDialog);
+      currentAllowanceEditId = null;
+      renderAll();
+      showToast('Allowance updated.');
+      return;
+    }
+    receiveAllowance(amount, date, accountId);
   }
 
   function renderExpenseReceipt(tx, edited = false) {
@@ -1152,12 +1213,17 @@
       showToast('This transaction is locked after 24 hours.');
       return;
     }
-    if (tx.type !== 'expense') {
-      showToast('Only expense entries can be edited. Allowance and savings can still be undone within 24 hours.');
+    closeDialog(els.expenseReceiptDialog);
+    if (tx.type === 'expense') {
+      openExpense({ id: tx.id, amount: String(tx.amount), category: tx.category, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
       return;
     }
-    closeDialog(els.expenseReceiptDialog);
-    openExpense({ id: tx.id, amount: String(tx.amount), category: tx.category, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
+    if (tx.type === 'income') {
+      setView('more');
+      openDifferentAllowance({ id: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date });
+      return;
+    }
+    showToast('Savings entries can be undone within 24 hours but are not edited separately.');
   }
 
   function undoTransaction(id) {
@@ -1404,10 +1470,9 @@
       'homeDailyPace', 'homeDailyPaceHint', 'allowancePlanCard',
       'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
       'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'themeIcon',
-      'themeLabel', 'privacyLabel', 'privacySwitch', 'allowanceRoutineAmount', 'allowanceRoutineSummary', 'walletsList', 'importFile',
+      'themeLabel', 'privacyLabel', 'privacySwitch', 'allowanceRoutineAmount', 'allowanceRoutineSummary', 'allowanceRecordSummary', 'walletsList', 'importFile',
       'allowanceRoutineDialog', 'allowanceRoutineForm', 'allowanceRoutineTitle', 'allowanceRoutineAmountInput', 'allowanceRoutineKeypad',
-      'allowanceAutoSaveEnabled', 'allowanceAutoSaveWrap', 'allowanceAutoSaveAmount', 'allowanceDialog', 'allowanceForm', 'allowanceAmount', 'allowanceKeypad',
-      'allowanceStepAmount', 'allowanceStepDetails', 'allowanceCancelButton', 'allowanceBackButton', 'allowanceNextButton', 'allowanceSaveButton',
+      'allowanceAutoSaveEnabled', 'allowanceAutoSaveWrap', 'allowanceAutoSaveAmount', 'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount', 'allowanceAutoSaveHint', 'allowanceAutoSaveHintTitle', 'allowanceAutoSaveHintText',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
       'walletDialog', 'walletForm', 'walletCustomNameWrap', 'walletCustomName', 'walletOpeningBalance', 'walletKeypad',
@@ -1454,22 +1519,28 @@
       const button = event.target.closest('[data-amount]');
       if (!button) return;
       setAllowanceAmountValue(button.dataset.amount);
+      els.allowanceKeypad.classList.add('is-hidden');
+      els.allowanceCustomAmountButton.textContent = 'Custom amount';
     });
     els.allowanceForm.addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
       addAllowance();
     });
-    els.allowanceNextButton.addEventListener('click', () => {
-      if (els.allowanceNextButton.disabled) return;
-      showAllowanceStep('details');
-    });
-    els.allowanceBackButton.addEventListener('click', () => showAllowanceStep('amount'));
     els.allowanceRoutineKeypad.addEventListener('click', (event) => {
       const button = event.target.closest('[data-routine-key]');
       if (!button) return;
       handleRoutineAmountKey(button.dataset.routineKey);
     });
+    const toggleAllowanceKeypad = () => {
+      const opening = els.allowanceKeypad.classList.contains('is-hidden');
+      els.allowanceKeypad.classList.toggle('is-hidden', !opening);
+      els.allowanceCustomAmountButton.textContent = opening ? 'Hide keypad' : 'Custom amount';
+      if (opening) els.allowanceDialog.querySelector('.dialog-body')?.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    els.allowanceCustomAmountButton.addEventListener('click', (event) => { event.stopPropagation(); toggleAllowanceKeypad(); });
+    els.allowanceAmountEntry.addEventListener('click', (event) => { if (!event.target.closest('button')) toggleAllowanceKeypad(); });
+    els.allowanceAmountEntry.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleAllowanceKeypad(); } });
     els.allowanceKeypad.addEventListener('click', (event) => {
       const button = event.target.closest('[data-allowance-key]');
       if (!button) return;
@@ -1482,7 +1553,6 @@
       handleRoutineAmountKey(key);
     });
     els.allowanceDialog.addEventListener('keydown', (event) => {
-      if (els.allowanceStepAmount.classList.contains('is-hidden')) return;
       const key = parseAmountKeyboardKey(event, false);
       if (!key) return;
       event.preventDefault();
@@ -1559,6 +1629,10 @@
 
     els.expenseDialog.addEventListener('close', () => {
       currentExpenseEditId = null;
+    });
+    els.allowanceDialog.addEventListener('close', () => {
+      currentAllowanceEditId = null;
+      els.allowanceKeypad.classList.add('is-hidden');
     });
 
     els.importFile.addEventListener('change', () => {
