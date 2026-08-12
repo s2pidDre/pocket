@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.2.1';
+  const APP_VERSION = '2.3.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -708,9 +708,12 @@
           ? `${currency(totalCurrent, true)} total · ${Math.round(percent)}% of goal`
           : `${Math.round(percent)}% complete`;
         const accountAttribute = isWalletMode ? ` data-account-id="${escapeHtml(selectedAccount.id)}"` : '';
+        const remaining = Math.max(0, target - totalCurrent);
         const removeButton = manageGoalsMode
           ? `<button class="goal-remove" type="button" data-action="remove-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Remove ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}<span>Remove</span></button>`
           : '';
+        const primarySaved = isWalletMode ? walletCurrent : totalCurrent;
+        const primarySavedLabel = isWalletMode ? `From ${selectedAccount.name}` : 'Saved';
         return `
           <article class="card goal-card">
             <div class="goal-card-head">
@@ -720,8 +723,16 @@
                 ${removeButton}
               </div>
             </div>
-            <div class="goal-progress"><span style="width:${percent.toFixed(1)}%"></span></div>
-            <div class="goal-footer"><small>${escapeHtml(secondaryCopy)}</small><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${accountAttribute}>Add savings</button></div>
+            <div class="goal-card-metrics" aria-label="Goal progress details">
+              <div><small>${escapeHtml(primarySavedLabel)}</small><strong class="money-value">${currency(primarySaved, true)}</strong></div>
+              <div><small>Remaining</small><strong class="money-value">${currency(remaining, true)}</strong></div>
+              <div><small>Target</small><strong class="money-value">${currency(target, true)}</strong></div>
+            </div>
+            <div class="goal-progress-block">
+              <div class="goal-progress-copy"><span>${escapeHtml(secondaryCopy)}</span><strong>${Math.round(percent)}%</strong></div>
+              <div class="goal-progress"><span style="width:${percent.toFixed(1)}%"></span></div>
+            </div>
+            <div class="goal-footer"><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${accountAttribute}>Add savings</button></div>
           </article>`;
       }).join('');
     }
@@ -748,8 +759,11 @@
   }
 
   function renderSettings() {
-    els.themeLabel.textContent = state.settings.theme === 'dark' ? 'Dark' : 'Light';
-    els.themeIcon.innerHTML = `<use href="#${state.settings.theme === 'dark' ? 'i-sun' : 'i-moon'}"></use>`;
+    const darkMode = state.settings.theme === 'dark';
+    els.themeLabel.textContent = darkMode ? 'On · dark appearance' : 'Off · light appearance';
+    els.themeIcon.innerHTML = `<use href="#${darkMode ? 'i-moon' : 'i-sun'}"></use>`;
+    els.themeSwitch.classList.toggle('is-on', darkMode);
+    els.themeSettingButton.setAttribute('aria-checked', darkMode ? 'true' : 'false');
     els.privacyLabel.textContent = state.settings.privacy ? 'On · amounts hidden' : 'Off · amounts visible';
     els.privacySwitch.classList.toggle('is-on', state.settings.privacy);
     els.privacySettingButton.setAttribute('aria-checked', state.settings.privacy ? 'true' : 'false');
@@ -1034,8 +1048,6 @@
     currentExpenseEditId = prefill.id || null;
     els.expenseForm.reset();
     els.expenseDialogTitle.textContent = currentExpenseEditId ? 'Edit expense' : 'Add expense';
-    els.expenseDate.max = localDateKey();
-    els.expenseDate.value = prefill.date || localDateKey();
     els.expenseAmount.value = prefill.amount || '';
     if (prefill.category) {
       const radio = els.expenseForm.querySelector(`input[name="expenseCategory"][value="${CSS.escape(prefill.category)}"]`);
@@ -1176,7 +1188,8 @@
     if (!Number.isFinite(amount) || amount <= 0) return;
     const category = els.expenseForm.elements.expenseCategory.value;
     const accountId = els.expenseAccount.value || state.accounts[0]?.id;
-    const date = els.expenseDate.value || localDateKey();
+    const existingExpense = currentExpenseEditId ? state.transactions.find((tx) => tx.id === currentExpenseEditId && tx.type === 'expense') : null;
+    const date = existingExpense?.date || localDateKey();
     const note = els.expenseNote.value.trim();
     const available = spendableAvailableForEntry(accountId, currentExpenseEditId);
     if (amount > available) {
@@ -1292,8 +1305,6 @@
     els.transferForm.reset();
     els.transferDialogTitle.textContent = currentTransferEditId ? 'Edit transfer' : 'Move money';
     populateTransferAccounts(prefill.fromAccountId || selectedWalletAccount()?.id || '', prefill.toAccountId || '');
-    els.transferDate.max = localDateKey();
-    els.transferDate.value = prefill.date || localDateKey();
     els.transferNote.value = prefill.note || '';
     els.transferAmount.value = prefill.amount || '';
     updateTransferEntry();
@@ -1305,13 +1316,10 @@
     const amount = Number(els.transferAmount.value || 0);
     const fromAccountId = els.transferFromAccount.value;
     const toAccountId = els.transferToAccount.value;
-    const date = els.transferDate.value || localDateKey();
+    const existingTransfer = currentTransferEditId ? state.transactions.find((tx) => tx.id === currentTransferEditId && tx.type === 'transfer') : null;
+    const date = existingTransfer?.date || localDateKey();
     const note = els.transferNote.value.trim();
     if (!Number.isFinite(amount) || amount <= 0 || !fromAccountId || !toAccountId || fromAccountId === toAccountId) return;
-    if (date > localDateKey()) {
-      showToast('Choose today or a past date for the transfer.');
-      return;
-    }
     const available = transferAvailableBalance(fromAccountId, currentTransferEditId);
     if (amount > available) {
       const name = state.accounts.find((account) => account.id === fromAccountId)?.name || 'source wallet';
@@ -1746,15 +1754,15 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthReceived',
-      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'themeIcon',
+      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'themeIcon', 'themeSwitch', 'themeSettingButton',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
       'walletDialog', 'walletForm', 'walletCustomNameWrap', 'walletCustomName', 'walletOpeningBalance', 'walletKeypad',
-      'transferDialog', 'transferForm', 'transferDialogTitle', 'transferFromAccount', 'transferToAccount', 'transferAmountCard', 'transferAvailable', 'transferAmount', 'transferAmountHint', 'transferKeypad', 'transferDate', 'transferNote', 'transferSaveButton',
+      'transferDialog', 'transferForm', 'transferDialogTitle', 'transferFromAccount', 'transferToAccount', 'transferAmountCard', 'transferAvailable', 'transferAmount', 'transferAmountHint', 'transferKeypad', 'transferNote', 'transferSaveButton',
       'expenseAmount', 'expenseAmountCard', 'expenseAvailable', 'expenseAmountHint', 'expenseKeypad', 'expenseAccount',
-      'expenseDate', 'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
+      'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
       'goalCurrent', 'goalAccount', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount', 'contributeAccount', 'contributeWalletHint',
       'walletPickerDialog', 'walletPickerTitle', 'walletPickerSubtitle', 'walletPickerList',
       'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'toast', 'toastMessage', 'toastAction',
@@ -2069,7 +2077,6 @@
     bindEvents();
     renderAll();
     setView(location.hash.slice(1) || 'home', false);
-    els.expenseDate.value = localDateKey();
     if ('ResizeObserver' in window) {
       walletCarouselResizeObserver = new ResizeObserver(() => { if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex); });
       walletCarouselResizeObserver.observe(els.walletCarousel);

@@ -218,10 +218,10 @@
           <div class="settings-grid">
             <article class="card settings-card">
               <div class="section-heading compact"><div><p class="eyebrow">Preferences</p><h2>Appearance</h2></div></div>
-              <button class="setting-row" type="button" data-action="toggle-theme">
+              <button class="setting-row" id="themeSettingButton" type="button" data-action="toggle-theme" role="switch" aria-checked="false">
                 <span class="round-icon neutral-soft"><svg id="themeIcon"><use href="#i-moon"/></svg></span>
-                <span><strong>Theme</strong><small id="themeLabel">Light</small></span>
-                <svg class="chevron"><use href="#i-chevron"/></svg>
+                <span><strong>Dark mode</strong><small id="themeLabel">Off · light appearance</small></span>
+                <span class="switch" id="themeSwitch" aria-hidden="true"></span>
               </button>
               <button class="setting-row" id="privacySettingButton" type="button" data-action="toggle-privacy" role="switch" aria-checked="false">
                 <span class="round-icon neutral-soft"><svg class="privacy-icon"><use href="#i-eye"/></svg></span>
@@ -266,7 +266,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <div class="setting-row static">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 2.2.1</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 2.3.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </div>
               <button class="setting-row" type="button" data-action="check-update">
@@ -381,14 +381,11 @@
             <label><input type="radio" name="expenseCategory" value="Other"><span><svg><use href="#i-more"/></svg>Other</span></label>
           </fieldset>
 
-          <div class="expense-essential-details">
-            <div class="field-group">
-              <label class="field-label" for="expenseDate">Date</label>
-              <input class="text-input" id="expenseDate" type="date" required>
-            </div>
+          <div class="expense-essential-details realtime-details">
             <div class="field-group expense-note-field">
               <label class="field-label" for="expenseNote">Note <span>optional</span></label>
               <input class="text-input" id="expenseNote" type="text" maxlength="80" placeholder="Lunch, printing, jeep fare…" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done">
+              <p class="helper-text realtime-entry-hint">Recorded automatically at the time you save it.</p>
             </div>
           </div>
         </section>
@@ -489,9 +486,8 @@
           <button type="button" class="soft-key utility" data-transfer-key=".">.</button><button type="button" data-transfer-key="0">0</button><button type="button" class="soft-key utility" data-transfer-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
         </div>
 
-        <div class="field-grid transfer-details-grid">
-          <div class="field-group"><label class="field-label" for="transferDate">Date</label><input class="text-input" id="transferDate" type="date" required></div>
-          <div class="field-group"><label class="field-label" for="transferNote">Note <span>optional</span></label><input class="text-input" id="transferNote" type="text" maxlength="80" placeholder="Cash to GCash" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done"></div>
+        <div class="transfer-details-grid realtime-details">
+          <div class="field-group"><label class="field-label" for="transferNote">Note <span>optional</span></label><input class="text-input" id="transferNote" type="text" maxlength="80" placeholder="Cash to GCash" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done"><p class="helper-text realtime-entry-hint">Recorded automatically at the time you transfer it.</p></div>
         </div>
       </div>
       <div class="dialog-footer">
