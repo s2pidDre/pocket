@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '1.8.0';
+  const APP_VERSION = '1.9.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -45,6 +45,9 @@
   let currentAllowanceEditId = null;
   let walletModeIndex = 0;
   let walletCarouselFrame = 0;
+  let walletCarouselResizeObserver = null;
+  let savingsMode = 'total';
+  let savingsWalletIndex = 0;
   let lastReceiptTransactionId = '';
 
   function localDateKey(date = new Date()) {
@@ -348,6 +351,19 @@
     return attributed + (account?.isPrimary ? legacyUnattributed : 0);
   }
 
+  function goalWalletSavings(goal, accountId) {
+    if (!goal || !accountId) return 0;
+    const attributed = state.transactions
+      .filter((tx) => tx.type === 'saving' && tx.goalId === goal.id && tx.accountId === accountId)
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const attributedGoalTotal = state.transactions
+      .filter((tx) => tx.type === 'saving' && tx.goalId === goal.id)
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const legacyUnattributed = Math.max(0, Number(goal.current || 0) - attributedGoalTotal);
+    const account = state.accounts.find((item) => item.id === accountId);
+    return attributed + (account?.isPrimary ? legacyUnattributed : 0);
+  }
+
   function totalBalance() {
     return state.accounts.reduce((total, account) => total + accountBalance(account.id), 0);
   }
@@ -441,7 +457,7 @@
     if (!count) return;
     walletModeIndex = Math.max(0, Math.min(index, count - 1));
     const account = state.accounts[walletModeIndex];
-    els.walletModeTitle.textContent = account?.name || 'Wallet';
+    els.walletModeTitle.textContent = count > 1 ? 'Your wallets' : 'Your wallet';
     els.walletModeCounter.textContent = `${walletModeIndex + 1} / ${count}`;
     els.walletModeHint.textContent = count > 1 ? 'Swipe to switch wallets' : 'Add another wallet from Settings';
     els.walletCarouselPrev.disabled = walletModeIndex <= 0;
@@ -502,13 +518,25 @@
     queueWalletCarouselTransforms();
   }
 
+  function stabilizeWalletCarousel(index = walletModeIndex) {
+    if (!els.walletCarousel) return;
+    els.walletCarousel.classList.remove('is-ready');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollToWalletMode(index, 'auto');
+        updateWalletCarouselTransforms();
+        els.walletCarousel.classList.add('is-ready');
+      });
+    });
+  }
+
   function renderHome() {
     const accounts = state.accounts;
     walletModeIndex = Math.max(0, Math.min(walletModeIndex, Math.max(0, accounts.length - 1)));
 
     els.walletCarousel.innerHTML = accounts.map((account, index) => {
-      const balance = currency(accountBalance(account.id));
-      const savings = currency(walletSavingsBalance(account.id));
+      const balance = state.settings.privacy ? '₱••••' : currency(accountBalance(account.id));
+      const savings = state.settings.privacy ? '₱••••' : currency(walletSavingsBalance(account.id));
       const iconId = account.type === 'cash' ? 'i-wallet' : 'i-phone';
       return `
         <article class="wallet-mode-card ${walletModeTone(account)}" data-wallet-index="${index}" data-wallet-id="${escapeHtml(account.id)}" aria-label="${escapeHtml(account.name)} wallet">
@@ -540,10 +568,7 @@
     els.walletModeIndicators.innerHTML = accounts.map((account, index) => `
       <button type="button" data-wallet-mode-index="${index}" aria-label="Show ${escapeHtml(account.name)}"${index === walletModeIndex ? ' class="is-active" aria-current="true"' : ''}></button>`).join('');
 
-    requestAnimationFrame(() => {
-      scrollToWalletMode(walletModeIndex, 'auto');
-      updateWalletCarouselTransforms();
-    });
+    stabilizeWalletCarousel(walletModeIndex);
   }
 
   function filteredActivity() {
@@ -570,79 +595,94 @@
   }
 
   function renderSavings() {
-    els.totalSavings.textContent = currency(totalSavings());
+    const accounts = state.accounts;
+    savingsWalletIndex = Math.max(0, Math.min(savingsWalletIndex, Math.max(0, accounts.length - 1)));
+    const selectedAccount = accounts[savingsWalletIndex] || accounts[0];
+    const isWalletMode = savingsMode === 'wallet' && selectedAccount;
+    const shownBalance = isWalletMode ? walletSavingsBalance(selectedAccount.id) : totalSavings();
+
+    els.savingsModeToggle.querySelectorAll('[data-savings-mode]').forEach((button) => {
+      button.classList.toggle('is-active', button.dataset.savingsMode === savingsMode);
+      button.setAttribute('aria-pressed', button.dataset.savingsMode === savingsMode ? 'true' : 'false');
+    });
+    els.savingsWalletTabs.classList.toggle('is-hidden', !isWalletMode);
+    els.savingsWalletTabs.innerHTML = accounts.map((account, index) => `<button type="button" data-savings-wallet-index="${index}" class="${index === savingsWalletIndex ? 'is-active' : ''}">${escapeHtml(account.name)}</button>`).join('');
+
+    els.savingsViewTitle.textContent = isWalletMode ? `${selectedAccount.name} savings` : 'All savings';
+    els.savingsViewSubtitle.textContent = isWalletMode
+      ? `Only money saved from ${selectedAccount.name} is shown below.`
+      : 'See everything you have set aside across all wallets.';
+    els.savingsBalanceLabel.textContent = isWalletMode ? `Saved from ${selectedAccount.name}` : 'Total savings';
+    els.totalSavings.textContent = currency(shownBalance);
     replayAnimation(els.totalSavings, 'amount-pop');
+
+    els.savingsWalletBreakdown.innerHTML = accounts.map((account, index) => {
+      const amount = walletSavingsBalance(account.id);
+      const active = isWalletMode && index === savingsWalletIndex;
+      return `<button type="button" class="savings-wallet-summary ${active ? 'is-active' : ''}" data-savings-wallet-index="${index}" data-action="show-wallet-savings"><span>${escapeHtml(account.name)}</span><strong class="money-value">${state.settings.privacy ? '₱••••' : currency(amount, true)}</strong></button>`;
+    }).join('');
+
     if (!state.goals.length) {
-      els.goalsGrid.innerHTML = `<article class="card goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and move money out of your spendable wallet.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
+      els.goalsGrid.innerHTML = `<article class="card goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and choose which wallet the money comes from.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = state.goals.map((goal) => {
-        const current = Number(goal.current || 0);
+        const totalCurrent = Number(goal.current || 0);
         const target = Math.max(Number(goal.target || 1), 1);
-        const percent = Math.min(100, current / target * 100);
+        const percent = Math.min(100, totalCurrent / target * 100);
+        const walletCurrent = isWalletMode ? goalWalletSavings(goal, selectedAccount.id) : totalCurrent;
+        const amountCopy = isWalletMode
+          ? `${currency(walletCurrent, true)} from ${selectedAccount.name}`
+          : `${currency(totalCurrent, true)} of ${currency(target, true)}`;
+        const secondaryCopy = isWalletMode
+          ? `${currency(totalCurrent, true)} total saved · ${Math.round(percent)}% of goal`
+          : `${Math.round(percent)}% complete`;
+        const accountAttribute = isWalletMode ? ` data-account-id="${escapeHtml(selectedAccount.id)}"` : '';
         return `
           <article class="card goal-card">
             <div class="goal-card-head">
-              <div><p class="eyebrow">Savings goal</p><h3>${escapeHtml(goal.name)}</h3><p class="goal-amount money-value">${currency(current, true)} of ${currency(target, true)}</p></div>
+              <div><p class="eyebrow">Savings goal</p><h3>${escapeHtml(goal.name)}</h3><p class="goal-amount money-value">${escapeHtml(amountCopy)}</p></div>
               <span class="round-icon green-soft">${icon('i-target')}</span>
             </div>
             <div class="goal-progress"><span style="width:${percent.toFixed(1)}%"></span></div>
-            <div class="goal-footer"><small>${Math.round(percent)}% complete</small><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}">Add savings</button></div>
+            <div class="goal-footer"><small>${escapeHtml(secondaryCopy)}</small><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${accountAttribute}>Add savings</button></div>
           </article>`;
       }).join('');
     }
 
-    const goal = topGoal();
-    const autoSave = Number(state.allowanceRoutine?.autoSaveAmount || 0);
-    if (goal) {
-      const remaining = Math.max(0, Number(goal.target) - Number(goal.current));
-      if (remaining <= 0) {
-        els.savingsInsight.textContent = `You completed “${goal.name}.” Create another goal when you have something specific you want to save for.`;
-      } else if (autoSave > 0) {
-        els.savingsInsight.textContent = state.settings.privacy
-          ? `Automatic saving is on and will move part of each allowance to “${goal.name}”.`
-          : `${currency(autoSave, true)} from each allowance will move to “${goal.name}” automatically.`;
-      } else {
-        els.savingsInsight.textContent = `You can add money to “${goal.name}” manually, or turn on automatic saving in your usual allowance settings.`;
-      }
-    } else {
-      els.savingsInsight.textContent = autoSave > 0
-        ? 'Automatic saving is on. Pocket will create an Emergency fund the next time allowance is received.'
-        : 'Create a savings goal whenever you have something specific you want to set money aside for.';
-    }
+    els.savingsInsight.textContent = isWalletMode
+      ? `Savings from ${selectedAccount.name} stay separate from its spendable balance. Switch back to Total to see savings across every wallet.`
+      : accounts.length > 1
+        ? 'Use By wallet to see exactly how much of your savings came from Cash, GCash, Maya, or another wallet.'
+        : 'Add another wallet in Settings when you start using an e-wallet. Savings will stay synced automatically.';
   }
 
   function renderWallets() {
-    els.walletsList.innerHTML = state.accounts.map((account, index) => {
+    if (!els.walletsList) return;
+    const accounts = state.accounts || [];
+    if (!accounts.length) {
+      els.walletsList.innerHTML = '<div class="wallet-list-empty">No wallets found. Cash will be restored after refresh.</div>';
+      return;
+    }
+    els.walletsList.innerHTML = accounts.map((account, index) => {
       const balance = state.settings.privacy ? '₱••••' : currency(accountBalance(account.id), true);
+      const savings = state.settings.privacy ? '₱••••' : currency(walletSavingsBalance(account.id), true);
       const used = state.transactions.some((tx) => tx.accountId === account.id || tx.fromAccountId === account.id || tx.toAccountId === account.id);
       const remove = index === 0
         ? '<span class="status-pill neutral">Main</span>'
         : used
           ? '<span class="wallet-used-label">In use</span>'
           : `<button class="wallet-remove" type="button" data-action="remove-wallet" data-id="${escapeHtml(account.id)}">Remove</button>`;
-      return `<div class="wallet-row"><span class="round-icon ${index === 0 ? 'accent-soft' : 'neutral-soft'}">${icon(index === 0 ? 'i-wallet' : 'i-phone')}</span><div><strong>${escapeHtml(account.name)}</strong><small class="money-value">${balance}</small></div>${remove}</div>`;
+      return `<div class="wallet-row"><span class="round-icon ${index === 0 ? 'accent-soft' : 'neutral-soft'}">${icon(index === 0 ? 'i-wallet' : 'i-phone')}</span><div><strong>${escapeHtml(account.name)}</strong><small><span class="money-value">${balance}</span> available · <span class="money-value">${savings}</span> saved</small></div>${remove}</div>`;
     }).join('');
   }
 
   function renderSettings() {
     els.themeLabel.textContent = state.settings.theme === 'dark' ? 'Dark' : 'Light';
     els.themeIcon.innerHTML = `<use href="#${state.settings.theme === 'dark' ? 'i-sun' : 'i-moon'}"></use>`;
-    els.privacyLabel.textContent = state.settings.privacy ? 'Amounts hidden' : 'Amounts visible';
+    els.privacyLabel.textContent = state.settings.privacy ? 'On · amounts hidden' : 'Off · amounts visible';
     els.privacySwitch.classList.toggle('is-on', state.settings.privacy);
-
-    const routine = state.allowanceRoutine;
-    if (!routine) {
-      els.allowanceRoutineAmount.classList.remove('money-value');
-      els.allowanceRoutineAmount.textContent = 'Not set';
-      els.allowanceRoutineSummary.textContent = 'Set your usual amount and schedule as a planning guide.';
-      els.allowanceRecordSummary.textContent = 'Set the usual allowance first, then record income here.';
-    } else {
-      els.allowanceRoutineAmount.textContent = state.settings.privacy ? '₱•••• usual allowance' : `${currency(routine.amount, true)} usual allowance`;
-      els.allowanceRoutineAmount.classList.toggle('money-value', !state.settings.privacy);
-      const saving = Number(routine.autoSaveAmount || 0);
-      els.allowanceRoutineSummary.textContent = `${frequencyLabel(routine.frequency)}${saving > 0 ? (state.settings.privacy ? ' · Automatic saving on' : ` · Saves ${currency(saving, true)} automatically`) : ' · No automatic saving'}`;
-      els.allowanceRecordSummary.textContent = state.settings.privacy ? 'Add allowance income on any current or past date.' : `Usual ${currency(routine.amount, true)} · choose the actual date and wallet.`;
-    }
+    els.privacySettingButton.setAttribute('aria-checked', state.settings.privacy ? 'true' : 'false');
+    els.allowanceRecordSummary.textContent = 'Enter the amount, received date, and destination wallet. No routine or schedule required.';
     renderWallets();
   }
 
@@ -666,6 +706,7 @@
     document.querySelectorAll('[data-action="toggle-privacy"]').forEach((button) => {
       button.setAttribute('aria-label', state.settings.privacy ? 'Show amounts' : 'Hide amounts');
     });
+    if (els.privacySettingButton) els.privacySettingButton.setAttribute('aria-checked', state.settings.privacy ? 'true' : 'false');
     const sidebarLabel = document.querySelector('.privacy-toggle span');
     if (sidebarLabel) sidebarLabel.textContent = state.settings.privacy ? 'Show amounts' : 'Hide amounts';
   }
@@ -676,19 +717,25 @@
     renderPrivacy();
     renderHome();
     renderActivity();
-    renderSavings();
     renderSettings();
     populateAccounts();
+    renderSavings();
   }
 
   function populateAccounts() {
     const expenseCurrent = els.expenseAccount.value;
     const allowanceCurrent = els.allowanceAccount.value;
+    const goalCurrent = els.goalAccount.value;
+    const contributionCurrent = els.contributeAccount.value;
     const options = state.accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)} · ${state.settings.privacy ? '₱••••' : currency(accountBalance(account.id), true)}</option>`).join('');
     els.expenseAccount.innerHTML = options;
     els.allowanceAccount.innerHTML = options;
+    els.goalAccount.innerHTML = options;
+    els.contributeAccount.innerHTML = options;
     if (state.accounts.some((account) => account.id === expenseCurrent)) els.expenseAccount.value = expenseCurrent;
     if (state.accounts.some((account) => account.id === allowanceCurrent)) els.allowanceAccount.value = allowanceCurrent;
+    if (state.accounts.some((account) => account.id === goalCurrent)) els.goalAccount.value = goalCurrent;
+    if (state.accounts.some((account) => account.id === contributionCurrent)) els.contributeAccount.value = contributionCurrent;
   }
 
 
@@ -741,22 +788,8 @@
     setExpenseAmountValue(applyAmountKey(els.expenseAmount.value || '', key, { allowDecimal: true, maxWholeDigits: 7 }));
   }
 
-  function setAllowanceRoutineAmountValue(value) {
-    els.allowanceRoutineAmountInput.value = value;
-    const amount = Number(value || 0);
-    if (amount > 0) {
-      els.allowanceAutoSaveAmount.max = String(amount);
-      if (Number(els.allowanceAutoSaveAmount.value || 0) > amount) els.allowanceAutoSaveAmount.value = String(amount);
-    }
-  }
-
-  function handleRoutineAmountKey(key) {
-    setAllowanceRoutineAmountValue(applyAmountKey(els.allowanceRoutineAmountInput.value || '', key, { allowDecimal: false, maxWholeDigits: 7 }));
-  }
-
   function setAllowanceAmountValue(value) {
     els.allowanceAmount.value = value;
-    updateAllowanceAutoSaveHint(Number(value || 0));
     if (els.allowanceSaveButton) els.allowanceSaveButton.disabled = !(Number(value || 0) > 0);
   }
 
@@ -771,9 +804,10 @@
     document.querySelectorAll('[data-view-panel]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.viewPanel === view));
     document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((button) => button.classList.toggle('is-active', button.dataset.view === view));
     renderHeader();
-    if (view === 'home') requestAnimationFrame(() => scrollToWalletMode(walletModeIndex, 'auto'));
+    if (view === 'home') stabilizeWalletCarousel(walletModeIndex);
     if (view === 'activity') renderActivity();
     if (view === 'savings') renderSavings();
+    if (view === 'more') renderSettings();
     if (updateHash) history.replaceState(null, '', `#${view}`);
     els.contentScroll.scrollTop = 0;
   }
@@ -842,96 +876,11 @@
     requestAnimationFrame(() => els.expenseDialog.focus());
   }
 
-  function updateAllowanceAutoSaveUI() {
-    const enabled = els.allowanceAutoSaveEnabled.checked;
-    els.allowanceAutoSaveWrap.classList.toggle('is-hidden', !enabled);
-    if (enabled && !els.allowanceAutoSaveAmount.value) {
-      const usual = Math.max(1, Number(els.allowanceRoutineAmountInput.value || 50));
-      els.allowanceAutoSaveAmount.value = String(Math.min(50, usual));
-    }
-  }
-
-  function openAllowanceRoutine() {
-    const routine = state.allowanceRoutine;
-    els.allowanceRoutineForm.reset();
-    els.allowanceRoutineTitle.textContent = routine ? 'Edit your usual allowance' : 'Set your usual allowance';
-    setAllowanceRoutineAmountValue(routine?.amount || '');
-    const frequency = routine?.frequency || 'weekly';
-    const radio = els.allowanceRoutineForm.querySelector(`input[name="allowanceFrequency"][value="${CSS.escape(frequency)}"]`);
-    if (radio) radio.checked = true;
-    const autoSave = Number(routine?.autoSaveAmount || 0);
-    els.allowanceAutoSaveEnabled.checked = autoSave > 0;
-    els.allowanceAutoSaveAmount.value = autoSave > 0 ? String(autoSave) : '';
-    if (routine?.amount) els.allowanceAutoSaveAmount.max = String(routine.amount);
-    updateAllowanceAutoSaveUI();
-    openDialog(els.allowanceRoutineDialog);
-    requestAnimationFrame(() => els.allowanceRoutineDialog.focus());
-  }
-
-  function saveAllowanceRoutine() {
-    const amount = Number(els.allowanceRoutineAmountInput.value);
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    const frequency = els.allowanceRoutineForm.elements.allowanceFrequency.value;
-    const autoSaveAmount = els.allowanceAutoSaveEnabled.checked ? Number(els.allowanceAutoSaveAmount.value || 0) : 0;
-    if (!Number.isFinite(autoSaveAmount) || autoSaveAmount < 0) return;
-    if (els.allowanceAutoSaveEnabled.checked && autoSaveAmount <= 0) {
-      showToast('Enter how much you want to save automatically.');
-      return;
-    }
-    if (autoSaveAmount > amount) {
-      showToast('Automatic savings cannot be more than your usual allowance.');
-      return;
-    }
-
-    const today = localDateKey();
-    const previous = state.allowanceRoutine;
-    let lastReceivedDate = previous?.lastReceivedDate || null;
-    let nextDueDate = previous?.nextDueDate || null;
-
-    if (!previous) {
-      nextDueDate = null;
-    } else if (frequency !== previous.frequency) {
-      nextDueDate = frequency === 'irregular' ? null : (lastReceivedDate ? nextDueDateForFrequency(frequency, lastReceivedDate) : null);
-    } else if (frequency !== 'irregular' && !nextDueDate && lastReceivedDate) {
-      nextDueDate = nextDueDateForFrequency(frequency, lastReceivedDate);
-    }
-
-    if (previous && frequency !== previous.frequency && lastReceivedDate) {
-      const currentPlan = [...state.allowancePlans]
-        .filter((plan) => plan.status === 'active' && plan.startDate === lastReceivedDate)
-        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
-      if (currentPlan) currentPlan.endDate = coverageEndForFrequency(frequency, currentPlan.startDate, nextDueDate);
-    }
-
-    state.allowanceRoutine = { amount, frequency, autoSaveAmount, lastReceivedDate, nextDueDate };
-    state.settings.demoData = false;
-    saveState();
-    closeDialog(els.allowanceRoutineDialog);
-    renderAll();
-    showToast(previous ? 'Usual allowance updated.' : 'Usual allowance saved.');
-  }
-
-  function updateAllowanceAutoSaveHint(amount = Number(els.allowanceAmount.value || 0)) {
-    const routine = state.allowanceRoutine;
-    const autoSave = Math.min(Math.max(0, Number(routine?.autoSaveAmount || 0)), Math.max(0, Number(amount) || 0));
-    els.allowanceAutoSaveHint.classList.toggle('is-hidden', autoSave <= 0);
-    if (autoSave <= 0) return;
-    els.allowanceAutoSaveHintTitle.textContent = state.settings.privacy ? 'Automatic saving is on' : `${currency(autoSave, true)} will go to Savings`;
-    els.allowanceAutoSaveHintText.textContent = state.settings.privacy
-      ? 'Part of this allowance will move to Savings automatically.'
-      : `${currency(Math.max(0, Number(amount || 0) - autoSave), true)} from this allowance will stay available to spend.`;
-  }
-
   function openDifferentAllowance(prefill = {}) {
-    const routine = state.allowanceRoutine;
-    if (!routine && !prefill.id) {
-      openAllowanceRoutine();
-      return;
-    }
     currentAllowanceEditId = prefill.id || null;
     els.allowanceForm.reset();
-    els.allowanceDialogTitle.textContent = currentAllowanceEditId ? 'Edit allowance' : 'Record allowance';
-    setAllowanceAmountValue(prefill.amount || routine?.amount || '');
+    els.allowanceDialogTitle.textContent = currentAllowanceEditId ? 'Edit allowance' : 'Add allowance';
+    setAllowanceAmountValue(prefill.amount || '');
     populateAccounts();
     els.allowanceReceivedDate.max = localDateKey();
     els.allowanceReceivedDate.value = prefill.date || localDateKey();
@@ -939,39 +888,21 @@
     if (targetAccount && state.accounts.some((account) => account.id === targetAccount)) els.allowanceAccount.value = targetAccount;
     els.allowanceKeypad.classList.add('is-hidden');
     els.allowanceCustomAmountButton.textContent = 'Custom amount';
-    updateAllowanceAutoSaveHint();
-    els.allowanceSaveButton.textContent = currentAllowanceEditId ? 'Update allowance' : 'Record allowance';
+    els.allowanceSaveButton.textContent = currentAllowanceEditId ? 'Update allowance' : 'Add allowance';
     els.allowanceSaveButton.disabled = !(Number(els.allowanceAmount.value || 0) > 0);
     openDialog(els.allowanceDialog);
     requestAnimationFrame(() => els.allowanceDialog.focus());
   }
 
   function receiveAllowance(amount, receivedDate = localDateKey(), accountId = state.accounts[0]?.id) {
-    const routine = state.allowanceRoutine;
     const received = Number(amount);
     const today = localDateKey();
-    if (!routine || !Number.isFinite(received) || received <= 0 || !accountId) return;
+    if (!Number.isFinite(received) || received <= 0 || !accountId) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate) || receivedDate > today) {
       showToast('Choose today or a past date for the allowance.');
       return;
     }
 
-    const frequency = routine.frequency;
-    const nextDueDate = frequency === 'irregular' ? null : nextDueDateForFrequency(frequency, receivedDate);
-    const endDate = coverageEndForFrequency(frequency, receivedDate, nextDueDate);
-    const savingAmount = Math.min(received, Math.max(0, Number(routine.autoSaveAmount || 0)));
-    const planId = uid('allowance');
-    const createdAt = new Date().toISOString();
-
-    state.allowancePlans.push({
-      id: planId,
-      amount: received,
-      startDate: receivedDate,
-      endDate,
-      savingsAmount: savingAmount,
-      status: 'active',
-      createdAt
-    });
     state.transactions.push({
       id: uid('tx'),
       type: 'income',
@@ -979,45 +910,18 @@
       category: 'Allowance',
       accountId,
       date: receivedDate,
-      note: frequency === 'irregular' ? 'Allowance received' : `${frequencyLabel(frequency)} allowance`,
-      allowanceId: planId,
-      createdAt
+      note: 'Allowance received',
+      createdAt: new Date().toISOString()
     });
 
-    if (savingAmount > 0) {
-      let goal = topGoal();
-      if (!goal) {
-        goal = { id: uid('goal'), name: 'Emergency fund', target: 3000, current: 0, createdAt: receivedDate };
-        state.goals.push(goal);
-      }
-      goal.current = Number(goal.current || 0) + savingAmount;
-      state.transactions.push({
-        id: uid('tx'),
-        type: 'saving',
-        amount: savingAmount,
-        category: 'Savings',
-        accountId,
-        date: receivedDate,
-        note: goal.name,
-        goalId: goal.id,
-        allowanceId: planId,
-        createdAt: new Date(Date.now() + 10).toISOString()
-      });
-    }
-
-    if (!routine.lastReceivedDate || receivedDate >= routine.lastReceivedDate) {
-      routine.lastReceivedDate = receivedDate;
-      routine.nextDueDate = nextDueDate;
-    }
     state.settings.demoData = false;
     saveState();
     closeDialog(els.allowanceDialog);
     renderAll();
-    if (savingAmount > 0) celebrateSavings();
 
     const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
     const dateText = receivedDate === today ? 'today' : DATE_LABEL.format(fromDateKey(receivedDate));
-    showToast(state.settings.privacy ? `Allowance recorded in ${walletName}.` : `${currency(received, true)} recorded in ${walletName} for ${dateText}.`);
+    showToast(state.settings.privacy ? `Allowance added to ${walletName}.` : `${currency(received, true)} added to ${walletName} for ${dateText}.`);
   }
 
   function updateAllowanceTransaction(id, amount, receivedDate, accountId) {
@@ -1031,51 +935,24 @@
       showToast('Choose today or a past date for the allowance.');
       return false;
     }
-    const routine = state.allowanceRoutine;
-    const frequency = routine?.frequency || 'irregular';
-    const plan = state.allowancePlans.find((item) => item.id === income.allowanceId);
-    const linkedSaving = state.transactions.find((tx) => tx.allowanceId === income.allowanceId && tx.type === 'saving');
-    const historicalSaving = plan ? Number(plan.savingsAmount || 0) : linkedSaving ? Number(linkedSaving.amount || 0) : Number(routine?.autoSaveAmount || 0);
-    const autoSaveAmount = Math.min(Number(amount), Math.max(0, historicalSaving));
-    const oldSavingAmount = Number(linkedSaving?.amount || 0);
 
     income.amount = Number(amount);
     income.accountId = accountId;
     income.date = receivedDate;
-    income.note = frequency === 'irregular' ? 'Allowance received' : `${frequencyLabel(frequency)} allowance`;
+    income.note = 'Allowance received';
     income.updatedAt = new Date().toISOString();
 
-    if (plan) {
-      plan.amount = Number(amount);
-      plan.startDate = receivedDate;
-      const nextDueDate = frequency === 'irregular' ? null : nextDueDateForFrequency(frequency, receivedDate);
-      plan.endDate = coverageEndForFrequency(frequency, receivedDate, nextDueDate);
-      plan.savingsAmount = autoSaveAmount;
+    const linkedSavings = state.transactions.filter((tx) => tx.allowanceId && tx.allowanceId === income.allowanceId && tx.type === 'saving');
+    linkedSavings.forEach((saving) => {
+      saving.accountId = accountId;
+      saving.date = receivedDate;
+      saving.updatedAt = new Date().toISOString();
+    });
+    const legacyPlan = income.allowanceId ? state.allowancePlans.find((item) => item.id === income.allowanceId) : null;
+    if (legacyPlan) {
+      legacyPlan.amount = Number(amount);
+      legacyPlan.startDate = receivedDate;
     }
-
-    if (linkedSaving) {
-      const goal = state.goals.find((item) => item.id === linkedSaving.goalId);
-      if (goal) goal.current = Math.max(0, Number(goal.current || 0) + autoSaveAmount - oldSavingAmount);
-      linkedSaving.amount = autoSaveAmount;
-      linkedSaving.accountId = accountId;
-      linkedSaving.date = receivedDate;
-      linkedSaving.updatedAt = new Date().toISOString();
-      if (autoSaveAmount <= 0) state.transactions = state.transactions.filter((tx) => tx.id !== linkedSaving.id);
-    } else if (autoSaveAmount > 0) {
-      let goal = topGoal();
-      if (!goal) {
-        goal = { id: uid('goal'), name: 'Emergency fund', target: 3000, current: 0, createdAt: receivedDate };
-        state.goals.push(goal);
-      }
-      goal.current = Number(goal.current || 0) + autoSaveAmount;
-      state.transactions.push({
-        id: uid('tx'), type: 'saving', amount: autoSaveAmount, category: 'Savings', accountId,
-        date: receivedDate, note: goal.name, goalId: goal.id, allowanceId: income.allowanceId,
-        createdAt: new Date().toISOString()
-      });
-    }
-
-    syncAllowanceRoutineFromHistory();
     state.settings.demoData = false;
     saveState();
     return true;
@@ -1171,17 +1048,19 @@
     const name = els.goalName.value.trim();
     const target = Number(els.goalTarget.value);
     const current = Math.max(0, Number(els.goalCurrent.value || 0));
-    if (!name || !Number.isFinite(target) || target <= 0) return;
+    const accountId = els.goalAccount.value || state.accounts[0]?.id;
+    if (!name || !Number.isFinite(target) || target <= 0 || !accountId) return;
     const startingAmount = Math.min(current, target);
-    const accountId = state.accounts[0]?.id;
     const available = accountBalance(accountId);
     if (startingAmount > available) {
-      showToast(`You only have ${currency(Math.max(0, available), true)} available to move into savings.`);
+      const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
+      showToast(`You only have ${currency(Math.max(0, available), true)} available in ${walletName}.`);
       return;
     }
-    state.goals.push({ id: uid('goal'), name, target, current: startingAmount, createdAt: localDateKey() });
+    const goal = { id: uid('goal'), name, target, current: startingAmount, createdAt: localDateKey() };
+    state.goals.push(goal);
     if (startingAmount > 0) {
-      state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: localDateKey(), note: name, createdAt: new Date().toISOString() });
+      state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: localDateKey(), note: name, goalId: goal.id, createdAt: new Date().toISOString() });
     }
     state.settings.demoData = false;
     saveState();
@@ -1192,24 +1071,37 @@
     showToast(`“${name}” goal created.`);
   }
 
-  function openContribution(goalId, suggestedAmount = '') {
+  function openContribution(goalId, suggestedAmount = '', accountId = '') {
     const goal = state.goals.find((item) => item.id === goalId);
     if (!goal) return;
     els.contributeGoalId.value = goal.id;
     els.contributeTitle.textContent = goal.name;
     els.contributeAmount.value = suggestedAmount || '';
+    populateAccounts();
+    const preferredAccount = accountId || (savingsMode === 'wallet' ? state.accounts[savingsWalletIndex]?.id : '') || state.accounts[0]?.id;
+    if (preferredAccount && state.accounts.some((account) => account.id === preferredAccount)) els.contributeAccount.value = preferredAccount;
+    updateContributionWalletHint();
     openDialog(els.contributeDialog);
     requestAnimationFrame(() => els.contributeAmount.focus());
+  }
+
+  function updateContributionWalletHint() {
+    const account = state.accounts.find((item) => item.id === els.contributeAccount.value) || state.accounts[0];
+    const balance = account ? accountBalance(account.id) : 0;
+    els.contributeWalletHint.textContent = state.settings.privacy
+      ? `Savings will move out of ${account?.name || 'the selected wallet'}.`
+      : `${currency(Math.max(0, balance), true)} is currently available in ${account?.name || 'the selected wallet'}.`;
   }
 
   function addContribution() {
     const goal = state.goals.find((item) => item.id === els.contributeGoalId.value);
     const amount = Number(els.contributeAmount.value);
-    if (!goal || !Number.isFinite(amount) || amount <= 0) return;
-    const accountId = state.accounts[0]?.id;
+    const accountId = els.contributeAccount.value || state.accounts[0]?.id;
+    if (!goal || !Number.isFinite(amount) || amount <= 0 || !accountId) return;
     const available = accountBalance(accountId);
     if (amount > available) {
-      showToast(`You only have ${currency(Math.max(0, available), true)} available to move into savings.`);
+      const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
+      showToast(`You only have ${currency(Math.max(0, available), true)} available in ${walletName}.`);
       return;
     }
     goal.current = Number(goal.current || 0) + amount;
@@ -1222,7 +1114,8 @@
     closeDialog(els.contributeDialog);
     renderAll();
     celebrateSavings();
-    showToast(`${currency(amount, true)} saved for ${goal.name}.`);
+    const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
+    showToast(`${currency(amount, true)} saved from ${walletName} for ${goal.name}.`);
   }
 
   function syncAllowanceRoutineFromHistory() {
@@ -1467,18 +1360,25 @@
 
     if (action === 'open-expense') openExpense();
     if (action === 'open-allowance') openDifferentAllowance();
-    if (action === 'open-allowance-routine') openAllowanceRoutine();
-    if (action === 'receive-usual-allowance') openDifferentAllowance();
     if (action === 'apply-update') applyAvailableUpdate();
     if (action === 'dismiss-update') hideUpdateAvailable();
     if (action === 'check-update') checkForUpdates({ announce: true, force: true });
     if (action === 'open-goal') {
       els.goalForm.reset();
       els.goalCurrent.value = '0';
+      populateAccounts();
+      const preferredGoalAccount = savingsMode === 'wallet' ? state.accounts[savingsWalletIndex]?.id : state.accounts[0]?.id;
+      if (preferredGoalAccount) els.goalAccount.value = preferredGoalAccount;
       openDialog(els.goalDialog);
       requestAnimationFrame(() => els.goalName.focus());
     }
-    if (action === 'open-contribution') openContribution(button.dataset.goalId);
+    if (action === 'open-contribution') openContribution(button.dataset.goalId, '', button.dataset.accountId || '');
+    if (action === 'show-wallet-savings') {
+      savingsMode = 'wallet';
+      savingsWalletIndex = Number(button.dataset.savingsWalletIndex || 0);
+      renderSavings();
+      els.contentScroll.scrollTop = 0;
+    }
     if (action === 'open-wallet') openWallet();
     if (action === 'remove-wallet') removeWallet(button.dataset.id);
     if (action === 'edit-transaction') editTransaction(button.dataset.id);
@@ -1503,16 +1403,15 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeTitle', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'walletModeHint',
       'activitySearch', 'activityType', 'monthSpent', 'monthReceived',
-      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'themeIcon',
-      'themeLabel', 'privacyLabel', 'privacySwitch', 'allowanceRoutineAmount', 'allowanceRoutineSummary', 'allowanceRecordSummary', 'walletsList', 'importFile',
-      'allowanceRoutineDialog', 'allowanceRoutineForm', 'allowanceRoutineTitle', 'allowanceRoutineAmountInput', 'allowanceRoutineKeypad',
-      'allowanceAutoSaveEnabled', 'allowanceAutoSaveWrap', 'allowanceAutoSaveAmount', 'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
-      'allowanceReceivedDate', 'allowanceAccount', 'allowanceAutoSaveHint', 'allowanceAutoSaveHintTitle', 'allowanceAutoSaveHintText',
+      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsInsight', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'savingsWalletBreakdown', 'themeIcon',
+      'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'walletsList', 'importFile',
+      'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
+      'allowanceReceivedDate', 'allowanceAccount',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
       'walletDialog', 'walletForm', 'walletCustomNameWrap', 'walletCustomName', 'walletOpeningBalance', 'walletKeypad',
       'expenseAmount', 'expenseAmountCard', 'expenseAvailable', 'expenseAmountHint', 'expenseKeypad', 'expenseAccount',
       'expenseDate', 'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalName', 'goalTarget',
-      'goalCurrent', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount',
+      'goalCurrent', 'goalAccount', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount', 'contributeAccount', 'contributeWalletHint',
       'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
@@ -1536,6 +1435,21 @@
 
     els.activitySearch.addEventListener('input', renderActivity);
     els.activityType.addEventListener('change', renderActivity);
+    els.savingsModeToggle.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-savings-mode]');
+      if (!button) return;
+      savingsMode = button.dataset.savingsMode === 'wallet' ? 'wallet' : 'total';
+      renderSavings();
+      els.contentScroll.scrollTop = 0;
+    });
+    els.savingsWalletTabs.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-savings-wallet-index]');
+      if (!button) return;
+      savingsWalletIndex = Number(button.dataset.savingsWalletIndex || 0);
+      savingsMode = 'wallet';
+      renderSavings();
+      els.contentScroll.scrollTop = 0;
+    });
 
     els.walletCarousel.addEventListener('scroll', queueWalletCarouselTransforms, { passive: true });
     els.walletCarousel.addEventListener('wheel', (event) => {
@@ -1562,17 +1476,6 @@
       scrollToWalletMode(Number(button.dataset.walletModeIndex));
     });
 
-    document.getElementById('allowanceRoutineAmountChips').addEventListener('click', (event) => {
-      const button = event.target.closest('[data-routine-amount]');
-      if (!button) return;
-      setAllowanceRoutineAmountValue(button.dataset.routineAmount);
-    });
-    els.allowanceAutoSaveEnabled.addEventListener('change', updateAllowanceAutoSaveUI);
-    els.allowanceRoutineForm.addEventListener('submit', (event) => {
-      if (event.submitter?.value === 'cancel') return;
-      event.preventDefault();
-      saveAllowanceRoutine();
-    });
 
     document.getElementById('allowanceAmountChips').addEventListener('click', (event) => {
       const button = event.target.closest('[data-amount]');
@@ -1585,11 +1488,6 @@
       if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
       addAllowance();
-    });
-    els.allowanceRoutineKeypad.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-routine-key]');
-      if (!button) return;
-      handleRoutineAmountKey(button.dataset.routineKey);
     });
     const toggleAllowanceKeypad = () => {
       const opening = els.allowanceKeypad.classList.contains('is-hidden');
@@ -1604,12 +1502,6 @@
       const button = event.target.closest('[data-allowance-key]');
       if (!button) return;
       handleAllowanceAmountKey(button.dataset.allowanceKey);
-    });
-    els.allowanceRoutineDialog.addEventListener('keydown', (event) => {
-      const key = parseAmountKeyboardKey(event, false);
-      if (!key) return;
-      event.preventDefault();
-      handleRoutineAmountKey(key);
     });
     els.allowanceDialog.addEventListener('keydown', (event) => {
       const key = parseAmountKeyboardKey(event, false);
@@ -1672,6 +1564,7 @@
       event.preventDefault();
       addGoal();
     });
+    els.contributeAccount.addEventListener('change', updateContributionWalletHint);
     els.contributeForm.addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') return;
       event.preventDefault();
@@ -1709,10 +1602,6 @@
     });
 
     window.addEventListener('hashchange', () => setView(location.hash.slice(1), false));
-    window.addEventListener('resize', () => {
-      if (currentView !== 'home') return;
-      requestAnimationFrame(() => scrollToWalletMode(walletModeIndex, 'auto'));
-    });
     window.addEventListener('storage', (event) => {
       if (event.key === STORAGE_KEY) {
         state = loadState();
@@ -1769,6 +1658,11 @@
     renderAll();
     setView(location.hash.slice(1) || 'home', false);
     els.expenseDate.value = localDateKey();
+    if ('ResizeObserver' in window) {
+      walletCarouselResizeObserver = new ResizeObserver(() => { if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex); });
+      walletCarouselResizeObserver.observe(els.walletCarousel);
+    }
+    window.addEventListener('resize', () => { if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex); });
     registerServiceWorker();
   }
 
