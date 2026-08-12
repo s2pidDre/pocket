@@ -125,12 +125,13 @@
                 <div><p class="eyebrow">Today</p><strong class="money-value" id="homeWalletTodaySpent">₱0 spent</strong></div>
                 <span id="homeWalletTodayEntries">0 entries</span>
               </div>
+              <div class="home-wallet-category-bar" id="homeWalletTodayBar" aria-label="Today's spending by category"></div>
               <div class="home-wallet-overview-divider"></div>
               <div class="home-wallet-overview-row month-row">
                 <div><p class="eyebrow" id="homeWalletMonthLabel">This month</p><strong class="money-value" id="homeWalletMonthSpent">₱0 spent</strong></div>
                 <span id="homeWalletTopCategory">No spending yet</span>
               </div>
-              <div class="home-wallet-month-bar" aria-hidden="true"><span id="homeWalletMonthBar"></span></div>
+              <div class="home-wallet-category-bar" id="homeWalletMonthBar" aria-label="This month's spending by category"></div>
             </article>
 
             <div class="home-wallet-actions" aria-label="Wallet quick actions">
@@ -212,6 +213,7 @@
             </div>
           </div>
           <div class="goals-carousel" id="goalsGrid" aria-label="Savings goals"></div>
+          <article class="savings-goal-overview" id="savingsGoalOverview" aria-label="Savings goals overview"></article>
         </section>
 
         <section class="view" id="view-more" data-view-panel="more" aria-labelledby="viewTitle">

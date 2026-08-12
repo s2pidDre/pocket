@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.3.0';
+  const APP_VERSION = '2.4.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -483,6 +483,31 @@
     return { expenses, spent, top };
   }
 
+  function expenseCategoryClass(category) {
+    const key = String(category || 'Other').toLowerCase();
+    if (key === 'food') return 'expense-cat-food';
+    if (key === 'transport') return 'expense-cat-transport';
+    if (key === 'school') return 'expense-cat-school';
+    if (key === 'load') return 'expense-cat-load';
+    if (key === 'personal') return 'expense-cat-personal';
+    return 'expense-cat-other';
+  }
+
+  function renderExpenseCategoryBar(summary) {
+    if (!summary?.spent) return '<span class="expense-category-empty"></span>';
+    const totals = summary.expenses.reduce((map, tx) => {
+      const name = tx.category || 'Other';
+      map[name] = (map[name] || 0) + Number(tx.amount || 0);
+      return map;
+    }, {});
+    return Object.entries(totals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([category, amount]) => {
+        const share = Math.max(1, (amount / summary.spent) * 100);
+        return `<span class="expense-category-segment ${expenseCategoryClass(category)}" style="width:${share.toFixed(2)}%" title="${escapeHtml(category)} ${Math.round((amount / summary.spent) * 100)}%"></span>`;
+      }).join('');
+  }
+
   function renderHomeWalletDetails(index = walletModeIndex) {
     const account = state.accounts[index];
     if (!account || !els.homeWalletTodaySpent) return;
@@ -490,15 +515,15 @@
     const month = monthRange();
     const todaySummary = walletExpenseSummary(account.id, today, today);
     const monthSummary = walletExpenseSummary(account.id, month.start, month.end);
-    const topShare = monthSummary.top && monthSummary.spent > 0 ? Math.min(100, (monthSummary.top[1] / monthSummary.spent) * 100) : 0;
     const monthName = new Intl.DateTimeFormat('en-PH', { month: 'long' }).format(new Date());
 
     els.homeWalletTodaySpent.textContent = state.settings.privacy ? '₱•••• spent' : `${currency(todaySummary.spent, true)} spent`;
     els.homeWalletTodayEntries.textContent = `${todaySummary.expenses.length} ${todaySummary.expenses.length === 1 ? 'entry' : 'entries'}`;
+    els.homeWalletTodayBar.innerHTML = renderExpenseCategoryBar(todaySummary);
     els.homeWalletMonthLabel.textContent = monthName;
     els.homeWalletMonthSpent.textContent = state.settings.privacy ? '₱•••• spent' : `${currency(monthSummary.spent, true)} spent`;
     els.homeWalletTopCategory.textContent = monthSummary.top ? `${monthSummary.top[0]} · biggest category` : 'No spending yet';
-    els.homeWalletMonthBar.style.width = `${topShare.toFixed(1)}%`;
+    els.homeWalletMonthBar.innerHTML = renderExpenseCategoryBar(monthSummary);
   }
 
   function updateWalletModeHeader(index) {
@@ -664,6 +689,38 @@
     els.activitySwipeHint.classList.toggle('is-hidden', state.transactions.length === 0);
   }
 
+  function renderSavingsGoalOverview(goals, selectedAccount, isWalletMode) {
+    if (!els.savingsGoalOverview) return;
+    const active = goals.filter((goal) => Number(goal.current || 0) < Number(goal.target || 0));
+    const completed = goals.length - active.length;
+    const targetTotal = goals.reduce((sum, goal) => sum + Math.max(0, Number(goal.target || 0)), 0);
+    const savedTotal = goals.reduce((sum, goal) => {
+      if (isWalletMode && selectedAccount) return sum + goalWalletSavings(goal, selectedAccount.id);
+      return sum + Math.max(0, Number(goal.current || 0));
+    }, 0);
+    const cappedSaved = Math.min(savedTotal, targetTotal || savedTotal);
+    const remaining = Math.max(0, targetTotal - (isWalletMode ? goals.reduce((sum, goal) => sum + Math.max(0, Number(goal.current || 0)), 0) : savedTotal));
+    const percent = targetTotal > 0 ? Math.min(100, (cappedSaved / targetTotal) * 100) : 0;
+    const context = isWalletMode && selectedAccount ? `${selectedAccount.name} contribution` : 'Across all goals';
+
+    if (!goals.length) {
+      els.savingsGoalOverview.innerHTML = `<div class="goal-overview-empty"><span class="round-icon purple-soft">${icon('i-target')}</span><div><p class="eyebrow">Goals overview</p><strong>No active targets</strong><span>Create a goal when you have something specific to save for.</span></div></div>`;
+      return;
+    }
+
+    els.savingsGoalOverview.innerHTML = `
+      <div class="goal-overview-head">
+        <div><p class="eyebrow">Goals overview</p><strong>${escapeHtml(context)}</strong></div>
+        <span>${completed} completed</span>
+      </div>
+      <div class="goal-overview-metrics">
+        <div><small>Active</small><strong>${active.length}</strong></div>
+        <div><small>Saved</small><strong class="money-value">${currency(savedTotal, true)}</strong></div>
+        <div><small>Remaining</small><strong class="money-value">${currency(remaining, true)}</strong></div>
+      </div>
+      <div class="goal-overview-progress"><span style="width:${percent.toFixed(1)}%"></span></div>`;
+  }
+
   function renderSavings() {
     const accounts = state.accounts;
     savingsWalletIndex = Math.max(0, Math.min(savingsWalletIndex, Math.max(0, accounts.length - 1)));
@@ -736,6 +793,7 @@
           </article>`;
       }).join('');
     }
+    renderSavingsGoalOverview(visibleGoals, selectedAccount, isWalletMode);
   }
 
   function renderWallets() {
@@ -1752,9 +1810,9 @@
   function cacheElements() {
     [
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
-      'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar',
+      'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthReceived',
-      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'themeIcon', 'themeSwitch', 'themeSettingButton',
+      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsGoalOverview', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'themeIcon', 'themeSwitch', 'themeSettingButton',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
