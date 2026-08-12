@@ -236,8 +236,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .prompt-compact strong { color: var(--text); }
 .prompt-compact .text-button { margin-left: auto; }
 
-.balance-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) repeat(2, minmax(0, 1fr)); gap: 16px; }
-.balance-card, .savings-balance-card, .guide-card { padding: 22px; min-height: 158px; display: flex; flex-direction: column; justify-content: space-between; }
+.balance-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 16px; }
+.balance-card, .savings-balance-card { padding: 22px; min-height: 158px; display: flex; flex-direction: column; justify-content: space-between; }
 .card-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .balance-value { margin: 1px 0 0; font-size: clamp(31px, 3.3vw, 44px); letter-spacing: -1.7px; line-height: 1; font-weight: 720; }
 .metric-value { margin: 1px 0 0; font-size: clamp(25px, 2.3vw, 32px); letter-spacing: -1px; line-height: 1.05; font-weight: 700; }
@@ -251,7 +251,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .amber-soft { background: var(--amber-soft); color: var(--amber); }
 .purple-soft { background: var(--purple-soft); color: var(--primary); }
 .neutral-soft { background: var(--surface-3); color: var(--text-2); }
-.savings-balance-card .muted, .guide-card .muted { margin: auto 0 0; font-size: 12px; line-height: 1.45; }
+.savings-balance-card .muted { margin: auto 0 0; font-size: 12px; line-height: 1.45; }
 
 
 .savings-balance-card { position: relative; overflow: hidden; }
@@ -293,21 +293,19 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .status-pill.neutral { background: var(--surface-3); color: var(--text-2); }
 .plan-progress { height: 9px; margin: 20px 0 12px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
 .plan-progress span { display: block; height: 100%; background: var(--primary); border-radius: inherit; transition: width .35s ease; transform-origin: left; animation: progress-grow .5s cubic-bezier(.2,.8,.2,1); }
-.plan-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.plan-stat { padding: 12px; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--line); }
-.plan-stat span { display: block; color: var(--text-3); font-size: 11px; margin-bottom: 3px; }
-.plan-stat strong { display: block; font-size: 14px; }
+.allowance-simple-head .allowance-left { margin: 2px 0 4px; font-size: 28px; letter-spacing: -.8px; }
+.allowance-simple-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--text-2); font-size: 12px; }
+.allowance-simple-footer strong { color: var(--text); font-size: 14px; }
 .empty-plan { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .empty-plan h2 { margin: 2px 0 5px; font-size: 18px; }
 .empty-plan p { margin: 0; color: var(--text-2); max-width: 48ch; }
-
-.recommendation-card { padding: 20px; border-color: color-mix(in srgb, var(--primary) 22%, var(--line)); background: linear-gradient(150deg, var(--surface), color-mix(in srgb, var(--primary-soft) 50%, var(--surface))); }
-.recommendation-top { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-.recommendation-top strong { font-size: 13px; }
-.recommendation-amount { margin: 0; font-size: 28px; line-height: 1; letter-spacing: -1px; font-weight: 720; }
-.recommendation-copy { margin: 9px 0 16px; color: var(--text-2); font-size: 13px; }
-.recommendation-actions { display: flex; gap: 8px; }
-.recommendation-actions .button-primary, .recommendation-actions .button-secondary { min-height: 39px; flex: 1; font-size: 13px; }
+.allowance-due-prompt { position: relative; overflow: hidden; }
+.allowance-due-prompt::after { content: ""; position: absolute; width: 80px; height: 80px; right: -28px; top: -34px; border-radius: 50%; background: color-mix(in srgb, var(--primary-soft) 70%, transparent); pointer-events: none; animation: bubble-float 4.5s ease-in-out infinite; }
+.allowance-due-prompt > * { position: relative; z-index: 1; }
+.allowance-status { animation: allowance-status-in .28s cubic-bezier(.2,.8,.2,1); }
+.allowance-received-pop { animation: allowance-received .42s cubic-bezier(.2,.9,.2,1); }
+@keyframes allowance-status-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes allowance-received { 0% { transform: scale(.985); } 55% { transform: scale(1.012); } 100% { transform: scale(1); } }
 .savings-mini { padding: 18px 20px; }
 .mini-goal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .mini-goal-head strong { font-size: 14px; }
@@ -405,6 +403,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .field-group { margin-top: 16px; }
 .field-group:first-child { margin-top: 0; }
 .field-group.is-hidden { display: none; }
+.is-hidden { display: none !important; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
 .field-grid .field-group { margin-top: 0; }
 .text-input { padding: 0 12px; }
@@ -501,7 +500,6 @@ body.is-private .transaction-amount .money-value::after { right: 0; left: auto; 
   .button-quiet { justify-content: center; padding: 0; }
   .home-layout { grid-template-columns: minmax(0, 1.45fr) minmax(280px, .9fr); }
   .balance-grid { grid-template-columns: 1.25fr 1fr; }
-  .guide-card { grid-column: 1 / -1; min-height: 126px; }
 }
 
 @media (max-width: 820px) {
@@ -526,9 +524,7 @@ body.is-private .transaction-amount .money-value::after { right: 0; left: auto; 
   .bottom-add svg { width: 23px; height: 23px; }
   .home-layout { grid-template-columns: 1fr; }
   .balance-grid { grid-template-columns: 1fr 1fr; }
-  .balance-card { grid-column: 1 / -1; }
-  .guide-card { grid-column: auto; }
-  .balance-card, .savings-balance-card, .guide-card { min-height: 142px; padding: 18px; }
+  .balance-card, .savings-balance-card { min-height: 142px; padding: 18px; }
   .balance-value { font-size: 38px; }
   .metric-value { font-size: 27px; }
   .activity-summary-grid { grid-template-columns: 1fr; gap: 10px; }
@@ -551,18 +547,18 @@ body.is-private .transaction-amount .money-value::after { right: 0; left: auto; 
   .daily-prompt { align-items: flex-start; flex-direction: column; padding: 16px; }
   .daily-prompt-actions { width: 100%; justify-content: stretch; }
   .daily-prompt-actions .button-primary, .daily-prompt-actions .button-secondary { flex: 1; }
+  .prompt-compact.allowance-status { align-items: flex-start; flex-wrap: wrap; }
+  .prompt-compact.allowance-status .text-button { margin-left: 30px; padding-top: 0; }
   .balance-grid { gap: 10px; }
-  .balance-card, .savings-balance-card, .guide-card { min-height: 128px; padding: 16px; border-radius: 17px; }
-  .savings-balance-card .round-icon, .guide-card .round-icon { display: none; }
+  .balance-card, .savings-balance-card { min-height: 128px; padding: 16px; border-radius: 17px; }
+  .savings-balance-card .round-icon { display: none; }
   .balance-card .round-icon { width: 36px; height: 36px; }
   .balance-value { font-size: 34px; }
   .metric-value { font-size: 24px; }
-  .savings-balance-card .muted, .guide-card .muted { font-size: 10px; }
+  .savings-balance-card .muted { font-size: 10px; }
   .home-layout, .home-main-column, .home-side-column { gap: 10px; }
-  .section-card, .allowance-plan-card, .recommendation-card { padding: 16px; border-radius: 17px; }
-  .plan-stats { grid-template-columns: 1fr; }
-  .plan-stat { display: flex; justify-content: space-between; align-items: center; }
-  .plan-stat span { margin: 0; }
+  .section-card, .allowance-plan-card { padding: 16px; border-radius: 17px; }
+  .allowance-simple-footer { align-items: flex-start; flex-direction: column; gap: 4px; }
   .transaction-list.full .transaction-row { grid-template-columns: 38px minmax(0, 1fr) auto; }
   .transaction-list.full .transaction-actions { display: none; }
   .savings-hero { padding: 20px; flex-direction: column; align-items: stretch; }
@@ -613,14 +609,14 @@ body.is-private .transaction-amount .money-value::after { right: 0; left: auto; 
 @media (max-width: 390px) {
   .topbar { padding-left: 13px; padding-right: 13px; }
   .content-scroll { padding-left: 10px; padding-right: 10px; }
-  .balance-card, .savings-balance-card, .guide-card { min-height: 116px; }
+  .balance-card, .savings-balance-card { min-height: 116px; }
   .bottom-nav { padding-left: 4px; padding-right: 4px; }
 }
 
 @media (max-height: 700px) and (min-width: 821px) {
   .topbar { min-height: 72px; }
   .content-scroll { padding-top: 18px; padding-bottom: 24px; }
-  .balance-card, .savings-balance-card, .guide-card { min-height: 136px; }
+  .balance-card, .savings-balance-card { min-height: 136px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#5b5bd6">
-  <meta name="description" content="A simple student allowance tracker with smart saving suggestions and minimal manual entry.">
+  <meta name="description" content="A simple student allowance tracker with quick expense entry, separate savings, and a one-tap allowance routine.">
   <title>Pocket — Student Allowance Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
@@ -127,16 +127,6 @@
               <p class="muted" id="homeSavingsHint">Kept separate from spending.</p>
             </article>
 
-            <article class="card guide-card">
-              <div class="card-heading-row">
-                <div>
-                  <p class="label">Daily guide</p>
-                  <p class="metric-value money-value" id="dailyGuide">₱0.00</p>
-                </div>
-                <span class="round-icon amber-soft"><svg><use href="#i-calendar"/></svg></span>
-              </div>
-              <p class="muted" id="dailyGuideHint">Add an allowance period to calculate a guide.</p>
-            </article>
           </div>
 
           <div class="home-layout">
@@ -156,8 +146,6 @@
             </div>
 
             <div class="home-side-column">
-              <article class="card recommendation-card" id="recommendationCard"></article>
-
               <article class="card section-card savings-mini" id="savingsMini"></article>
             </div>
           </div>
@@ -207,7 +195,7 @@
 
           <article class="card section-card">
             <div class="section-heading">
-              <div><p class="eyebrow">Smart suggestion</p><h2>Save without overdoing it</h2></div>
+              <div><p class="eyebrow">Savings tip</p><h2>Keep saving simple</h2></div>
               <span class="round-icon purple-soft"><svg><use href="#i-sparkle"/></svg></span>
             </div>
             <p class="insight-copy" id="savingsInsight"></p>
@@ -231,15 +219,10 @@
             </article>
 
             <article class="card settings-card">
-              <div class="section-heading compact"><div><p class="eyebrow">Allowance</p><h2>Daily check-in</h2></div></div>
-              <div class="setting-row static">
-                <span class="round-icon neutral-soft"><svg><use href="#i-bell"/></svg></span>
-                <span><strong>Ask once each day</strong><small>The prompt stays inside the app.</small></span>
-                <span class="status-pill success">On</span>
-              </div>
-              <button class="setting-row" type="button" data-action="reset-checkin">
-                <span class="round-icon neutral-soft"><svg><use href="#i-calendar"/></svg></span>
-                <span><strong>Show today’s question again</strong><small>Useful if you answered “Not yet.”</small></span>
+              <div class="section-heading compact"><div><p class="eyebrow">Allowance</p><h2>Usual allowance</h2></div></div>
+              <button class="setting-row" type="button" data-action="open-allowance-routine">
+                <span class="round-icon neutral-soft"><svg><use href="#i-wallet"/></svg></span>
+                <span><strong id="allowanceRoutineAmount">Not set</strong><small id="allowanceRoutineSummary">Set it once, then record allowance in one tap.</small></span>
                 <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
             </article>
@@ -263,7 +246,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <div class="setting-row static">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 1.2.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 1.4.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </div>
               <button class="setting-row" type="button" data-action="check-update">
@@ -292,41 +275,66 @@
     </nav>
   </div>
 
-  <dialog id="allowanceDialog" class="app-dialog">
-    <form method="dialog" class="dialog-panel" id="allowanceForm">
+  <dialog id="allowanceRoutineDialog" class="app-dialog">
+    <form method="dialog" class="dialog-panel" id="allowanceRoutineForm">
       <div class="dialog-header">
-        <div><p class="eyebrow">Allowance received</p><h2>Add money in seconds</h2></div>
+        <div><p class="eyebrow">Allowance routine</p><h2 id="allowanceRoutineTitle">Set your usual allowance</h2><p class="dialog-subtitle">Set it once. After this, receiving allowance takes one tap.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body">
-        <label class="field-label" for="allowanceAmount">How much did you receive?</label>
+        <label class="field-label" for="allowanceRoutineAmountInput">Usual amount</label>
+        <div class="amount-field"><span>₱</span><input id="allowanceRoutineAmountInput" name="allowanceRoutineAmountInput" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
+        <div class="amount-chips" id="allowanceRoutineAmountChips">
+          <button type="button" data-routine-amount="100">₱100</button><button type="button" data-routine-amount="200">₱200</button><button type="button" data-routine-amount="500">₱500</button><button type="button" data-routine-amount="1000">₱1,000</button>
+        </div>
+
+        <fieldset class="choice-group allowance-frequency">
+          <legend>How often do you usually get it?</legend>
+          <label><input type="radio" name="allowanceFrequency" value="daily"><span>Daily</span></label>
+          <label><input type="radio" name="allowanceFrequency" value="weekly" checked><span>Weekly</span></label>
+          <label><input type="radio" name="allowanceFrequency" value="monthly"><span>Monthly</span></label>
+          <label><input type="radio" name="allowanceFrequency" value="irregular"><span>Irregular</span></label>
+        </fieldset>
+
+        <label class="check-row allowance-auto-save">
+          <input type="checkbox" id="allowanceAutoSaveEnabled">
+          <span><strong>Save automatically</strong><small>Move the same amount to Savings whenever you add allowance.</small></span>
+        </label>
+        <div class="field-group is-hidden" id="allowanceAutoSaveWrap">
+          <label class="field-label" for="allowanceAutoSaveAmount">Amount to save</label>
+          <div class="compact-amount"><span>₱</span><input id="allowanceAutoSaveAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="50"></div>
+          <p class="helper-text">This comes out of your spendable wallet immediately.</p>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" type="submit" value="default">Save routine</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="allowanceDialog" class="app-dialog compact-dialog">
+    <form method="dialog" class="dialog-panel" id="allowanceForm">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Allowance received</p><h2>Different amount</h2><p class="dialog-subtitle">Only change what is different this time.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <label class="field-label" for="allowanceAmount">Amount received</label>
         <div class="amount-field"><span>₱</span><input id="allowanceAmount" name="allowanceAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="0" required></div>
         <div class="amount-chips" id="allowanceAmountChips">
           <button type="button" data-amount="100">₱100</button><button type="button" data-amount="200">₱200</button><button type="button" data-amount="500">₱500</button><button type="button" data-amount="1000">₱1,000</button>
         </div>
 
-        <fieldset class="choice-group">
-          <legend>How long should it last?</legend>
-          <label><input type="radio" name="coverage" value="today"><span>Today</span></label>
-          <label><input type="radio" name="coverage" value="week" checked><span>This week</span></label>
-          <label><input type="radio" name="coverage" value="month"><span>This month</span></label>
-          <label><input type="radio" name="coverage" value="custom"><span>Until a date</span></label>
-        </fieldset>
-
-        <div class="field-group is-hidden" id="customDateWrap">
-          <label class="field-label" for="allowanceEndDate">Last day this money should cover</label>
-          <input class="text-input" id="allowanceEndDate" type="date">
+        <div class="field-group is-hidden" id="allowanceNextDateWrap">
+          <label class="field-label" for="allowanceNextDate">Expected next allowance <span>Optional</span></label>
+          <input class="text-input" id="allowanceNextDate" type="date">
         </div>
 
-        <div class="smart-box" id="allowanceSuggestion">
-          <span class="round-icon purple-soft"><svg><use href="#i-sparkle"/></svg></span>
-          <div><strong>Enter an amount for a saving suggestion.</strong><p>We’ll suggest an amount you can move out of spending.</p></div>
+        <div class="smart-box is-hidden" id="allowanceAutoSaveHint">
+          <span class="round-icon purple-soft"><svg><use href="#i-savings"/></svg></span>
+          <div><strong id="allowanceAutoSaveHintTitle"></strong><p id="allowanceAutoSaveHintText"></p></div>
         </div>
-
-        <label class="check-row">
-          <input type="checkbox" id="applySuggestedSaving" checked>
-          <span><strong>Move the suggested amount to savings</strong><small>You can skip or change this later.</small></span>
-        </label>
       </div>
       <div class="dialog-footer">
         <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
