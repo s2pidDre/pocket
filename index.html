@@ -266,7 +266,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <div class="setting-row static">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 2.2.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 2.2.1</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </div>
               <button class="setting-row" type="button" data-action="check-update">
@@ -503,9 +503,10 @@
 
   <dialog id="walletPickerDialog" class="app-dialog compact-dialog wallet-picker-dialog">
     <div class="dialog-panel wallet-picker-panel">
+      <div class="wallet-sheet-handle" aria-hidden="true"></div>
       <div class="dialog-header wallet-picker-header">
-        <div><p class="eyebrow">Wallets</p><h2 id="walletPickerTitle">Choose wallet</h2><p class="dialog-subtitle" id="walletPickerSubtitle">Pick where this money belongs.</p></div>
-        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+        <div><h2 id="walletPickerTitle">Choose wallet</h2><p class="dialog-subtitle" id="walletPickerSubtitle">Pick where this money belongs.</p></div>
+        <button class="icon-button wallet-picker-close" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body wallet-picker-body">
         <div class="wallet-picker-list" id="walletPickerList"></div>

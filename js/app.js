@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.2.0';
+  const APP_VERSION = '2.2.1';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -836,16 +836,33 @@
     return `Available ${currency(Math.max(0, accountBalance(account.id)), true)} · Savings ${currency(walletSavingsBalance(account.id), true)}`;
   }
 
+  function walletPickerIdentity(account) {
+    const name = String(account?.name || '').trim();
+    const normalized = name.toLowerCase();
+    if (account?.type === 'cash' || normalized === 'cash') return { className: 'is-cash', content: icon('i-wallet') };
+    if (normalized.includes('gcash')) return { className: 'is-gcash', content: '<span aria-hidden="true">G</span>' };
+    if (normalized.includes('maya')) return { className: 'is-maya', content: '<span aria-hidden="true">M</span>' };
+    if (account?.type === 'ewallet') return { className: 'is-ewallet', content: icon('i-phone') };
+    const initial = escapeHtml(name.charAt(0).toUpperCase() || 'W');
+    return { className: 'is-custom', content: `<span aria-hidden="true">${initial}</span>` };
+  }
+
   function syncWalletPickerTriggers() {
     document.querySelectorAll('[data-wallet-select]').forEach((button) => {
       const select = document.getElementById(button.dataset.walletSelect);
       if (!select) return;
       const account = state.accounts.find((item) => item.id === select.value) || state.accounts[0];
       const copy = button.querySelector('.wallet-picker-trigger-copy');
+      const iconHolder = button.querySelector('.wallet-picker-trigger-icon');
       if (copy) {
         copy.innerHTML = account
           ? `<strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(walletPickerBalanceCopy(account))}</small>`
           : '<strong>No wallet</strong><small>Add a wallet in Settings</small>';
+      }
+      if (iconHolder) {
+        const identity = walletPickerIdentity(account);
+        iconHolder.className = `wallet-picker-trigger-icon ${identity.className}`;
+        iconHolder.innerHTML = identity.content;
       }
       button.disabled = !account;
     });
@@ -860,10 +877,11 @@
     }
     els.walletPickerList.innerHTML = accounts.map((account) => {
       const selected = target?.value === account.id;
-      return `<button class="wallet-picker-option${selected ? ' is-selected' : ''}" type="button" data-wallet-picker-account="${escapeHtml(account.id)}">
-        <span class="wallet-picker-option-icon">${icon('i-wallet')}</span>
+      const identity = walletPickerIdentity(account);
+      return `<button class="wallet-picker-option${selected ? ' is-selected' : ''}" type="button" data-wallet-picker-account="${escapeHtml(account.id)}" aria-pressed="${selected ? 'true' : 'false'}">
+        <span class="wallet-picker-option-icon ${identity.className}">${identity.content}</span>
         <span class="wallet-picker-option-copy"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(walletPickerBalanceCopy(account))}</small></span>
-        <span class="wallet-picker-option-check">${icon('i-check')}</span>
+        <span class="wallet-picker-option-check" aria-hidden="true">${icon('i-check')}</span>
       </button>`;
     }).join('');
   }
@@ -877,6 +895,9 @@
     els.walletPickerSubtitle.textContent = subtitle;
     renderWalletPickerList();
     openDialog(els.walletPickerDialog);
+    requestAnimationFrame(() => {
+      els.walletPickerList.querySelector('.wallet-picker-option.is-selected, .wallet-picker-option')?.focus({ preventScroll: true });
+    });
   }
 
   function chooseWalletFromPicker(accountId) {
@@ -886,7 +907,6 @@
     select.dispatchEvent(new Event('change', { bubbles: true }));
     syncWalletPickerTriggers();
     closeDialog(els.walletPickerDialog);
-    activeWalletPickerTarget = '';
   }
 
 
@@ -1959,7 +1979,14 @@
       if (action) action();
     });
 
-    els.walletPickerDialog.addEventListener('close', () => { activeWalletPickerTarget = ''; });
+    els.walletPickerDialog.addEventListener('close', () => {
+      const targetId = activeWalletPickerTarget;
+      activeWalletPickerTarget = '';
+      if (!targetId) return;
+      requestAnimationFrame(() => {
+        document.querySelector(`[data-wallet-select="${CSS.escape(targetId)}"]`)?.focus({ preventScroll: true });
+      });
+    });
 
     els.expenseDialog.addEventListener('close', () => {
       currentExpenseEditId = null;
