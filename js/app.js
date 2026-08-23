@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.7.0';
+  const APP_VERSION = '2.7.1';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const LIGHT_THEME_PASSWORD = '0322';
   const LIGHT_THEME_SESSION_KEY = 'pocket-light-theme-unlocked';
@@ -65,6 +65,12 @@
   let companionAffirmationTimer = 0;
   let companionIdleTimer = 0;
   let companionBubbleTimer = 0;
+  let companionPoseTimer = 0;
+  let companionFocusTimer = 0;
+  let companionTravelAnimation = null;
+  let companionTravelToken = 0;
+  let companionFocusedElement = null;
+  let companionPosition = { x: null, y: null };
   let pendingCompanionReaction = null;
   let companionLastMessageAt = 0;
   const companionReducedMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
@@ -1084,50 +1090,176 @@
     return Boolean(els.pocketCompanion && state?.settings?.theme === 'light' && isLightThemeUnlocked());
   }
 
+  function companionClearFocus() {
+    window.clearTimeout(companionFocusTimer);
+    companionFocusTimer = 0;
+    if (companionFocusedElement) companionFocusedElement.classList.remove('companion-is-being-noticed');
+    companionFocusedElement = null;
+  }
+
+  function companionFocusElement(element, duration = 2200) {
+    companionClearFocus();
+    if (!element || !element.isConnected) return;
+    companionFocusedElement = element;
+    element.classList.add('companion-is-being-noticed');
+    companionFocusTimer = window.setTimeout(companionClearFocus, duration);
+  }
+
+  function companionCancelTravel() {
+    companionTravelToken += 1;
+    if (companionTravelAnimation) {
+      try { companionTravelAnimation.cancel(); } catch (error) { /* animation already finished */ }
+      companionTravelAnimation = null;
+    }
+    els.pocketCompanion?.classList.remove('is-traveling');
+  }
+
   function clearCompanionTimers() {
     window.clearTimeout(companionActionTimer);
     window.clearTimeout(companionAffirmationTimer);
     window.clearTimeout(companionIdleTimer);
     window.clearTimeout(companionBubbleTimer);
-    companionActionTimer = companionAffirmationTimer = companionIdleTimer = companionBubbleTimer = 0;
+    window.clearTimeout(companionPoseTimer);
+    companionActionTimer = companionAffirmationTimer = companionIdleTimer = companionBubbleTimer = companionPoseTimer = 0;
+    companionCancelTravel();
+    companionClearFocus();
   }
 
-  function companionSafePosition(preferEdge = false) {
-    const box = 92;
+  function companionBounds() {
+    const boxWidth = window.innerWidth <= 560 ? 86 : 96;
+    const boxHeight = window.innerWidth <= 560 ? 98 : 108;
     const width = Math.max(320, window.innerWidth || 390);
     const height = Math.max(480, window.innerHeight || 844);
     const desktopReserve = width > 1024 ? 250 : width > 820 ? 104 : 8;
     const minX = desktopReserve + 8;
-    const maxX = Math.max(minX, width - box - 10);
-    const minY = 112;
-    const bottomReserve = width <= 820 ? 148 : 28;
-    const maxY = Math.max(minY, height - box - bottomReserve);
+    const maxX = Math.max(minX, width - boxWidth - 10);
+    const minY = 108;
+    const bottomReserve = width <= 820 ? 145 : 24;
+    const maxY = Math.max(minY, height - boxHeight - bottomReserve);
+    return { boxWidth, boxHeight, width, height, minX, maxX, minY, maxY };
+  }
+
+  function companionSafePosition(preferEdge = false) {
+    const bounds = companionBounds();
     let x;
     let y;
-    if (preferEdge || Math.random() < .72) {
-      x = Math.random() < .5 ? minX : maxX;
-      y = Math.round(minY + Math.random() * Math.max(0, maxY - minY));
+    if (preferEdge || Math.random() < .62) {
+      x = Math.random() < .5 ? bounds.minX : bounds.maxX;
+      y = Math.round(bounds.minY + Math.random() * Math.max(0, bounds.maxY - bounds.minY));
     } else {
-      x = Math.round(minX + Math.random() * Math.max(0, maxX - minX));
-      y = Math.round(Math.max(minY, maxY - 18 - Math.random() * 22));
+      x = Math.round(bounds.minX + Math.random() * Math.max(0, bounds.maxX - bounds.minX));
+      y = Math.round(bounds.minY + Math.random() * Math.max(0, bounds.maxY - bounds.minY));
     }
-    return { x, y, minX, maxX, minY, maxY };
+    return { x, y, ...bounds };
+  }
+
+  function companionUpdateBubbleSide(x, y) {
+    if (!els.pocketCompanion) return;
+    const width = window.innerWidth || 390;
+    els.pocketCompanion.classList.toggle('bubble-left', x > width * .55);
+    els.pocketCompanion.classList.toggle('bubble-below', y < 168);
+  }
+
+  function companionSetFacing(deltaX) {
+    if (!els.pocketCompanion || Math.abs(deltaX) < 8) return;
+    els.pocketCompanion.style.setProperty('--bunny-facing', deltaX < 0 ? '-1' : '1');
   }
 
   function companionPlace(x, y, immediate = false) {
-    if (!els.pocketCompanion) return;
-    els.pocketCompanion.classList.toggle('no-travel', immediate || companionReducedMotion);
-    els.pocketCompanion.style.setProperty('--companion-x', `${Math.round(x)}px`);
-    els.pocketCompanion.style.setProperty('--companion-y', `${Math.round(y)}px`);
-    const width = window.innerWidth || 390;
-    els.pocketCompanion.classList.toggle('bubble-left', x > width * .55);
-    els.pocketCompanion.classList.toggle('bubble-below', y < 155);
-    if (immediate) requestAnimationFrame(() => els.pocketCompanion?.classList.remove('no-travel'));
+    if (!els.pocketCompanion) return Promise.resolve();
+    const bounds = companionBounds();
+    const nextX = Math.max(bounds.minX, Math.min(bounds.maxX, Math.round(x)));
+    const nextY = Math.max(bounds.minY, Math.min(bounds.maxY, Math.round(y)));
+    if (!immediate && !companionReducedMotion) return companionMoveTo(nextX, nextY, { mode: 'hop' });
+    companionCancelTravel();
+    els.pocketCompanion.style.setProperty('--companion-x', `${nextX}px`);
+    els.pocketCompanion.style.setProperty('--companion-y', `${nextY}px`);
+    companionPosition = { x: nextX, y: nextY };
+    companionUpdateBubbleSide(nextX, nextY);
+    return Promise.resolve();
+  }
+
+  function companionMoveTo(x, y, options = {}) {
+    if (!els.pocketCompanion) return Promise.resolve();
+    const bounds = companionBounds();
+    const allowOffscreen = Boolean(options.allowOffscreen);
+    const targetX = allowOffscreen ? Math.round(x) : Math.max(bounds.minX, Math.min(bounds.maxX, Math.round(x)));
+    const targetY = allowOffscreen ? Math.round(y) : Math.max(bounds.minY, Math.min(bounds.maxY, Math.round(y)));
+    const startX = Number.isFinite(companionPosition.x) ? companionPosition.x : bounds.maxX;
+    const startY = Number.isFinite(companionPosition.y) ? companionPosition.y : bounds.maxY;
+    const dx = targetX - startX;
+    const dy = targetY - startY;
+    const distance = Math.hypot(dx, dy);
+
+    companionUpdateBubbleSide(targetX, targetY);
+    companionSetFacing(dx);
+    if (companionReducedMotion || !els.pocketCompanion.animate || distance < 3) {
+      companionCancelTravel();
+      els.pocketCompanion.style.setProperty('--companion-x', `${targetX}px`);
+      els.pocketCompanion.style.setProperty('--companion-y', `${targetY}px`);
+      companionPosition = { x: targetX, y: targetY };
+      return Promise.resolve();
+    }
+
+    companionCancelTravel();
+    const token = ++companionTravelToken;
+    const mode = options.mode || 'hop';
+    const frames = [];
+    let duration;
+
+    if (mode === 'slide') {
+      frames.push({ transform: `translate3d(${startX}px, ${startY}px, 0)`, offset: 0 });
+      frames.push({ transform: `translate3d(${targetX}px, ${targetY}px, 0)`, offset: 1 });
+      duration = options.duration || Math.max(420, Math.min(880, distance * 2.8));
+    } else {
+      const hops = Math.max(1, Math.min(5, Math.round(distance / 105) || 1));
+      const hopHeight = Math.max(15, Math.min(27, 16 + distance / 28));
+      for (let hop = 0; hop < hops; hop += 1) {
+        const a = hop / hops;
+        const b = (hop + 1) / hops;
+        const mid = (a + b) / 2;
+        const sx = startX + dx * a;
+        const sy = startY + dy * a;
+        const mx = startX + dx * mid;
+        const my = startY + dy * mid - hopHeight * (hop === hops - 1 ? .92 : 1);
+        const ex = startX + dx * b;
+        const ey = startY + dy * b;
+        if (hop === 0) frames.push({ transform: `translate3d(${sx}px, ${sy}px, 0)`, offset: 0, easing: 'cubic-bezier(.32,0,.4,1)' });
+        frames.push({ transform: `translate3d(${mx}px, ${my}px, 0)`, offset: mid, easing: 'cubic-bezier(.18,.7,.32,1)' });
+        frames.push({ transform: `translate3d(${ex}px, ${ey}px, 0)`, offset: b, easing: 'cubic-bezier(.55,0,.72,.45)' });
+      }
+      duration = options.duration || hops * 430;
+      els.pocketCompanion.classList.add('is-traveling');
+    }
+
+    const animation = els.pocketCompanion.animate(frames, {
+      duration,
+      fill: 'none',
+      easing: mode === 'slide' ? 'cubic-bezier(.2,.86,.24,1)' : 'linear'
+    });
+    companionTravelAnimation = animation;
+    els.pocketCompanion.style.setProperty('--companion-x', `${targetX}px`);
+    els.pocketCompanion.style.setProperty('--companion-y', `${targetY}px`);
+    companionPosition = { x: targetX, y: targetY };
+
+    return new Promise((resolve) => {
+      const finish = () => {
+        if (token === companionTravelToken) {
+          els.pocketCompanion?.classList.remove('is-traveling');
+          companionTravelAnimation = null;
+        }
+        resolve();
+      };
+      animation.addEventListener('finish', finish, { once: true });
+      animation.addEventListener('cancel', finish, { once: true });
+    });
   }
 
   function companionClearAction() {
     if (!els.pocketCompanion) return;
-    els.pocketCompanion.classList.remove('is-hopping', 'is-spinning', 'is-waving', 'is-sleeping', 'is-peeking', 'is-celebrating', 'is-expense', 'is-allowance', 'is-savings');
+    window.clearTimeout(companionPoseTimer);
+    companionPoseTimer = 0;
+    els.pocketCompanion.classList.remove('is-hopping', 'is-spinning', 'is-waving', 'is-sleeping', 'is-peeking', 'is-celebrating', 'is-expense', 'is-allowance', 'is-savings', 'is-curious', 'is-tapping', 'is-sitting', 'is-perched');
   }
 
   function companionSay(message, duration = 5200) {
@@ -1144,49 +1276,160 @@
     companionClearAction();
     if (action === 'sleep') els.pocketCompanion.classList.add('is-sleeping');
     else els.pocketCompanion.classList.add(`is-${action === 'hop' ? 'hopping' : action}`);
-    if (action !== 'sleep') window.setTimeout(() => companionClearAction(), duration);
+    if (action !== 'sleep') companionPoseTimer = window.setTimeout(() => companionClearAction(), duration);
   }
 
-  function scheduleCompanionAction(delay = 7000 + Math.random() * 7000) {
+  function companionVisibleElement(element) {
+    if (!element || !element.isConnected || element.closest('dialog')) return false;
+    const rect = element.getBoundingClientRect();
+    const bounds = companionBounds();
+    return rect.width > 30 && rect.height > 24 && rect.bottom > bounds.minY + 8 && rect.top < bounds.height - (bounds.height - bounds.maxY) + 14 && rect.right > bounds.minX && rect.left < bounds.width;
+  }
+
+  function companionContextTargets(view = currentView) {
+    const selectors = {
+      home: ['.wallet-carousel .wallet-mode-card', '.home-wallet-overview', '[data-action="home-add-savings"]', '[data-action="home-add-expense"]', '[data-action="open-transfer"]'],
+      activity: ['.activity-summary-strip', '#activityDayCard', '.activity-day-toolbar'],
+      savings: ['.savings-balance-hero', '#goalsGrid .goal-card', '#goalsGrid .goal-progress-block', '[data-action="open-goal"]', '[data-action="open-contribution"]'],
+      more: ['#themeSettingButton', '.allowance-settings-card', '.settings-card']
+    };
+    const seen = new Set();
+    return (selectors[view] || []).flatMap((selector) => [...document.querySelectorAll(selector)]).filter((element) => {
+      if (seen.has(element) || !companionVisibleElement(element)) return false;
+      seen.add(element);
+      return true;
+    });
+  }
+
+  function companionTargetPosition(element) {
+    const bounds = companionBounds();
+    const rect = element.getBoundingClientRect();
+    const bunnyW = bounds.boxWidth;
+    const bunnyH = bounds.boxHeight;
+    let x;
+    let y;
+    let placement = 'side';
+
+    const canPerch = rect.width >= 120 && rect.top - bunnyH + 24 >= bounds.minY;
+    if (canPerch) {
+      placement = 'perch';
+      const biasRight = rect.left + rect.width * .68;
+      x = biasRight - bunnyW / 2;
+      y = rect.top - bunnyH + 24;
+    } else {
+      const rightSpace = bounds.width - rect.right;
+      const leftSpace = rect.left - bounds.minX;
+      const useRight = rightSpace >= bunnyW + 12 || rightSpace >= leftSpace;
+      x = useRight ? rect.right + 7 : rect.left - bunnyW - 7;
+      y = rect.top + rect.height / 2 - bunnyH / 2;
+    }
+
+    return {
+      x: Math.max(bounds.minX, Math.min(bounds.maxX, Math.round(x))),
+      y: Math.max(bounds.minY, Math.min(bounds.maxY, Math.round(y))),
+      placement
+    };
+  }
+
+  function companionInteractionLine(element) {
+    if (!element) return '';
+    if (element.matches('[data-action="home-add-savings"], [data-action="open-contribution"]')) return 'That little save button has big-dream energy ♡';
+    if (element.matches('.goal-card, .goal-progress-block')) return 'Look at your goal growing ✨';
+    if (element.matches('.savings-balance-hero')) return 'Every bit tucked away counts ♡';
+    if (element.matches('.wallet-mode-card, .home-wallet-overview')) return 'Keeping an eye on your pocket with you ♡';
+    if (element.matches('.activity-summary-strip, #activityDayCard')) return 'You’re keeping track—that matters ✨';
+    if (element.matches('#themeSettingButton')) return 'This cozy little world is our secret ♡';
+    if (element.matches('.allowance-settings-card')) return 'A little plan makes allowance feel lighter ✨';
+    return '';
+  }
+
+  async function companionVisitElement(element, options = {}) {
+    if (!companionIsAvailable() || !companionVisibleElement(element) || document.querySelector('dialog[open]')) return false;
+    companionClearAction();
+    const target = companionTargetPosition(element);
+    await companionMoveTo(target.x, target.y, { mode: 'hop' });
+    if (!companionIsAvailable() || document.querySelector('dialog[open]')) return false;
+    companionFocusElement(element, options.focusDuration || 2100);
+    if (target.placement === 'perch') els.pocketCompanion.classList.add('is-perched');
+    companionAnimate(options.action || (Math.random() < .55 ? 'curious' : 'tapping'), options.duration || 1600);
+    if (!options.silent) {
+      const line = options.message || companionInteractionLine(element);
+      if (line && Date.now() - companionLastMessageAt > 9000) companionSay(line, 4300);
+    }
+    return true;
+  }
+
+  async function companionVisitContextElement(options = {}) {
+    const targets = companionContextTargets(options.view || currentView);
+    if (!targets.length) return false;
+    const target = targets[Math.floor(Math.random() * targets.length)];
+    return companionVisitElement(target, options);
+  }
+
+  function companionPeekFromEdge() {
+    if (!companionIsAvailable() || companionReducedMotion) return;
+    const bounds = companionBounds();
+    const fromLeft = Math.random() < .5;
+    const y = Math.round(bounds.minY + Math.random() * Math.max(0, bounds.maxY - bounds.minY));
+    const hiddenX = fromLeft ? bounds.minX - bounds.boxWidth * .72 : bounds.maxX + bounds.boxWidth * .72;
+    const edgeX = fromLeft ? bounds.minX : bounds.maxX;
+    companionCancelTravel();
+    companionPosition = { x: hiddenX, y };
+    els.pocketCompanion.style.setProperty('--companion-x', `${hiddenX}px`);
+    els.pocketCompanion.style.setProperty('--companion-y', `${y}px`);
+    companionUpdateBubbleSide(edgeX, y);
+    companionSetFacing(fromLeft ? 1 : -1);
+    companionAnimate('peeking', 2450);
+    window.setTimeout(() => companionMoveTo(edgeX, y, { mode: 'slide', duration: 520, allowOffscreen: true }), 50);
+    window.setTimeout(() => companionMoveTo(hiddenX, y, { mode: 'slide', duration: 520, allowOffscreen: true }), 1650);
+    window.setTimeout(() => companionPlace(edgeX, y, true), 2290);
+  }
+
+  function scheduleCompanionAction(delay = 6200 + Math.random() * 6400) {
     window.clearTimeout(companionActionTimer);
     if (!companionIsAvailable()) return;
-    companionActionTimer = window.setTimeout(() => {
+    companionActionTimer = window.setTimeout(async () => {
       if (!companionIsAvailable()) return;
       if (document.visibilityState !== 'visible' || document.querySelector('dialog[open]')) {
-        scheduleCompanionAction(3500);
+        scheduleCompanionAction(3000);
+        return;
+      }
+      if (els.pocketCompanion?.classList.contains('is-sleeping')) {
+        scheduleCompanionAction(6500);
         return;
       }
       const roll = Math.random();
-      const pos = companionSafePosition(true);
-      if (!companionReducedMotion && roll < .30) {
-        companionAnimate('hopping', 1500);
-        companionPlace(pos.x, pos.y);
-      } else if (!companionReducedMotion && roll < .48) {
-        companionAnimate('waving', 1700);
-      } else if (!companionReducedMotion && roll < .62) {
-        companionAnimate('spinning', 1300);
-      } else if (!companionReducedMotion && roll < .78) {
-        const peekLeft = Math.random() < .5;
-        companionAnimate('peeking', 2400);
-        companionPlace(peekLeft ? pos.minX - 48 : pos.maxX + 48, Math.min(pos.maxY, Math.max(pos.minY, pos.y)));
-        window.setTimeout(() => companionPlace(peekLeft ? pos.minX : pos.maxX, pos.y), 1550);
+      if (!companionReducedMotion && roll < .46) {
+        const visited = await companionVisitContextElement({ silent: Math.random() < .58 });
+        if (!visited) {
+          const pos = companionSafePosition();
+          await companionMoveTo(pos.x, pos.y, { mode: 'hop' });
+          companionAnimate('curious', 1450);
+        }
+      } else if (!companionReducedMotion && roll < .68) {
+        const pos = companionSafePosition(Math.random() < .45);
+        await companionMoveTo(pos.x, pos.y, { mode: 'hop' });
+        if (Math.random() < .55) companionAnimate('waving', 1750);
+      } else if (!companionReducedMotion && roll < .80) {
+        companionAnimate('spinning', 1250);
+      } else if (!companionReducedMotion && roll < .91) {
+        companionPeekFromEdge();
       } else {
-        companionAnimate('hop', 1100);
-        companionPlace(pos.x, pos.maxY);
+        companionAnimate('hop', 1000);
       }
       scheduleCompanionAction();
     }, delay);
   }
 
-  function scheduleCompanionAffirmation(delay = 28000 + Math.random() * 26000) {
+  function scheduleCompanionAffirmation(delay = 30000 + Math.random() * 28000) {
     window.clearTimeout(companionAffirmationTimer);
     if (!companionIsAvailable()) return;
     companionAffirmationTimer = window.setTimeout(() => {
       if (!companionIsAvailable()) return;
       if (!document.querySelector('dialog[open]') && Date.now() - companionLastMessageAt > 15000) {
-        const pool = Math.random() < .25 ? (COMPANION_VIEW_LINES[currentView] || COMPANION_AFFIRMATIONS) : COMPANION_AFFIRMATIONS;
+        const pool = Math.random() < .28 ? (COMPANION_VIEW_LINES[currentView] || COMPANION_AFFIRMATIONS) : COMPANION_AFFIRMATIONS;
         companionSay(pool[Math.floor(Math.random() * pool.length)]);
-        if (!companionReducedMotion && Math.random() < .55) companionAnimate('waving', 1600);
+        if (!companionReducedMotion) companionAnimate(Math.random() < .55 ? 'waving' : 'curious', 1650);
       }
       scheduleCompanionAffirmation();
     }, delay);
@@ -1196,8 +1439,13 @@
     window.clearTimeout(companionIdleTimer);
     if (!companionIsAvailable()) return;
     if (els.pocketCompanion?.classList.contains('is-sleeping')) companionClearAction();
-    companionIdleTimer = window.setTimeout(() => {
+    companionIdleTimer = window.setTimeout(async () => {
       if (!companionIsAvailable() || document.querySelector('dialog[open]')) return;
+      const targets = companionContextTargets(currentView).filter((element) => element.matches('.card, .goal-card, .savings-balance-hero, .home-wallet-overview'));
+      if (targets.length && !companionReducedMotion) {
+        const target = targets[Math.floor(Math.random() * targets.length)];
+        await companionVisitElement(target, { silent: true, action: 'sitting', duration: 1200, focusDuration: 900 });
+      }
       companionAnimate('sleep');
       if (Date.now() - companionLastMessageAt > 20000) companionSay('Tiny rest break… progress can be gentle too ♡', 6000);
     }, 70000);
@@ -1213,6 +1461,8 @@
       companionClearAction();
       els.companionBubble?.classList.remove('is-showing');
       pendingCompanionReaction = null;
+      delete els.pocketCompanion.dataset.placed;
+      companionPosition = { x: null, y: null };
       return;
     }
     if (!els.pocketCompanion.dataset.placed) {
@@ -1220,23 +1470,37 @@
       companionPlace(pos.maxX, pos.maxY, true);
       els.pocketCompanion.dataset.placed = '1';
     }
-    scheduleCompanionAction(options.fast ? 3200 : undefined);
-    scheduleCompanionAffirmation(options.fast ? 11500 : undefined);
+    scheduleCompanionAction(options.fast ? 2600 : undefined);
+    scheduleCompanionAffirmation(options.fast ? 12000 : undefined);
     resetCompanionIdleTimer();
     if (options.welcome) {
       companionAnimate('waving', 1900);
       companionSay('Hi! I’ll keep you company ♡', 6000);
+      window.setTimeout(() => companionVisitContextElement({ silent: true }), 2100);
     }
   }
 
-  function companionReact(kind, message = '') {
+  function companionReactionElement(kind) {
+    const candidates = {
+      expense: currentView === 'activity' ? ['.activity-summary-strip', '#activityDayCard'] : ['.home-wallet-overview', '.wallet-carousel .wallet-mode-card'],
+      allowance: currentView === 'more' ? ['.allowance-settings-card'] : ['.wallet-carousel .wallet-mode-card', '.home-wallet-overview'],
+      savings: ['.savings-balance-hero', '#goalsGrid .goal-card'],
+      goal: ['#goalsGrid .goal-card', '.savings-goals-heading'],
+      complete: ['#goalsGrid .goal-card', '.savings-balance-hero']
+    };
+    for (const selector of candidates[kind] || []) {
+      const elements = [...document.querySelectorAll(selector)].filter(companionVisibleElement);
+      if (elements.length) return elements[Math.floor(Math.random() * elements.length)];
+    }
+    return null;
+  }
+
+  async function companionReact(kind, message = '') {
     if (!companionIsAvailable()) return;
     if (document.querySelector('dialog[open]')) {
       pendingCompanionReaction = { kind, message };
       return;
     }
-    const pos = companionSafePosition(true);
-    companionPlace(pos.maxX, pos.maxY);
     const lines = {
       expense: 'Logged and done. Spend mindfully, not perfectly ♡',
       allowance: 'Yay! Give every peso a little purpose ✨',
@@ -1244,13 +1508,23 @@
       goal: 'New goal unlocked—one tiny step at a time ✨',
       complete: 'YOU DID IT! Goal complete! ♡ ✨'
     };
-    if (kind === 'complete') companionAnimate('celebrating', 2600);
-    else if (kind === 'expense') companionAnimate('expense', 1700);
-    else if (kind === 'allowance') companionAnimate('allowance', 1900);
-    else if (kind === 'savings') companionAnimate('savings', 2100);
-    else companionAnimate('waving', 1700);
+    companionClearAction();
+    const target = companionReactionElement(kind);
+    if (target && !companionReducedMotion) {
+      const position = companionTargetPosition(target);
+      await companionMoveTo(position.x, position.y, { mode: 'hop' });
+      companionFocusElement(target, kind === 'complete' ? 3000 : 2200);
+    } else {
+      const pos = companionSafePosition(true);
+      await companionMoveTo(pos.maxX, pos.maxY, { mode: 'hop' });
+    }
+    if (kind === 'complete') companionAnimate('celebrating', 3000);
+    else if (kind === 'expense') companionAnimate('expense', 1900);
+    else if (kind === 'allowance') companionAnimate('allowance', 2200);
+    else if (kind === 'savings') companionAnimate('savings', 2350);
+    else companionAnimate('waving', 1900);
     companionSay(message || lines[kind] || COMPANION_AFFIRMATIONS[0], kind === 'complete' ? 7000 : 5400);
-    scheduleCompanionAction(7000);
+    scheduleCompanionAction(7200);
     scheduleCompanionAffirmation();
     resetCompanionIdleTimer();
   }
@@ -1259,17 +1533,35 @@
     if (!pendingCompanionReaction || document.querySelector('dialog[open]')) return;
     const pending = pendingCompanionReaction;
     pendingCompanionReaction = null;
-    window.setTimeout(() => companionReact(pending.kind, pending.message), 260);
+    window.setTimeout(() => companionReact(pending.kind, pending.message), 280);
   }
 
   function companionSetContext(view) {
     if (!els.pocketCompanion) return;
     els.pocketCompanion.dataset.context = view;
     if (!companionIsAvailable()) return;
-    if (Date.now() - companionLastMessageAt > 26000 && Math.random() < .28) {
+    window.setTimeout(() => {
+      if (companionIsAvailable() && !document.querySelector('dialog[open]')) companionVisitContextElement({ view, silent: true });
+    }, 520);
+    if (Date.now() - companionLastMessageAt > 26000 && Math.random() < .32) {
       const lines = COMPANION_VIEW_LINES[view] || [];
-      if (lines.length) window.setTimeout(() => companionSay(lines[Math.floor(Math.random() * lines.length)], 4800), 650);
+      if (lines.length) window.setTimeout(() => companionSay(lines[Math.floor(Math.random() * lines.length)], 4800), 900);
     }
+  }
+
+  function companionRespondToUiClick(target) {
+    if (!companionIsAvailable() || !target) return;
+    const control = target.closest('[data-savings-mode], [data-savings-wallet-index], #activityPrevDay, #activityNextDay, .wallet-mode-indicators button, #walletCarouselPrev, #walletCarouselNext, #manageGoalsButton');
+    if (!control) return;
+    window.setTimeout(() => {
+      if (!companionIsAvailable() || document.querySelector('dialog[open]')) return;
+      let destination = null;
+      if (control.matches('[data-savings-mode], [data-savings-wallet-index]')) destination = document.querySelector('.savings-balance-hero');
+      else if (control.matches('#activityPrevDay, #activityNextDay')) destination = document.getElementById('activityDayCard');
+      else if (control.matches('#manageGoalsButton')) destination = document.querySelector('#goalsGrid .goal-card');
+      else destination = document.querySelector(`.wallet-mode-card[data-wallet-index="${walletModeIndex}"]`) || document.querySelector('.wallet-mode-card');
+      if (destination) companionVisitElement(destination, { silent: true, action: 'curious', duration: 1450 });
+    }, control.matches('.wallet-mode-indicators button, #walletCarouselPrev, #walletCarouselNext') ? 520 : 260);
   }
 
   function renderSettings() {
@@ -2503,6 +2795,7 @@
 
   function bindEvents() {
     document.addEventListener('click', (event) => {
+      companionRespondToUiClick(event.target);
       const closeButton = event.target.closest('[data-close-dialog]');
       if (closeButton) {
         closeDialog(closeButton.closest('dialog'));
@@ -2806,7 +3099,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.7.0');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.7.1');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

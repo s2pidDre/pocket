@@ -3337,94 +3337,121 @@ dialog[open] .wallet-picker-panel {
 }
 
 
-/* Pocket v2.7.0 — Light-mode pixel companion */
+/* Pocket v2.7.1 — smoother interactive light-mode pixel companion */
 .pocket-companion {
-  --companion-x: calc(100vw - 104px);
-  --companion-y: calc(100dvh - 210px);
+  --companion-x: calc(100vw - 110px);
+  --companion-y: calc(100dvh - 218px);
+  --bunny-facing: 1;
   position: fixed;
   z-index: 35;
   left: 0;
   top: 0;
-  width: 88px;
-  height: 96px;
+  width: 96px;
+  height: 108px;
   display: none;
   pointer-events: none;
   transform: translate3d(var(--companion-x), var(--companion-y), 0);
-  transition: transform 1.35s cubic-bezier(.2,.86,.24,1);
-  filter: drop-shadow(0 7px 8px rgba(131,72,104,.12));
-  will-change: transform;
+  opacity: 1;
+  filter: drop-shadow(0 9px 10px rgba(131,72,104,.13));
+  will-change: transform, opacity;
+  contain: layout style;
 }
 :root[data-theme="light"] .pocket-companion.is-visible { display: block; }
-.pocket-companion.no-travel { transition: none !important; }
-body:has(dialog[open]) .pocket-companion { opacity: 0; transition: opacity .16s ease, transform 1.35s cubic-bezier(.2,.86,.24,1); }
+body:has(dialog[open]) .pocket-companion { opacity: 0; transition: opacity .18s ease; }
+
 .companion-bunny {
   position: absolute;
   left: 0;
   bottom: 0;
-  width: 84px;
-  height: 84px;
-  transform-origin: 50% 92%;
-  animation: companion-idle-bob 2.8s steps(4,end) infinite;
+  width: 92px;
+  height: 104px;
+  transform-origin: 50% 94%;
+  animation: companion-idle-bob 3.4s cubic-bezier(.45,0,.55,1) infinite;
+  will-change: transform;
 }
-.companion-bunny svg { width: 100%; height: 100%; overflow: visible; }
-.bunny-stroke { stroke: #9c5878; stroke-width: 2; stroke-linejoin: miter; }
-.bunny-fur { fill: #fff9f5; }
-.bunny-pink { fill: #f5a9c2; }
-.bunny-blush { fill: #ffc8d8; opacity: .92; }
-.bunny-eye, .bunny-line { fill: #69384f; }
+.companion-bunny svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: scaleX(var(--bunny-facing));
+  transform-origin: 50% 50%;
+  transition: transform .16s ease;
+}
+.bunny-stroke { stroke: #91536f; stroke-width: 2; stroke-linejoin: miter; }
+.bunny-fur { fill: #fffaf6; }
+.bunny-pink { fill: #f7aec7; }
+.bunny-blush { fill: #ffc7d8; opacity: .88; }
+.bunny-blush-dot { fill: #f39bb8; opacity: .75; }
+.bunny-eye, .bunny-line { fill: #60344a; }
+.bunny-eye-soft { fill: #a66582; }
 .bunny-eye-shine { fill: #fff; }
-.bunny-nose { fill: #e97ca5; }
-.bunny-shadow rect { fill: rgba(189,110,148,.18); }
-.charm-bg { fill: #ef91b4; stroke: #9c5878; stroke-width: 2; }
-.charm-heart { fill: #fff7fb; }
-.companion-eye-sleep { display: none; }
+.bunny-nose { fill: #eb7da5; }
+.bunny-mouth-pink { fill: #ef94b3; }
+.bunny-paw { fill: #f8b6cb; }
+.bunny-tail-light { fill: #fff; opacity: .72; }
+.bunny-shadow path { fill: rgba(189,110,148,.16); transform-origin: 56px 105px; }
+.bunny-ear, .bunny-tail, .bunny-arm, .bunny-head-group { transform-box: fill-box; }
+.bunny-ear { transform-origin: 50% 100%; }
+.bunny-ear-left { animation: companion-ear-left-idle 5.2s ease-in-out infinite; }
+.bunny-ear-right { animation: companion-ear-right-idle 5.2s ease-in-out .22s infinite; }
+.bunny-tail { transform-origin: 20% 70%; animation: companion-tail-wiggle 4.4s ease-in-out infinite; }
+.bunny-ear-bow .bow-pink { fill: #ef8fb3; stroke: #91536f; stroke-width: 1; }
+.bunny-ear-bow .bow-dark { fill: #c86e95; }
+.charm-bg { fill: #ef91b4; stroke: #91536f; stroke-width: 2; }
+.charm-heart { fill: #fff8fb; }
+.companion-eye-happy, .companion-eye-sleep { display: none; }
+
 .companion-zzz {
   display: none;
   position: absolute;
-  right: -4px;
-  top: -1px;
+  right: -1px;
+  top: 2px;
   color: #a7689c;
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 13px;
   font-weight: 900;
   letter-spacing: -2px;
   transform: rotate(-10deg);
+  animation: companion-zzz-float 1.8s ease-in-out infinite;
 }
 .companion-prop { display: none; }
 .pocket-companion[data-context="home"] .prop-home,
 .pocket-companion[data-context="activity"] .prop-activity,
 .pocket-companion[data-context="savings"] .prop-savings,
 .pocket-companion[data-context="more"] .prop-more { display: block; }
-.prop-pink { fill: #ed8fb1; stroke: #9c5878; stroke-width: 1.5; }
-.prop-glass { fill: #f7ecff; fill-opacity: .88; }
-.prop-coin, .prop-star { fill: #f6c96e; stroke: #b3764b; stroke-width: 1; }
+.prop-pink { fill: #ed8fb1; stroke: #91536f; stroke-width: 1.5; }
+.prop-glass { fill: #f8efff; fill-opacity: .9; }
+.prop-coin, .prop-star { fill: #f6c96e; stroke: #a86f49; stroke-width: 1; }
+.prop-star-soft { fill: #ffe6a6; }
 .prop-paper { fill: #fffdfb; }
-.bunny-line.soft { fill: #ba8099; }
+.prop-heart { fill: #f29aba; }
+.bunny-line.soft { fill: #b77d98; }
+
 .companion-bubble {
   position: absolute;
-  left: 72px;
-  bottom: 67px;
+  left: 79px;
+  bottom: 79px;
   width: max-content;
-  max-width: min(170px, calc(100vw - 122px));
-  min-width: 92px;
+  max-width: min(180px, calc(100vw - 132px));
+  min-width: 96px;
   padding: 9px 11px;
   border: 2px solid #d98bad;
-  border-radius: 9px 9px 9px 3px;
-  background: rgba(255,250,252,.97);
+  border-radius: 11px 11px 11px 4px;
+  background: rgba(255,250,252,.98);
   color: #6d3d57;
-  box-shadow: 3px 3px 0 rgba(215,134,171,.16);
+  box-shadow: 3px 3px 0 rgba(215,134,171,.14), 0 8px 18px rgba(142,85,114,.08);
   font-size: 11.5px;
-  line-height: 1.35;
+  line-height: 1.38;
   font-weight: 720;
   opacity: 0;
-  transform: translateY(5px) scale(.96);
+  transform: translateY(7px) scale(.94);
   transform-origin: 0 100%;
-  transition: opacity .18s ease, transform .18s ease;
+  transition: opacity .22s ease, transform .28s cubic-bezier(.2,.9,.28,1.15);
 }
 .companion-bubble::after {
   content: "";
   position: absolute;
-  left: 8px;
+  left: 9px;
   bottom: -7px;
   width: 8px;
   height: 8px;
@@ -3436,55 +3463,99 @@ body:has(dialog[open]) .pocket-companion { opacity: 0; transition: opacity .16s 
 .companion-bubble.is-showing { opacity: 1; transform: translateY(0) scale(1); }
 .pocket-companion.bubble-left .companion-bubble {
   left: auto;
-  right: 70px;
-  border-radius: 9px 9px 3px 9px;
+  right: 77px;
+  border-radius: 11px 11px 4px 11px;
   transform-origin: 100% 100%;
 }
-.pocket-companion.bubble-left .companion-bubble::after { left: auto; right: 8px; }
-.pocket-companion.bubble-below .companion-bubble { bottom: auto; top: 78px; }
+.pocket-companion.bubble-left .companion-bubble::after { left: auto; right: 9px; }
+.pocket-companion.bubble-below .companion-bubble { bottom: auto; top: 88px; }
 .pocket-companion.bubble-below .companion-bubble::after { bottom: auto; top: -7px; transform: rotate(225deg); }
-.companion-sparkles { position: absolute; inset: -12px; opacity: 0; }
+
+.companion-sparkles { position: absolute; inset: -15px; opacity: 0; }
 .companion-sparkles i {
   position: absolute;
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
   background: #f2a0bf;
-  box-shadow: 5px 0 0 #f2a0bf, 0 5px 0 #f2a0bf;
+  box-shadow: 4px 0 0 #f2a0bf, 0 4px 0 #f2a0bf;
 }
-.companion-sparkles i:nth-child(1){left:8px;top:17px}.companion-sparkles i:nth-child(2){right:8px;top:6px}.companion-sparkles i:nth-child(3){right:0;top:48px}.companion-sparkles i:nth-child(4){left:2px;bottom:9px}.companion-sparkles i:nth-child(5){left:39px;top:-4px;background:#f4ca6e;box-shadow:5px 0 0 #f4ca6e,0 5px 0 #f4ca6e}.companion-sparkles i:nth-child(6){right:20px;bottom:0;background:#c7a9ef;box-shadow:5px 0 0 #c7a9ef,0 5px 0 #c7a9ef}
-.pocket-companion.is-hopping .companion-bunny { animation: companion-hop .92s steps(8,end) 1; }
-.pocket-companion.is-spinning .companion-bunny { animation: companion-spin .95s steps(10,end) 1; }
-.pocket-companion.is-waving .bunny-arm-left { transform-origin: 30px 76px; animation: companion-wave .34s steps(3,end) 4 alternate; }
-.pocket-companion.is-peeking .companion-bunny { animation: companion-peek .6s steps(5,end) 2 alternate; }
-.pocket-companion.is-sleeping .companion-bunny { animation: companion-sleep 3.2s steps(4,end) infinite; }
+.companion-sparkles i:nth-child(1){left:5px;top:24px}.companion-sparkles i:nth-child(2){right:6px;top:8px}.companion-sparkles i:nth-child(3){right:-1px;top:57px}.companion-sparkles i:nth-child(4){left:1px;bottom:13px}.companion-sparkles i:nth-child(5){left:43px;top:-2px;background:#f4ca6e;box-shadow:4px 0 0 #f4ca6e,0 4px 0 #f4ca6e}.companion-sparkles i:nth-child(6){right:17px;bottom:0;background:#c7a9ef;box-shadow:4px 0 0 #c7a9ef,0 4px 0 #c7a9ef}.companion-sparkles i:nth-child(7){left:18px;top:3px;background:#ffbad0;box-shadow:4px 0 0 #ffbad0,0 4px 0 #ffbad0}.companion-sparkles i:nth-child(8){right:35px;top:32px;background:#f7d98f;box-shadow:4px 0 0 #f7d98f,0 4px 0 #f7d98f}
+
+/* Movement is driven by Web Animations on the fixed companion. These poses make each landing feel alive. */
+.pocket-companion.is-traveling .companion-bunny { animation: companion-travel-body .46s cubic-bezier(.37,0,.3,1) infinite; }
+.pocket-companion.is-traveling .bunny-ear-left { animation: companion-travel-ear-left .46s ease-in-out infinite; }
+.pocket-companion.is-traveling .bunny-ear-right { animation: companion-travel-ear-right .46s ease-in-out infinite; }
+.pocket-companion.is-traveling .bunny-tail { animation: companion-travel-tail .23s ease-in-out infinite alternate; }
+.pocket-companion.is-traveling .bunny-shadow path { animation: companion-shadow-hop .46s ease-in-out infinite; }
+
+.pocket-companion.is-hopping .companion-bunny { animation: companion-hop .86s cubic-bezier(.34,0,.28,1) 1; }
+.pocket-companion.is-spinning .companion-bunny { animation: companion-spin 1.05s cubic-bezier(.32,.02,.2,1) 1; }
+.pocket-companion.is-waving .bunny-arm-left { transform-origin: 82% 82%; animation: companion-wave .38s ease-in-out 5 alternate; }
+.pocket-companion.is-waving .bunny-ear-left { animation: companion-wave-ear .55s ease-in-out 3 alternate; }
+.pocket-companion.is-peeking .companion-bunny { animation: companion-peek .8s cubic-bezier(.25,.9,.28,1) 2 alternate; }
+.pocket-companion.is-curious .bunny-head-group { transform-origin: 50% 82%; animation: companion-curious 1.55s cubic-bezier(.34,.05,.2,1) 1; }
+.pocket-companion.is-tapping .bunny-arm-right { transform-origin: 18% 28%; animation: companion-tap .32s ease-in-out 5 alternate; }
+.pocket-companion.is-tapping .bunny-head-group { transform-origin: 50% 85%; animation: companion-watch-paw .64s ease-in-out 2 alternate; }
+.pocket-companion.is-sitting .companion-bunny { animation: companion-sit .7s cubic-bezier(.2,.9,.3,1) 1 forwards; }
+.pocket-companion.is-sleeping .companion-bunny { animation: companion-sleep 3.4s ease-in-out infinite; }
 .pocket-companion.is-sleeping .companion-eye-open { display: none; }
 .pocket-companion.is-sleeping .companion-eye-sleep, .pocket-companion.is-sleeping .companion-zzz { display: block; }
-.pocket-companion.is-celebrating .companion-bunny { animation: companion-celebrate .62s steps(6,end) 4; }
+.pocket-companion.is-celebrating .companion-bunny { animation: companion-celebrate .74s cubic-bezier(.25,.85,.3,1) 4; }
+.pocket-companion.is-celebrating .companion-eye-open,
+.pocket-companion.is-savings .companion-eye-open,
+.pocket-companion.is-allowance .companion-eye-open,
+.pocket-companion.is-waving .companion-eye-open { display: none; }
+.pocket-companion.is-celebrating .companion-eye-happy,
+.pocket-companion.is-savings .companion-eye-happy,
+.pocket-companion.is-allowance .companion-eye-happy,
+.pocket-companion.is-waving .companion-eye-happy { display: block; }
 .pocket-companion.is-celebrating .companion-sparkles,
 .pocket-companion.is-savings .companion-sparkles,
-.pocket-companion.is-allowance .companion-sparkles { opacity: 1; animation: companion-sparkle-pop .75s steps(5,end) 3; }
-.pocket-companion.is-savings .companion-bunny { animation: companion-happy-hop .58s steps(6,end) 3; }
-.pocket-companion.is-allowance .companion-bunny { animation: companion-happy-hop .52s steps(6,end) 3; }
-.pocket-companion.is-expense .companion-bunny { animation: companion-gentle-shake .42s steps(5,end) 2; }
+.pocket-companion.is-allowance .companion-sparkles { opacity: 1; animation: companion-sparkle-pop .78s ease-out 3; }
+.pocket-companion.is-savings .companion-bunny { animation: companion-happy-hop .66s cubic-bezier(.3,0,.22,1) 3; }
+.pocket-companion.is-allowance .companion-bunny { animation: companion-happy-hop .62s cubic-bezier(.3,0,.22,1) 3; }
+.pocket-companion.is-expense .companion-bunny { animation: companion-gentle-shake .48s ease-in-out 2; }
 
-@keyframes companion-idle-bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
-@keyframes companion-hop { 0%,100%{transform:translateY(0) scale(1)} 35%{transform:translateY(-18px) scale(.97,1.03)} 65%{transform:translateY(-7px)} 85%{transform:translateY(1px) scale(1.04,.96)} }
-@keyframes companion-spin { 0%{transform:rotate(0)} 40%{transform:translateY(-10px) rotate(180deg)} 100%{transform:rotate(360deg)} }
-@keyframes companion-wave { from{transform:rotate(0)} to{transform:rotate(-24deg) translate(-2px,-3px)} }
-@keyframes companion-peek { from{transform:translateX(0) rotate(0)} to{transform:translateX(7px) rotate(5deg)} }
-@keyframes companion-sleep { 0%,100%{transform:translateY(5px) rotate(1deg) scaleY(.96)} 50%{transform:translateY(6px) rotate(-1deg) scaleY(.93)} }
-@keyframes companion-celebrate { 0%,100%{transform:translateY(0) rotate(0)} 30%{transform:translateY(-16px) rotate(-8deg)} 65%{transform:translateY(-9px) rotate(8deg)} }
-@keyframes companion-happy-hop { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-11px) scale(1.03,.98)} }
-@keyframes companion-gentle-shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px) rotate(-2deg)} 75%{transform:translateX(3px) rotate(2deg)} }
-@keyframes companion-sparkle-pop { 0%{transform:scale(.4);opacity:0} 40%{transform:scale(1);opacity:1} 100%{transform:scale(.7);opacity:0} }
+:root[data-theme="light"] .companion-is-being-noticed {
+  outline: 2px solid rgba(231,137,176,.56) !important;
+  outline-offset: 3px;
+  animation: companion-element-pulse 1.15s ease-in-out 2;
+}
+
+@keyframes companion-idle-bob { 0%,100%{transform:translateY(0) rotate(0)} 45%{transform:translateY(-2px) rotate(-.7deg)} 55%{transform:translateY(-3px) rotate(.7deg)} }
+@keyframes companion-ear-left-idle { 0%,84%,100%{transform:rotate(0)} 90%{transform:rotate(-5deg)} 95%{transform:rotate(2deg)} }
+@keyframes companion-ear-right-idle { 0%,82%,100%{transform:rotate(0)} 89%{transform:rotate(4deg)} 95%{transform:rotate(-2deg)} }
+@keyframes companion-tail-wiggle { 0%,88%,100%{transform:rotate(0)} 92%{transform:rotate(8deg)} 96%{transform:rotate(-5deg)} }
+@keyframes companion-travel-body { 0%,100%{transform:translateY(0) scale(1.05,.95)} 18%{transform:translateY(-2px) scale(.98,1.02)} 52%{transform:translateY(-6px) scale(.96,1.04)} 82%{transform:translateY(-1px) scale(1.01,.99)} }
+@keyframes companion-travel-ear-left { 0%,100%{transform:rotate(-2deg)} 50%{transform:rotate(10deg)} }
+@keyframes companion-travel-ear-right { 0%,100%{transform:rotate(2deg)} 50%{transform:rotate(-8deg)} }
+@keyframes companion-travel-tail { from{transform:rotate(-6deg)} to{transform:rotate(10deg)} }
+@keyframes companion-shadow-hop { 0%,100%{transform:scaleX(1);opacity:.2} 50%{transform:scaleX(.62);opacity:.1} }
+@keyframes companion-hop { 0%{transform:translateY(0) scale(1.06,.94)} 16%{transform:translateY(-2px) scale(.95,1.05)} 48%{transform:translateY(-23px) scale(.97,1.03)} 72%{transform:translateY(-8px)} 88%{transform:translateY(2px) scale(1.08,.92)} 100%{transform:translateY(0) scale(1)} }
+@keyframes companion-spin { 0%{transform:rotate(0) translateY(0)} 30%{transform:rotate(100deg) translateY(-11px)} 65%{transform:rotate(270deg) translateY(-8px)} 100%{transform:rotate(360deg) translateY(0)} }
+@keyframes companion-wave { from{transform:rotate(0) translate(0,0)} to{transform:rotate(-30deg) translate(-3px,-5px)} }
+@keyframes companion-wave-ear { from{transform:rotate(0)} to{transform:rotate(-6deg)} }
+@keyframes companion-peek { from{transform:translateX(0) rotate(0)} to{transform:translateX(8px) rotate(5deg)} }
+@keyframes companion-curious { 0%,100%{transform:rotate(0) translateY(0)} 30%{transform:rotate(-7deg) translateY(1px)} 65%{transform:rotate(7deg) translateY(0)} }
+@keyframes companion-tap { from{transform:rotate(0) translate(0,0)} to{transform:rotate(19deg) translate(4px,4px)} }
+@keyframes companion-watch-paw { from{transform:rotate(0)} to{transform:rotate(3deg) translateY(1px)} }
+@keyframes companion-sit { 0%{transform:translateY(0) scale(1)} 55%{transform:translateY(5px) scale(1.04,.96)} 100%{transform:translateY(4px) scale(1.02,.98)} }
+@keyframes companion-sleep { 0%,100%{transform:translateY(6px) rotate(1deg) scale(1.03,.94)} 50%{transform:translateY(7px) rotate(-1deg) scale(1.04,.92)} }
+@keyframes companion-zzz-float { 0%,100%{transform:translateY(0) rotate(-10deg);opacity:.6} 50%{transform:translateY(-5px) rotate(-5deg);opacity:1} }
+@keyframes companion-celebrate { 0%,100%{transform:translateY(0) rotate(0) scale(1)} 22%{transform:translateY(-17px) rotate(-7deg) scale(.98,1.02)} 52%{transform:translateY(-24px) rotate(5deg)} 78%{transform:translateY(-6px) rotate(-4deg) scale(1.05,.95)} }
+@keyframes companion-happy-hop { 0%,100%{transform:translateY(0) scale(1)} 16%{transform:translateY(1px) scale(1.05,.95)} 50%{transform:translateY(-14px) scale(.98,1.02)} 82%{transform:translateY(1px) scale(1.04,.96)} }
+@keyframes companion-gentle-shake { 0%,100%{transform:translateX(0) rotate(0)} 25%{transform:translateX(-3px) rotate(-2deg)} 75%{transform:translateX(3px) rotate(2deg)} }
+@keyframes companion-sparkle-pop { 0%{transform:scale(.35) rotate(0);opacity:0} 38%{transform:scale(1.08) rotate(10deg);opacity:1} 100%{transform:scale(.65) rotate(24deg);opacity:0} }
+@keyframes companion-element-pulse { 0%,100%{outline-color:rgba(231,137,176,.22)} 50%{outline-color:rgba(231,137,176,.72)} }
 
 @media (max-width: 560px) {
-  .pocket-companion { width: 80px; height: 88px; }
-  .companion-bunny { width: 76px; height: 76px; }
-  .companion-bubble { left: 64px; bottom: 61px; max-width: min(154px, calc(100vw - 112px)); font-size: 11px; }
-  .pocket-companion.bubble-left .companion-bubble { right: 62px; }
-  .pocket-companion.bubble-below .companion-bubble { top: 70px; }
+  .pocket-companion { width: 86px; height: 98px; }
+  .companion-bunny { width: 82px; height: 94px; }
+  .companion-bubble { left: 69px; bottom: 71px; max-width: min(158px, calc(100vw - 118px)); font-size: 11px; }
+  .pocket-companion.bubble-left .companion-bubble { right: 67px; }
+  .pocket-companion.bubble-below .companion-bubble { top: 80px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pocket-companion, .companion-bunny, .companion-bubble, .bunny-arm-left, .companion-sparkles { animation: none !important; transition: none !important; }
+  .pocket-companion, .companion-bunny, .companion-bubble, .bunny-arm, .bunny-ear, .bunny-tail, .bunny-head-group, .companion-sparkles, .companion-is-being-noticed { animation: none !important; transition: none !important; }
 }
+
