@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.6.1';
+  const APP_VERSION = '2.7.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const LIGHT_THEME_PASSWORD = '0322';
   const LIGHT_THEME_SESSION_KEY = 'pocket-light-theme-unlocked';
@@ -61,6 +61,31 @@
   let activeWalletPickerTarget = '';
   let currentGoalEditId = null;
   let currentGoalHistoryId = '';
+  let companionActionTimer = 0;
+  let companionAffirmationTimer = 0;
+  let companionIdleTimer = 0;
+  let companionBubbleTimer = 0;
+  let pendingCompanionReaction = null;
+  let companionLastMessageAt = 0;
+  const companionReducedMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  const COMPANION_AFFIRMATIONS = [
+    'Small steps still count ♡',
+    'You’re building good habits ✨',
+    'Future you will thank you ♡',
+    'A little saved is still progress.',
+    'You’re doing better than you think ♡',
+    'Steady choices, softer worries.',
+    'Your goals deserve patience.',
+    'Be proud of today’s progress ♡',
+    'Save gently, spend mindfully.',
+    'One peso at a time—you’ve got this ♡'
+  ];
+  const COMPANION_VIEW_LINES = {
+    home: ['Ready for a fresh little money day? ♡', 'Your pocket, your pace ✨'],
+    activity: ['Little check-ins make habits easier ♡', 'Look at you keeping track ✨'],
+    savings: ['Tiny savings can grow into big dreams ♡', 'Your future self is cheering too ✨'],
+    more: ['Everything is tucked neatly here ♡', 'A quick check, then back to your day ✨']
+  };
 
   function isLightThemeUnlocked() {
     try { return sessionStorage.getItem(LIGHT_THEME_SESSION_KEY) === '1'; }
@@ -1055,6 +1080,198 @@
     }).join('');
   }
 
+  function companionIsAvailable() {
+    return Boolean(els.pocketCompanion && state?.settings?.theme === 'light' && isLightThemeUnlocked());
+  }
+
+  function clearCompanionTimers() {
+    window.clearTimeout(companionActionTimer);
+    window.clearTimeout(companionAffirmationTimer);
+    window.clearTimeout(companionIdleTimer);
+    window.clearTimeout(companionBubbleTimer);
+    companionActionTimer = companionAffirmationTimer = companionIdleTimer = companionBubbleTimer = 0;
+  }
+
+  function companionSafePosition(preferEdge = false) {
+    const box = 92;
+    const width = Math.max(320, window.innerWidth || 390);
+    const height = Math.max(480, window.innerHeight || 844);
+    const desktopReserve = width > 1024 ? 250 : width > 820 ? 104 : 8;
+    const minX = desktopReserve + 8;
+    const maxX = Math.max(minX, width - box - 10);
+    const minY = 112;
+    const bottomReserve = width <= 820 ? 148 : 28;
+    const maxY = Math.max(minY, height - box - bottomReserve);
+    let x;
+    let y;
+    if (preferEdge || Math.random() < .72) {
+      x = Math.random() < .5 ? minX : maxX;
+      y = Math.round(minY + Math.random() * Math.max(0, maxY - minY));
+    } else {
+      x = Math.round(minX + Math.random() * Math.max(0, maxX - minX));
+      y = Math.round(Math.max(minY, maxY - 18 - Math.random() * 22));
+    }
+    return { x, y, minX, maxX, minY, maxY };
+  }
+
+  function companionPlace(x, y, immediate = false) {
+    if (!els.pocketCompanion) return;
+    els.pocketCompanion.classList.toggle('no-travel', immediate || companionReducedMotion);
+    els.pocketCompanion.style.setProperty('--companion-x', `${Math.round(x)}px`);
+    els.pocketCompanion.style.setProperty('--companion-y', `${Math.round(y)}px`);
+    const width = window.innerWidth || 390;
+    els.pocketCompanion.classList.toggle('bubble-left', x > width * .55);
+    els.pocketCompanion.classList.toggle('bubble-below', y < 155);
+    if (immediate) requestAnimationFrame(() => els.pocketCompanion?.classList.remove('no-travel'));
+  }
+
+  function companionClearAction() {
+    if (!els.pocketCompanion) return;
+    els.pocketCompanion.classList.remove('is-hopping', 'is-spinning', 'is-waving', 'is-sleeping', 'is-peeking', 'is-celebrating', 'is-expense', 'is-allowance', 'is-savings');
+  }
+
+  function companionSay(message, duration = 5200) {
+    if (!companionIsAvailable() || !message) return;
+    companionLastMessageAt = Date.now();
+    els.companionMessage.textContent = message;
+    els.companionBubble.classList.add('is-showing');
+    window.clearTimeout(companionBubbleTimer);
+    companionBubbleTimer = window.setTimeout(() => els.companionBubble?.classList.remove('is-showing'), duration);
+  }
+
+  function companionAnimate(action = 'hop', duration = 1500) {
+    if (!companionIsAvailable()) return;
+    companionClearAction();
+    if (action === 'sleep') els.pocketCompanion.classList.add('is-sleeping');
+    else els.pocketCompanion.classList.add(`is-${action === 'hop' ? 'hopping' : action}`);
+    if (action !== 'sleep') window.setTimeout(() => companionClearAction(), duration);
+  }
+
+  function scheduleCompanionAction(delay = 7000 + Math.random() * 7000) {
+    window.clearTimeout(companionActionTimer);
+    if (!companionIsAvailable()) return;
+    companionActionTimer = window.setTimeout(() => {
+      if (!companionIsAvailable()) return;
+      if (document.visibilityState !== 'visible' || document.querySelector('dialog[open]')) {
+        scheduleCompanionAction(3500);
+        return;
+      }
+      const roll = Math.random();
+      const pos = companionSafePosition(true);
+      if (!companionReducedMotion && roll < .30) {
+        companionAnimate('hopping', 1500);
+        companionPlace(pos.x, pos.y);
+      } else if (!companionReducedMotion && roll < .48) {
+        companionAnimate('waving', 1700);
+      } else if (!companionReducedMotion && roll < .62) {
+        companionAnimate('spinning', 1300);
+      } else if (!companionReducedMotion && roll < .78) {
+        const peekLeft = Math.random() < .5;
+        companionAnimate('peeking', 2400);
+        companionPlace(peekLeft ? pos.minX - 48 : pos.maxX + 48, Math.min(pos.maxY, Math.max(pos.minY, pos.y)));
+        window.setTimeout(() => companionPlace(peekLeft ? pos.minX : pos.maxX, pos.y), 1550);
+      } else {
+        companionAnimate('hop', 1100);
+        companionPlace(pos.x, pos.maxY);
+      }
+      scheduleCompanionAction();
+    }, delay);
+  }
+
+  function scheduleCompanionAffirmation(delay = 28000 + Math.random() * 26000) {
+    window.clearTimeout(companionAffirmationTimer);
+    if (!companionIsAvailable()) return;
+    companionAffirmationTimer = window.setTimeout(() => {
+      if (!companionIsAvailable()) return;
+      if (!document.querySelector('dialog[open]') && Date.now() - companionLastMessageAt > 15000) {
+        const pool = Math.random() < .25 ? (COMPANION_VIEW_LINES[currentView] || COMPANION_AFFIRMATIONS) : COMPANION_AFFIRMATIONS;
+        companionSay(pool[Math.floor(Math.random() * pool.length)]);
+        if (!companionReducedMotion && Math.random() < .55) companionAnimate('waving', 1600);
+      }
+      scheduleCompanionAffirmation();
+    }, delay);
+  }
+
+  function resetCompanionIdleTimer() {
+    window.clearTimeout(companionIdleTimer);
+    if (!companionIsAvailable()) return;
+    if (els.pocketCompanion?.classList.contains('is-sleeping')) companionClearAction();
+    companionIdleTimer = window.setTimeout(() => {
+      if (!companionIsAvailable() || document.querySelector('dialog[open]')) return;
+      companionAnimate('sleep');
+      if (Date.now() - companionLastMessageAt > 20000) companionSay('Tiny rest break… progress can be gentle too ♡', 6000);
+    }, 70000);
+  }
+
+  function syncCompanion(options = {}) {
+    if (!els.pocketCompanion) return;
+    const active = companionIsAvailable();
+    els.pocketCompanion.classList.toggle('is-visible', active);
+    els.pocketCompanion.dataset.context = currentView;
+    if (!active) {
+      clearCompanionTimers();
+      companionClearAction();
+      els.companionBubble?.classList.remove('is-showing');
+      pendingCompanionReaction = null;
+      return;
+    }
+    if (!els.pocketCompanion.dataset.placed) {
+      const pos = companionSafePosition(true);
+      companionPlace(pos.maxX, pos.maxY, true);
+      els.pocketCompanion.dataset.placed = '1';
+    }
+    scheduleCompanionAction(options.fast ? 3200 : undefined);
+    scheduleCompanionAffirmation(options.fast ? 11500 : undefined);
+    resetCompanionIdleTimer();
+    if (options.welcome) {
+      companionAnimate('waving', 1900);
+      companionSay('Hi! I’ll keep you company ♡', 6000);
+    }
+  }
+
+  function companionReact(kind, message = '') {
+    if (!companionIsAvailable()) return;
+    if (document.querySelector('dialog[open]')) {
+      pendingCompanionReaction = { kind, message };
+      return;
+    }
+    const pos = companionSafePosition(true);
+    companionPlace(pos.maxX, pos.maxY);
+    const lines = {
+      expense: 'Logged and done. Spend mindfully, not perfectly ♡',
+      allowance: 'Yay! Give every peso a little purpose ✨',
+      savings: 'Nice save! Small amounts can grow big dreams ♡',
+      goal: 'New goal unlocked—one tiny step at a time ✨',
+      complete: 'YOU DID IT! Goal complete! ♡ ✨'
+    };
+    if (kind === 'complete') companionAnimate('celebrating', 2600);
+    else if (kind === 'expense') companionAnimate('expense', 1700);
+    else if (kind === 'allowance') companionAnimate('allowance', 1900);
+    else if (kind === 'savings') companionAnimate('savings', 2100);
+    else companionAnimate('waving', 1700);
+    companionSay(message || lines[kind] || COMPANION_AFFIRMATIONS[0], kind === 'complete' ? 7000 : 5400);
+    scheduleCompanionAction(7000);
+    scheduleCompanionAffirmation();
+    resetCompanionIdleTimer();
+  }
+
+  function flushPendingCompanionReaction() {
+    if (!pendingCompanionReaction || document.querySelector('dialog[open]')) return;
+    const pending = pendingCompanionReaction;
+    pendingCompanionReaction = null;
+    window.setTimeout(() => companionReact(pending.kind, pending.message), 260);
+  }
+
+  function companionSetContext(view) {
+    if (!els.pocketCompanion) return;
+    els.pocketCompanion.dataset.context = view;
+    if (!companionIsAvailable()) return;
+    if (Date.now() - companionLastMessageAt > 26000 && Math.random() < .28) {
+      const lines = COMPANION_VIEW_LINES[view] || [];
+      if (lines.length) window.setTimeout(() => companionSay(lines[Math.floor(Math.random() * lines.length)], 4800), 650);
+    }
+  }
+
   function renderSettings() {
     const lightMode = state.settings.theme === 'light';
     els.themeLabel.textContent = lightMode ? 'On' : 'Off';
@@ -1106,6 +1323,7 @@
     renderSettings();
     populateAccounts();
     renderSavings();
+    syncCompanion();
   }
 
   function populateAccounts() {
@@ -1297,6 +1515,7 @@
     if (view === 'activity') renderActivity();
     if (view === 'savings') renderSavings();
     if (view === 'more') renderSettings();
+    companionSetContext(view);
     if (updateHash) history.replaceState(null, '', `#${view}`);
     els.contentScroll.scrollTop = 0;
   }
@@ -1367,6 +1586,7 @@
     saveState();
     closeDialog(els.themeUnlockDialog);
     renderAll();
+    syncCompanion({ welcome: true, fast: true });
     showToast('Light mode enabled.');
   }
 
@@ -1436,6 +1656,7 @@
     const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
     const dateText = receivedDate === today ? 'today' : DATE_LABEL.format(fromDateKey(receivedDate));
     showToast(state.settings.privacy ? `Allowance added to ${walletName}.` : `${currency(received, true)} added to ${walletName} for ${dateText}.`);
+    companionReact('allowance');
   }
 
   function updateAllowanceTransaction(id, amount, receivedDate, accountId) {
@@ -1555,6 +1776,7 @@
     closeDialog(els.expenseDialog);
     renderAll();
     renderExpenseReceipt(savedTransaction, editing);
+    pendingCompanionReaction = { kind: 'expense', message: editing ? 'Updated and tidy again ♡' : '' };
     currentExpenseEditId = null;
   }
 
@@ -1766,6 +1988,7 @@
     renderAll();
     setView('savings');
     if (startingAmount > 0) celebrateSavings();
+    companionReact(startingAmount >= target && target > 0 ? 'complete' : 'goal');
     showToast(`“${name}” goal created.`);
   }
 
@@ -1939,7 +2162,9 @@
       showToast(`You only have ${currency(Math.max(0, available), true)} available in ${walletName}.`);
       return;
     }
-    goal.current = Number(goal.current || 0) + amount;
+    const previousGoalAmount = Number(goal.current || 0);
+    goal.current = previousGoalAmount + amount;
+    const completedNow = previousGoalAmount < Number(goal.target || 0) && goal.current >= Number(goal.target || 0);
     state.transactions.push({
       id: uid('tx'), type: 'saving', amount, category: 'Savings', accountId,
       date: localDateKey(), note: goal.name, goalId: goal.id, createdAt: new Date().toISOString()
@@ -1949,6 +2174,7 @@
     closeDialog(els.contributeDialog);
     renderAll();
     celebrateSavings();
+    companionReact(completedNow ? 'complete' : 'savings');
     const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
     showToast(`${currency(amount, true)} saved from ${walletName} for ${goal.name}.`);
   }
@@ -2270,7 +2496,7 @@
       'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalDialogTitle', 'goalSubmitButton', 'goalName', 'goalTarget',
       'goalCurrent', 'goalAccount', 'goalTransferDialog', 'goalTransferForm', 'goalTransferFromGoalId', 'goalTransferSource', 'goalTransferDestinations', 'goalTransferAmountCard', 'goalTransferAvailable', 'goalTransferAmount', 'goalTransferHint', 'goalTransferKeypad', 'goalTransferSaveButton', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount', 'contributeAccount', 'contributeWalletHint',
       'walletPickerDialog', 'walletPickerTitle', 'walletPickerSubtitle', 'walletPickerList',
-      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'toast', 'toastMessage', 'toastAction',
+      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
   }
@@ -2549,6 +2775,7 @@
     });
 
     document.querySelectorAll('dialog').forEach((dialog) => {
+      dialog.addEventListener('close', flushPendingCompanionReaction);
       dialog.addEventListener('click', (event) => {
         if (event.target !== dialog) return;
         const rect = dialog.getBoundingClientRect();
@@ -2565,8 +2792,10 @@
       }
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') checkForUpdates();
+      if (document.visibilityState === 'visible') { checkForUpdates(); syncCompanion(); }
+      else clearCompanionTimers();
     });
+    ['pointerdown', 'keydown', 'touchstart'].forEach((eventName) => document.addEventListener(eventName, resetCompanionIdleTimer, { passive: true }));
     window.addEventListener('online', () => checkForUpdates({ force: true }));
   }
 
@@ -2577,7 +2806,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.6.1');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.7.0');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
@@ -2617,7 +2846,10 @@
       walletCarouselResizeObserver = new ResizeObserver(() => { if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex); });
       walletCarouselResizeObserver.observe(els.walletCarousel);
     }
-    window.addEventListener('resize', () => { if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex); });
+    window.addEventListener('resize', () => {
+      if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex);
+      if (companionIsAvailable()) { const pos = companionSafePosition(true); companionPlace(pos.maxX, pos.maxY, true); }
+    });
     registerServiceWorker();
   }
 

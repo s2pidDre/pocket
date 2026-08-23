@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=2.6.1">
+  <link rel="stylesheet" href="css/style.css?v=2.7.0">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -653,8 +653,79 @@
     </form>
   </dialog>
 
+
+  <div class="pocket-companion" id="pocketCompanion" data-context="home" aria-hidden="true">
+    <div class="companion-bubble" id="companionBubble"><span id="companionMessage">Small steps still count ♡</span></div>
+    <div class="companion-sparkles" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i><i></i>
+    </div>
+    <div class="companion-bunny" id="companionBunny">
+      <svg viewBox="0 0 96 96" role="img" aria-label="Pixel bunny companion" shape-rendering="crispEdges">
+        <g class="bunny-shadow"><rect x="24" y="87" width="48" height="4" rx="1"/></g>
+        <g class="bunny-ear bunny-ear-left">
+          <path d="M18 37V14h4V9h12v5h4v23z" class="bunny-fur bunny-stroke"/>
+          <rect x="25" y="16" width="6" height="17" class="bunny-pink"/>
+        </g>
+        <g class="bunny-ear bunny-ear-right">
+          <path d="M58 37V14h4V9h12v5h4v23z" class="bunny-fur bunny-stroke"/>
+          <rect x="65" y="16" width="6" height="17" class="bunny-pink"/>
+        </g>
+        <path d="M20 34h56v5h6v34h-6v7H20v-7h-6V39h6z" class="bunny-fur bunny-stroke bunny-head"/>
+        <rect x="27" y="54" width="12" height="7" class="bunny-blush"/>
+        <rect x="57" y="54" width="12" height="7" class="bunny-blush"/>
+        <g class="companion-eye-open">
+          <rect x="31" y="45" width="8" height="10" class="bunny-eye"/>
+          <rect x="57" y="45" width="8" height="10" class="bunny-eye"/>
+          <rect x="33" y="46" width="3" height="3" class="bunny-eye-shine"/>
+          <rect x="59" y="46" width="3" height="3" class="bunny-eye-shine"/>
+        </g>
+        <g class="companion-eye-sleep">
+          <rect x="31" y="50" width="9" height="2" class="bunny-line"/>
+          <rect x="56" y="50" width="9" height="2" class="bunny-line"/>
+        </g>
+        <rect x="46" y="55" width="5" height="4" class="bunny-nose"/>
+        <rect x="43" y="60" width="4" height="2" class="bunny-line"/>
+        <rect x="50" y="60" width="4" height="2" class="bunny-line"/>
+        <rect x="47" y="62" width="3" height="2" class="bunny-line"/>
+        <path d="M29 70h38v14h-5v5H34v-5h-5z" class="bunny-fur bunny-stroke bunny-body"/>
+        <g class="bunny-arm bunny-arm-left"><rect x="24" y="69" width="11" height="13" rx="2" class="bunny-fur bunny-stroke"/></g>
+        <g class="bunny-arm bunny-arm-right"><rect x="61" y="69" width="11" height="13" rx="2" class="bunny-fur bunny-stroke"/></g>
+        <rect x="36" y="83" width="10" height="7" class="bunny-fur bunny-stroke"/>
+        <rect x="51" y="83" width="10" height="7" class="bunny-fur bunny-stroke"/>
+        <g class="companion-charm">
+          <rect x="42" y="71" width="13" height="11" rx="2" class="charm-bg"/>
+          <rect x="46" y="73" width="5" height="2" class="charm-heart"/>
+          <rect x="44" y="75" width="9" height="3" class="charm-heart"/>
+          <rect x="46" y="78" width="5" height="2" class="charm-heart"/>
+        </g>
+        <g class="companion-prop prop-savings">
+          <rect x="61" y="66" width="22" height="18" rx="2" class="prop-glass bunny-stroke"/>
+          <rect x="60" y="64" width="24" height="4" class="prop-pink bunny-stroke"/>
+          <rect x="64" y="77" width="4" height="4" class="prop-coin"/><rect x="70" y="75" width="4" height="6" class="prop-coin"/><rect x="76" y="78" width="4" height="3" class="prop-coin"/>
+        </g>
+        <g class="companion-prop prop-activity">
+          <rect x="62" y="63" width="20" height="24" rx="2" class="prop-paper bunny-stroke"/>
+          <rect x="68" y="61" width="8" height="4" class="prop-pink"/>
+          <rect x="66" y="69" width="4" height="4" class="prop-pink"/><rect x="72" y="70" width="7" height="2" class="bunny-line soft"/>
+          <rect x="66" y="77" width="4" height="4" class="prop-pink"/><rect x="72" y="78" width="7" height="2" class="bunny-line soft"/>
+        </g>
+        <g class="companion-prop prop-more">
+          <rect x="67" y="66" width="8" height="8" class="prop-star" transform="rotate(45 71 70)"/>
+          <rect x="69" y="62" width="4" height="16" class="prop-star"/>
+          <rect x="63" y="68" width="16" height="4" class="prop-star"/>
+        </g>
+        <g class="companion-prop prop-home">
+          <rect x="66" y="69" width="8" height="5" class="prop-pink"/>
+          <rect x="64" y="72" width="12" height="5" class="prop-pink"/>
+          <rect x="67" y="77" width="6" height="4" class="prop-pink"/>
+        </g>
+      </svg>
+      <span class="companion-zzz" aria-hidden="true">zZ</span>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=2.6.1" defer></script>
+  <script src="js/app.js?v=2.7.0" defer></script>
 </body>
 </html>

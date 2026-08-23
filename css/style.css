@@ -3335,3 +3335,156 @@ dialog[open] .wallet-picker-panel {
     box-shadow: 2px 2px 0 rgba(191,102,143,.10), var(--shadow);
   }
 }
+
+
+/* Pocket v2.7.0 — Light-mode pixel companion */
+.pocket-companion {
+  --companion-x: calc(100vw - 104px);
+  --companion-y: calc(100dvh - 210px);
+  position: fixed;
+  z-index: 35;
+  left: 0;
+  top: 0;
+  width: 88px;
+  height: 96px;
+  display: none;
+  pointer-events: none;
+  transform: translate3d(var(--companion-x), var(--companion-y), 0);
+  transition: transform 1.35s cubic-bezier(.2,.86,.24,1);
+  filter: drop-shadow(0 7px 8px rgba(131,72,104,.12));
+  will-change: transform;
+}
+:root[data-theme="light"] .pocket-companion.is-visible { display: block; }
+.pocket-companion.no-travel { transition: none !important; }
+body:has(dialog[open]) .pocket-companion { opacity: 0; transition: opacity .16s ease, transform 1.35s cubic-bezier(.2,.86,.24,1); }
+.companion-bunny {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 84px;
+  height: 84px;
+  transform-origin: 50% 92%;
+  animation: companion-idle-bob 2.8s steps(4,end) infinite;
+}
+.companion-bunny svg { width: 100%; height: 100%; overflow: visible; }
+.bunny-stroke { stroke: #9c5878; stroke-width: 2; stroke-linejoin: miter; }
+.bunny-fur { fill: #fff9f5; }
+.bunny-pink { fill: #f5a9c2; }
+.bunny-blush { fill: #ffc8d8; opacity: .92; }
+.bunny-eye, .bunny-line { fill: #69384f; }
+.bunny-eye-shine { fill: #fff; }
+.bunny-nose { fill: #e97ca5; }
+.bunny-shadow rect { fill: rgba(189,110,148,.18); }
+.charm-bg { fill: #ef91b4; stroke: #9c5878; stroke-width: 2; }
+.charm-heart { fill: #fff7fb; }
+.companion-eye-sleep { display: none; }
+.companion-zzz {
+  display: none;
+  position: absolute;
+  right: -4px;
+  top: -1px;
+  color: #a7689c;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: -2px;
+  transform: rotate(-10deg);
+}
+.companion-prop { display: none; }
+.pocket-companion[data-context="home"] .prop-home,
+.pocket-companion[data-context="activity"] .prop-activity,
+.pocket-companion[data-context="savings"] .prop-savings,
+.pocket-companion[data-context="more"] .prop-more { display: block; }
+.prop-pink { fill: #ed8fb1; stroke: #9c5878; stroke-width: 1.5; }
+.prop-glass { fill: #f7ecff; fill-opacity: .88; }
+.prop-coin, .prop-star { fill: #f6c96e; stroke: #b3764b; stroke-width: 1; }
+.prop-paper { fill: #fffdfb; }
+.bunny-line.soft { fill: #ba8099; }
+.companion-bubble {
+  position: absolute;
+  left: 72px;
+  bottom: 67px;
+  width: max-content;
+  max-width: min(170px, calc(100vw - 122px));
+  min-width: 92px;
+  padding: 9px 11px;
+  border: 2px solid #d98bad;
+  border-radius: 9px 9px 9px 3px;
+  background: rgba(255,250,252,.97);
+  color: #6d3d57;
+  box-shadow: 3px 3px 0 rgba(215,134,171,.16);
+  font-size: 11.5px;
+  line-height: 1.35;
+  font-weight: 720;
+  opacity: 0;
+  transform: translateY(5px) scale(.96);
+  transform-origin: 0 100%;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.companion-bubble::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  bottom: -7px;
+  width: 8px;
+  height: 8px;
+  background: #fffafc;
+  border-right: 2px solid #d98bad;
+  border-bottom: 2px solid #d98bad;
+  transform: rotate(45deg);
+}
+.companion-bubble.is-showing { opacity: 1; transform: translateY(0) scale(1); }
+.pocket-companion.bubble-left .companion-bubble {
+  left: auto;
+  right: 70px;
+  border-radius: 9px 9px 3px 9px;
+  transform-origin: 100% 100%;
+}
+.pocket-companion.bubble-left .companion-bubble::after { left: auto; right: 8px; }
+.pocket-companion.bubble-below .companion-bubble { bottom: auto; top: 78px; }
+.pocket-companion.bubble-below .companion-bubble::after { bottom: auto; top: -7px; transform: rotate(225deg); }
+.companion-sparkles { position: absolute; inset: -12px; opacity: 0; }
+.companion-sparkles i {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: #f2a0bf;
+  box-shadow: 5px 0 0 #f2a0bf, 0 5px 0 #f2a0bf;
+}
+.companion-sparkles i:nth-child(1){left:8px;top:17px}.companion-sparkles i:nth-child(2){right:8px;top:6px}.companion-sparkles i:nth-child(3){right:0;top:48px}.companion-sparkles i:nth-child(4){left:2px;bottom:9px}.companion-sparkles i:nth-child(5){left:39px;top:-4px;background:#f4ca6e;box-shadow:5px 0 0 #f4ca6e,0 5px 0 #f4ca6e}.companion-sparkles i:nth-child(6){right:20px;bottom:0;background:#c7a9ef;box-shadow:5px 0 0 #c7a9ef,0 5px 0 #c7a9ef}
+.pocket-companion.is-hopping .companion-bunny { animation: companion-hop .92s steps(8,end) 1; }
+.pocket-companion.is-spinning .companion-bunny { animation: companion-spin .95s steps(10,end) 1; }
+.pocket-companion.is-waving .bunny-arm-left { transform-origin: 30px 76px; animation: companion-wave .34s steps(3,end) 4 alternate; }
+.pocket-companion.is-peeking .companion-bunny { animation: companion-peek .6s steps(5,end) 2 alternate; }
+.pocket-companion.is-sleeping .companion-bunny { animation: companion-sleep 3.2s steps(4,end) infinite; }
+.pocket-companion.is-sleeping .companion-eye-open { display: none; }
+.pocket-companion.is-sleeping .companion-eye-sleep, .pocket-companion.is-sleeping .companion-zzz { display: block; }
+.pocket-companion.is-celebrating .companion-bunny { animation: companion-celebrate .62s steps(6,end) 4; }
+.pocket-companion.is-celebrating .companion-sparkles,
+.pocket-companion.is-savings .companion-sparkles,
+.pocket-companion.is-allowance .companion-sparkles { opacity: 1; animation: companion-sparkle-pop .75s steps(5,end) 3; }
+.pocket-companion.is-savings .companion-bunny { animation: companion-happy-hop .58s steps(6,end) 3; }
+.pocket-companion.is-allowance .companion-bunny { animation: companion-happy-hop .52s steps(6,end) 3; }
+.pocket-companion.is-expense .companion-bunny { animation: companion-gentle-shake .42s steps(5,end) 2; }
+
+@keyframes companion-idle-bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+@keyframes companion-hop { 0%,100%{transform:translateY(0) scale(1)} 35%{transform:translateY(-18px) scale(.97,1.03)} 65%{transform:translateY(-7px)} 85%{transform:translateY(1px) scale(1.04,.96)} }
+@keyframes companion-spin { 0%{transform:rotate(0)} 40%{transform:translateY(-10px) rotate(180deg)} 100%{transform:rotate(360deg)} }
+@keyframes companion-wave { from{transform:rotate(0)} to{transform:rotate(-24deg) translate(-2px,-3px)} }
+@keyframes companion-peek { from{transform:translateX(0) rotate(0)} to{transform:translateX(7px) rotate(5deg)} }
+@keyframes companion-sleep { 0%,100%{transform:translateY(5px) rotate(1deg) scaleY(.96)} 50%{transform:translateY(6px) rotate(-1deg) scaleY(.93)} }
+@keyframes companion-celebrate { 0%,100%{transform:translateY(0) rotate(0)} 30%{transform:translateY(-16px) rotate(-8deg)} 65%{transform:translateY(-9px) rotate(8deg)} }
+@keyframes companion-happy-hop { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-11px) scale(1.03,.98)} }
+@keyframes companion-gentle-shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px) rotate(-2deg)} 75%{transform:translateX(3px) rotate(2deg)} }
+@keyframes companion-sparkle-pop { 0%{transform:scale(.4);opacity:0} 40%{transform:scale(1);opacity:1} 100%{transform:scale(.7);opacity:0} }
+
+@media (max-width: 560px) {
+  .pocket-companion { width: 80px; height: 88px; }
+  .companion-bunny { width: 76px; height: 76px; }
+  .companion-bubble { left: 64px; bottom: 61px; max-width: min(154px, calc(100vw - 112px)); font-size: 11px; }
+  .pocket-companion.bubble-left .companion-bubble { right: 62px; }
+  .pocket-companion.bubble-below .companion-bubble { top: 70px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pocket-companion, .companion-bunny, .companion-bubble, .bunny-arm-left, .companion-sparkles { animation: none !important; transition: none !important; }
+}
