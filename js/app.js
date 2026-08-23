@@ -3,8 +3,10 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.5.5';
+  const APP_VERSION = '2.6.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
+  const LIGHT_THEME_PASSWORD = '0322';
+  const LIGHT_THEME_SESSION_KEY = 'pocket-light-theme-unlocked';
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: 'PHP',
@@ -59,6 +61,18 @@
   let activeWalletPickerTarget = '';
   let currentGoalEditId = null;
   let currentGoalHistoryId = '';
+
+  function isLightThemeUnlocked() {
+    try { return sessionStorage.getItem(LIGHT_THEME_SESSION_KEY) === '1'; }
+    catch (error) { return false; }
+  }
+
+  function setLightThemeUnlocked(unlocked) {
+    try {
+      if (unlocked) sessionStorage.setItem(LIGHT_THEME_SESSION_KEY, '1');
+      else sessionStorage.removeItem(LIGHT_THEME_SESSION_KEY);
+    } catch (error) { /* Session storage is optional; the password gate still works in-memory. */ }
+  }
 
   function localDateKey(date = new Date()) {
     const year = date.getFullYear();
@@ -189,7 +203,7 @@
     return {
       version: SCHEMA_VERSION,
       settings: {
-        theme: 'light',
+        theme: 'dark',
         privacy: false,
         demoData: false
       },
@@ -296,7 +310,7 @@
     return {
       version: SCHEMA_VERSION,
       settings: {
-        theme: candidate.settings?.theme === 'dark' ? 'dark' : 'light',
+        theme: candidate.settings?.theme === 'light' && isLightThemeUnlocked() ? 'light' : 'dark',
         privacy: Boolean(candidate.settings?.privacy),
         demoData: Boolean(candidate.settings?.demoData)
       },
@@ -1042,11 +1056,13 @@
   }
 
   function renderSettings() {
-    const darkMode = state.settings.theme === 'dark';
-    els.themeLabel.textContent = darkMode ? 'On · dark appearance' : 'Off · light appearance';
-    els.themeIcon.innerHTML = `<use href="#${darkMode ? 'i-moon' : 'i-sun'}"></use>`;
-    els.themeSwitch.classList.toggle('is-on', darkMode);
-    els.themeSettingButton.setAttribute('aria-checked', darkMode ? 'true' : 'false');
+    const lightMode = state.settings.theme === 'light';
+    els.themeLabel.textContent = lightMode ? 'Unlocked · pink pixel theme' : 'Locked · password required';
+    els.themeIcon.innerHTML = `<use href="#${lightMode ? 'i-sparkle' : 'i-lock'}"></use>`;
+    els.themeSwitch.classList.toggle('is-on', lightMode);
+    els.themeSettingButton.classList.toggle('is-locked', !lightMode);
+    els.themeSettingButton.setAttribute('aria-checked', lightMode ? 'true' : 'false');
+    els.themeSettingButton.setAttribute('aria-label', lightMode ? 'Turn off pink light mode' : 'Unlock pink light mode');
     els.privacyLabel.textContent = state.settings.privacy ? 'On · amounts hidden' : 'Off · amounts visible';
     els.privacySwitch.classList.toggle('is-on', state.settings.privacy);
     els.privacySettingButton.setAttribute('aria-checked', state.settings.privacy ? 'true' : 'false');
@@ -1082,6 +1098,7 @@
 
   function renderAll() {
     document.documentElement.dataset.theme = state.settings.theme;
+    if (els.themeColorMeta) els.themeColorMeta.setAttribute('content', state.settings.theme === 'light' ? '#f48fbc' : '#0d0e10');
     renderHeader();
     renderPrivacy();
     renderHome();
@@ -1326,6 +1343,31 @@
 
   function closeDialog(dialog) {
     if (dialog.open) dialog.close();
+  }
+
+  function openThemeUnlock() {
+    els.themeUnlockForm.reset();
+    els.themePasswordError.textContent = '';
+    els.themePassword.classList.remove('is-invalid');
+    els.themePassword.setAttribute('aria-invalid', 'false');
+    openDialog(els.themeUnlockDialog);
+    requestAnimationFrame(() => els.themePassword.focus({ preventScroll: true }));
+  }
+
+  function unlockLightTheme() {
+    if (els.themePassword.value !== LIGHT_THEME_PASSWORD) {
+      els.themePasswordError.textContent = 'Wrong password. Dark mode stays active.';
+      els.themePassword.classList.add('is-invalid');
+      els.themePassword.setAttribute('aria-invalid', 'true');
+      els.themePassword.select();
+      return;
+    }
+    setLightThemeUnlocked(true);
+    state.settings.theme = 'light';
+    saveState();
+    closeDialog(els.themeUnlockDialog);
+    renderAll();
+    showToast('Pink pixel mode unlocked.');
   }
 
   function openExpense(prefill = {}) {
@@ -2193,8 +2235,15 @@
     if (action === 'edit-receipt-transaction') editTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'undo-receipt-transaction') undoTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'toggle-theme') {
-      state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark';
-      saveState(); renderAll();
+      if (state.settings.theme === 'light') {
+        state.settings.theme = 'dark';
+        setLightThemeUnlocked(false);
+        saveState();
+        renderAll();
+        showToast('Dark mode restored.');
+      } else {
+        openThemeUnlock();
+      }
     }
     if (action === 'toggle-privacy') {
       state.settings.privacy = !state.settings.privacy;
@@ -2211,7 +2260,7 @@
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
       'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsGoalOverview', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList', 'themeIcon', 'themeSwitch', 'themeSettingButton',
-      'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
+      'themeLabel', 'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
@@ -2451,6 +2500,17 @@
       event.preventDefault();
       addContribution();
     });
+    els.themeUnlockForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      unlockLightTheme();
+    });
+    els.themePassword.addEventListener('input', () => {
+      els.themePassword.value = els.themePassword.value.replace(/\D/g, '').slice(0, 4);
+      els.themePassword.classList.remove('is-invalid');
+      els.themePassword.setAttribute('aria-invalid', 'false');
+      els.themePasswordError.textContent = '';
+    });
+
     els.confirmDialog.querySelector('form').addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') { pendingConfirm = null; return; }
       event.preventDefault();
@@ -2517,7 +2577,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.5.5');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.6.0');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

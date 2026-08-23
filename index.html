@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#5b5bd6">
+  <meta name="theme-color" id="themeColorMeta" content="#0d0e10">
   <meta name="description" content="A simple student allowance tracker with flexible allowance recording, multiple wallets, quick expenses, and separate savings.">
   <title>Pocket — Student Allowance Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=2.5.5">
+  <link rel="stylesheet" href="css/style.css?v=2.6.0">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -220,9 +220,9 @@
           <div class="settings-grid">
             <article class="card settings-card">
               <div class="section-heading compact"><div><p class="eyebrow">Preferences</p><h2>Appearance</h2></div></div>
-              <button class="setting-row" id="themeSettingButton" type="button" data-action="toggle-theme" role="switch" aria-checked="false">
-                <span class="round-icon neutral-soft"><svg id="themeIcon"><use href="#i-moon"/></svg></span>
-                <span><strong>Dark mode</strong><small id="themeLabel">Off · light appearance</small></span>
+              <button class="setting-row theme-lock-row" id="themeSettingButton" type="button" data-action="toggle-theme" role="switch" aria-checked="false">
+                <span class="round-icon neutral-soft"><svg id="themeIcon"><use href="#i-lock"/></svg></span>
+                <span><strong>Pink light mode</strong><small id="themeLabel">Locked · password required</small></span>
                 <span class="switch" id="themeSwitch" aria-hidden="true"></span>
               </button>
               <button class="setting-row" id="privacySettingButton" type="button" data-action="toggle-privacy" role="switch" aria-checked="false">
@@ -621,6 +621,27 @@
     </form>
   </dialog>
 
+  <dialog id="themeUnlockDialog" class="app-dialog compact-dialog theme-unlock-dialog">
+    <form method="dialog" class="dialog-panel" id="themeUnlockForm" autocomplete="off">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Appearance lock</p><h2>Unlock pink mode</h2><p class="dialog-subtitle">Enter the 4-digit password to use the pink pixel light theme.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <div class="theme-unlock-preview" aria-hidden="true"><span></span><span></span><span></span><strong>PIXEL PINK</strong></div>
+        <div class="field-group">
+          <label class="field-label" for="themePassword">Password</label>
+          <input class="text-input theme-password-input" id="themePassword" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" aria-describedby="themePasswordError" aria-invalid="false" placeholder="••••" autocomplete="off" enterkeyhint="done" required>
+          <p class="helper-text theme-password-error" id="themePasswordError" role="alert" aria-live="polite"></p>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" type="submit" value="default">Unlock</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="confirmDialog" class="app-dialog compact-dialog">
     <form method="dialog" class="dialog-panel">
       <div class="dialog-header">
@@ -634,6 +655,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=2.5.5" defer></script>
+  <script src="js/app.js?v=2.6.0" defer></script>
 </body>
 </html>
