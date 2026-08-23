@@ -2816,3 +2816,159 @@ dialog[open] .wallet-picker-panel {
 @media (max-width: 390px) {
   .allowance-inline-lock span { display: none; }
 }
+
+
+/* v2.5.5: keep Savings/Allowance history fully contained in the visible viewport. */
+.history-dialog {
+  height: min(700px, calc(100dvh - 64px));
+  max-height: calc(100dvh - 64px);
+  overflow: hidden;
+}
+.history-dialog > .dialog-panel {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  overflow: hidden;
+}
+.history-dialog > .dialog-panel > .dialog-header {
+  flex: 0 0 auto;
+}
+.history-dialog > .dialog-panel > .history-dialog-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.history-dialog .goal-history-list,
+.history-dialog .allowance-history-list {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 560px) {
+  .app-dialog.goal-history-dialog,
+  .app-dialog.allowance-history-dialog {
+    width: calc(100vw - 24px) !important;
+    height: min(660px, calc(100dvh - 96px)) !important;
+    max-height: calc(100dvh - 96px) !important;
+    margin: auto !important;
+    border-radius: 20px !important;
+    overflow: hidden !important;
+  }
+  .app-dialog.goal-history-dialog[open],
+  .app-dialog.allowance-history-dialog[open] {
+    height: min(660px, calc(100dvh - 96px)) !important;
+  }
+  .goal-history-dialog > .dialog-panel,
+  .allowance-history-dialog > .dialog-panel {
+    width: 100%;
+    height: 100% !important;
+    max-height: none !important;
+    min-height: 0;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    overflow: hidden;
+  }
+  .goal-history-dialog .dialog-header,
+  .allowance-history-dialog .dialog-header {
+    padding: 14px 14px 10px;
+    gap: 10px;
+  }
+  .goal-history-dialog .dialog-header h2,
+  .allowance-history-dialog .dialog-header h2 {
+    font-size: 20px;
+    line-height: 1.1;
+  }
+  .goal-history-dialog .dialog-header .icon-button,
+  .allowance-history-dialog .dialog-header .icon-button {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+  }
+  .goal-history-dialog .dialog-subtitle,
+  .allowance-history-dialog .dialog-subtitle {
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 1.3;
+  }
+  .goal-history-dialog .history-dialog-body,
+  .allowance-history-dialog .history-dialog-body {
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto;
+    padding: 9px 14px 12px;
+    overflow: hidden;
+  }
+  .history-dialog-summary {
+    flex: 0 0 auto;
+    padding: 0 0 7px;
+    gap: 8px;
+  }
+  .history-dialog-summary strong { font-size: 10.5px; }
+  .history-dialog-summary span {
+    max-width: 68%;
+    font-size: 9.5px;
+    line-height: 1.25;
+  }
+  .goal-history-row,
+  .allowance-history-row {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 9px;
+    min-height: 62px;
+    padding: 9px 0;
+  }
+  .goal-history-row > .round-icon,
+  .allowance-history-row > .round-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+  .goal-history-copy > strong,
+  .allowance-history-copy > strong {
+    font-size: 12px;
+    line-height: 1.2;
+  }
+  .goal-history-copy > small,
+  .allowance-history-copy > small {
+    margin-top: 3px;
+    font-size: 9px;
+    line-height: 1.3;
+  }
+  .goal-history-amount,
+  .allowance-history-amount {
+    gap: 4px;
+  }
+  .goal-history-amount > strong,
+  .allowance-history-amount > strong { font-size: 12px; }
+  .inline-lock {
+    min-height: 20px;
+    font-size: 8.5px;
+  }
+  .inline-lock svg { width: 11px; height: 11px; }
+  .allowance-history-actions {
+    gap: 4px;
+    margin-top: 5px;
+  }
+  .compact-history-action {
+    min-height: 25px;
+    padding: 0 7px;
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 390px), (max-height: 720px) {
+  .app-dialog.goal-history-dialog,
+  .app-dialog.allowance-history-dialog,
+  .app-dialog.goal-history-dialog[open],
+  .app-dialog.allowance-history-dialog[open] {
+    height: calc(100dvh - 72px) !important;
+    max-height: calc(100dvh - 72px) !important;
+  }
+  .goal-history-dialog .dialog-subtitle,
+  .allowance-history-dialog .dialog-subtitle { display: none; }
+  .history-dialog-summary span { display: none; }
+}

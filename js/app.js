@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.5.4';
+  const APP_VERSION = '2.5.5';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -1006,13 +1006,19 @@
     currentGoalHistoryId = goal.id;
     renderGoalHistory();
     openDialog(els.goalHistoryDialog);
-    requestAnimationFrame(() => els.goalHistoryDialog.focus());
+    requestAnimationFrame(() => {
+      if (els.goalHistoryList) els.goalHistoryList.scrollTop = 0;
+      els.goalHistoryDialog.focus();
+    });
   }
 
   function openAllowanceHistory() {
     renderAllowanceHistory();
     openDialog(els.allowanceHistoryDialog);
-    requestAnimationFrame(() => els.allowanceHistoryDialog.focus());
+    requestAnimationFrame(() => {
+      if (els.allowanceHistoryList) els.allowanceHistoryList.scrollTop = 0;
+      els.allowanceHistoryDialog.focus();
+    });
   }
 
   function renderWallets() {
@@ -2511,7 +2517,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.5.5');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
