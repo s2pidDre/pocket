@@ -3707,3 +3707,139 @@ body:has(dialog[open]) .pocket-companion { opacity: 0; transition: opacity .18s 
 @media (prefers-reduced-motion: reduce) {
   .companion-world-fx { display: none !important; }
 }
+
+
+/* Pocket v2.8.2 — remove Goals Overview and let goal cards own the available Savings space. */
+#view-savings.is-active {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+#view-savings .goals-carousel {
+  --goal-card-width: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
+  align-items: stretch;
+  padding: 2px 2px 5px;
+  touch-action: pan-x pan-y;
+}
+
+#view-savings .goals-carousel .goal-card {
+  flex: 0 0 var(--goal-card-width);
+  width: var(--goal-card-width);
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  align-self: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+}
+
+#view-savings .goals-carousel .goal-card:not(.empty-goal-card) {
+  justify-content: flex-start;
+  gap: 0;
+}
+
+#view-savings .goals-carousel .goal-card-metrics {
+  margin-top: clamp(10px, 1.9vh, 18px);
+}
+
+#view-savings .goals-carousel .goal-progress-block {
+  margin-top: clamp(11px, 2vh, 19px);
+}
+
+#view-savings .goals-carousel .goal-footer {
+  margin-top: auto;
+  padding-top: clamp(12px, 2.2vh, 22px);
+}
+
+#view-savings .goals-carousel .empty-goal-card {
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  flex-basis: 100%;
+  align-self: stretch;
+}
+
+/* One card fills the row. Two or more use the space efficiently on wider screens. */
+#view-savings .goals-carousel[data-goal-layout="single"] {
+  --goal-card-width: 100%;
+}
+
+@media (min-width: 821px) {
+  #view-savings .goals-carousel[data-goal-layout="pair"] {
+    --goal-card-width: calc((100% - 12px) / 2);
+  }
+  #view-savings .goals-carousel[data-goal-layout="multi"] {
+    --goal-card-width: min(520px, calc((100% - 12px) / 2));
+  }
+}
+
+@media (min-width: 1180px) {
+  #view-savings .goals-carousel[data-goal-layout="multi"] {
+    --goal-card-width: calc((100% - 24px) / 3);
+  }
+}
+
+/* Phones and portrait tablets get a true edge-to-edge card viewport instead of a clipped next-card preview. */
+@media (max-width: 820px) {
+  #view-savings .goals-carousel {
+    --goal-card-width: 100% !important;
+    gap: 10px;
+  }
+  #view-savings .goals-carousel .goal-card {
+    padding-left: clamp(13px, 4vw, 18px);
+    padding-right: clamp(13px, 4vw, 18px);
+  }
+}
+
+/* Use extra vertical room gracefully instead of leaving a detached blank block below the goals. */
+@media (min-height: 800px) {
+  #view-savings .goals-carousel .goal-card:not(.empty-goal-card) {
+    padding-top: clamp(17px, 2.3vh, 24px);
+    padding-bottom: clamp(17px, 2.3vh, 24px);
+  }
+  #view-savings .goal-card-metrics > div {
+    padding-top: clamp(11px, 1.6vh, 15px);
+    padding-bottom: clamp(11px, 1.6vh, 15px);
+  }
+  #view-savings .goal-footer .button-secondary {
+    min-height: 42px;
+  }
+}
+
+/* Very short screens stay fully contained; only the card itself may scroll if its controls cannot compress further. */
+@media (max-height: 700px) {
+  #view-savings.is-active { gap: 7px; }
+  #view-savings .goals-carousel .goal-card {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  #view-savings .goals-carousel .goal-card-metrics,
+  #view-savings .goals-carousel .goal-progress-block {
+    margin-top: 7px;
+  }
+  #view-savings .goals-carousel .goal-footer {
+    padding-top: 8px;
+  }
+}
+
+/* Manage Goals keeps the same responsive card sizing while retaining its focused layout. */
+#view-savings.is-active.is-managing-goals {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+}
+#view-savings.is-managing-goals .goals-carousel {
+  height: 100% !important;
+  align-self: stretch !important;
+}
+#view-savings.is-managing-goals .goals-carousel .goal-card:not(.empty-goal-card) {
+  height: 100% !important;
+  align-self: stretch !important;
+}

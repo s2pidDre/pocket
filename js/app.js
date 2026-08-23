@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.8.1';
+  const APP_VERSION = '2.8.2';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const LIGHT_THEME_PASSWORD = '0322';
   const LIGHT_THEME_SESSION_KEY = 'pocket-light-theme-unlocked';
@@ -871,38 +871,6 @@
     els.activitySwipeHint.classList.toggle('is-hidden', !hasActivity);
   }
 
-  function renderSavingsGoalOverview(goals, selectedAccount, isWalletMode) {
-    if (!els.savingsGoalOverview) return;
-    const active = goals.filter((goal) => Number(goal.current || 0) < Number(goal.target || 0));
-    const completed = goals.length - active.length;
-    const targetTotal = goals.reduce((sum, goal) => sum + Math.max(0, Number(goal.target || 0)), 0);
-    const savedTotal = goals.reduce((sum, goal) => {
-      if (isWalletMode && selectedAccount) return sum + goalWalletSavings(goal, selectedAccount.id);
-      return sum + Math.max(0, Number(goal.current || 0));
-    }, 0);
-    const cappedSaved = Math.min(savedTotal, targetTotal || savedTotal);
-    const remaining = Math.max(0, targetTotal - (isWalletMode ? goals.reduce((sum, goal) => sum + Math.max(0, Number(goal.current || 0)), 0) : savedTotal));
-    const percent = targetTotal > 0 ? Math.min(100, (cappedSaved / targetTotal) * 100) : 0;
-    const context = isWalletMode && selectedAccount ? `${selectedAccount.name} contribution` : 'Across all goals';
-
-    if (!goals.length) {
-      els.savingsGoalOverview.innerHTML = `<div class="goal-overview-empty"><span class="round-icon purple-soft">${icon('i-target')}</span><div><p class="eyebrow">Goals overview</p><strong>No active targets</strong><span>Create a goal when you have something specific to save for.</span></div></div>`;
-      return;
-    }
-
-    els.savingsGoalOverview.innerHTML = `
-      <div class="goal-overview-head">
-        <div><p class="eyebrow">Goals overview</p><strong>${escapeHtml(context)}</strong></div>
-        <span>${completed} completed</span>
-      </div>
-      <div class="goal-overview-metrics">
-        <div><small>Active</small><strong>${active.length}</strong></div>
-        <div><small>Saved</small><strong class="money-value">${currency(savedTotal, true)}</strong></div>
-        <div><small>Remaining</small><strong class="money-value">${currency(remaining, true)}</strong></div>
-      </div>
-      <div class="goal-overview-progress"><span style="width:${percent.toFixed(1)}%"></span></div>`;
-  }
-
   function renderSavings() {
     const accounts = state.accounts;
     savingsWalletIndex = Math.max(0, Math.min(savingsWalletIndex, Math.max(0, accounts.length - 1)));
@@ -926,6 +894,9 @@
     replayAnimation(els.totalSavings, 'amount-pop');
 
     const visibleGoals = state.goals.filter((goal) => !goal.removedAt);
+    const goalLayout = visibleGoals.length <= 1 ? 'single' : visibleGoals.length === 2 ? 'pair' : 'multi';
+    els.goalsGrid.dataset.goalLayout = goalLayout;
+    els.goalsGrid.dataset.goalCount = String(visibleGoals.length);
     els.manageGoalsButton.disabled = visibleGoals.length === 0;
     els.manageGoalsButton.textContent = manageGoalsMode ? 'Done' : 'Manage goals';
     els.goalsGrid.classList.toggle('is-managing', manageGoalsMode);
@@ -983,7 +954,6 @@
           </article>`;
       }).join('');
     }
-    renderSavingsGoalOverview(visibleGoals, selectedAccount, isWalletMode);
     if (currentGoalHistoryId && els.goalHistoryDialog?.open) renderGoalHistory();
   }
 
@@ -3195,7 +3165,7 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsGoalOverview', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList', 'themeIcon', 'themeSwitch', 'themeSettingButton',
+      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList', 'themeIcon', 'themeSwitch', 'themeSettingButton',
       'themeLabel', 'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
@@ -3517,7 +3487,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.8.1');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.8.2');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
