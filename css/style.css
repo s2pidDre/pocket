@@ -2620,69 +2620,199 @@ dialog[open] .wallet-picker-panel {
 }
 .activity-day-transactions .transaction-row:not(:last-child) { margin-bottom: 2px !important; }
 
-/* v2.5.3: keep Activity focused; move allowance and savings logs to their own sections. */
+/* v2.5.4: goal-specific savings history and compact allowance history. */
 .activity-summary-strip.activity-summary-strip-two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.savings-history-button {
-  min-height: 39px;
-  padding: 0 11px;
+/* Let the Savings description wrap naturally instead of clipping on phones. */
+@media (max-width: 560px) {
+  .savings-dashboard-head p:last-child {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    max-width: min(48vw, 190px);
+    line-height: 1.3;
+  }
+}
+
+/* History now belongs to each individual goal card. */
+.goal-history-button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 750;
+  cursor: pointer;
   white-space: nowrap;
 }
-.savings-history-button svg { width: 15px; height: 15px; }
+.goal-history-button svg { width: 14px; height: 14px; }
+.goal-history-button:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 
 .history-dialog {
-  width: min(640px, calc(100vw - 28px));
-  max-height: min(760px, calc(100dvh - 28px));
+  width: min(600px, calc(100vw - 28px));
+  max-height: min(690px, calc(100dvh - 28px));
 }
 .history-dialog .dialog-panel { max-height: inherit; }
 .history-dialog-body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  overflow: hidden;
 }
 .history-dialog-summary {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 2px 10px;
+  padding: 0 2px 9px;
   color: var(--text-3);
   font-size: 10.5px;
 }
-.history-dialog-summary strong {
+.history-dialog-summary strong { color: var(--text-2); font-size: 11px; white-space: nowrap; }
+.history-dialog-summary span { text-align: right; }
+
+.goal-history-list,
+.allowance-history-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.goal-history-row,
+.allowance-history-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-height: 74px;
+  padding: 10px 1px;
+  border-top: 1px solid var(--line);
+}
+.goal-history-row:first-child,
+.allowance-history-row:first-child { border-top: 0; }
+.goal-history-row > .round-icon,
+.allowance-history-row > .round-icon { width: 40px; height: 40px; border-radius: 12px; }
+.goal-history-copy,
+.allowance-history-copy { min-width: 0; }
+.goal-history-copy > strong,
+.allowance-history-copy > strong { display: block; font-size: 13px; line-height: 1.2; }
+.goal-history-copy > small,
+.allowance-history-copy > small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.goal-history-amount,
+.allowance-history-amount {
+  min-width: 0;
+  text-align: right;
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 6px;
+}
+.goal-history-amount > strong,
+.allowance-history-amount > strong { font-size: 13px; white-space: nowrap; }
+.goal-history-row.saving .goal-history-amount > strong,
+.allowance-history-amount > strong { color: var(--green); }
+.goal-history-row.saving_return .goal-history-amount > strong { color: var(--text-2); }
+.goal-transfer-history-row .goal-history-amount > strong { color: var(--primary); }
+
+.compact-history-action {
+  min-height: 27px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
   color: var(--text-2);
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 9.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.compact-history-action svg { width: 12px; height: 12px; }
+.compact-history-action:hover { border-color: var(--primary); color: var(--primary); }
+.compact-history-action.undo:hover { border-color: color-mix(in srgb, var(--red) 35%, var(--line)); color: var(--red); background: var(--red-soft); }
+.allowance-history-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.inline-lock {
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 700;
   white-space: nowrap;
 }
-.history-dialog-summary span { text-align: right; }
-.history-transaction-list {
-  min-height: 0;
-  display: block;
-}
-.history-transaction-list .transaction-row {
-  margin: 0 !important;
-  padding-left: 1px;
-  padding-right: 1px;
-}
-.history-transaction-list .transaction-row:last-child { padding-bottom: 4px; }
-.history-transaction-list .empty-state { padding-top: 34px; padding-bottom: 34px; }
+.inline-lock svg { width: 13px; height: 13px; }
+
+/* Allowance history is deliberately contextual to Settings rather than a full-screen Activity clone. */
+.allowance-history-dialog { width: min(520px, calc(100vw - 28px)); max-height: min(620px, calc(100dvh - 42px)); }
+.allowance-history-dialog .dialog-panel { max-height: inherit; }
+.allowance-history-summary { padding-bottom: 6px; }
 
 @media (max-width: 560px) {
-  .savings-history-button {
-    width: 36px;
-    min-width: 36px;
-    min-height: 36px;
-    padding: 0;
+  .goal-card-actions { gap: 6px; }
+  .goal-history-button { min-height: 31px; padding: 0 8px; font-size: 9.5px; }
+  .goal-history-button svg { width: 13px; height: 13px; }
+
+  .app-dialog.goal-history-dialog,
+  .app-dialog.allowance-history-dialog {
+    width: calc(100vw - 20px);
+    max-width: none;
+    height: auto;
+    max-height: min(76dvh, 650px);
+    margin: auto;
+    border-radius: 22px;
   }
-  .savings-history-button span { display: none; }
-  .history-dialog-summary { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .app-dialog.goal-history-dialog[open],
+  .app-dialog.allowance-history-dialog[open] { height: auto; }
+  .goal-history-dialog .dialog-panel,
+  .allowance-history-dialog .dialog-panel {
+    height: auto;
+    max-height: inherit;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    overflow: hidden;
+  }
+  .goal-history-dialog .dialog-header,
+  .allowance-history-dialog .dialog-header { padding: 16px 16px 11px; }
+  .goal-history-dialog .dialog-body,
+  .allowance-history-dialog .dialog-body { padding: 10px 16px 16px; }
+  .history-dialog-summary { align-items: flex-start; flex-direction: column; gap: 2px; }
   .history-dialog-summary span { text-align: left; }
+
+  .goal-history-row,
+  .allowance-history-row { grid-template-columns: 38px minmax(0, 1fr) auto; min-height: 68px; gap: 9px; padding: 9px 0; }
+  .goal-history-row > .round-icon,
+  .allowance-history-row > .round-icon { width: 36px; height: 36px; border-radius: 11px; }
+  .goal-history-copy > strong,
+  .allowance-history-copy > strong { font-size: 12.5px; }
+  .goal-history-copy > small,
+  .allowance-history-copy > small { font-size: 9.5px; }
+  .goal-history-amount > strong,
+  .allowance-history-amount > strong { font-size: 12.5px; }
+  .allowance-history-actions { margin-top: 6px; }
+}
+
+@media (max-width: 390px) {
+  .allowance-inline-lock span { display: none; }
 }

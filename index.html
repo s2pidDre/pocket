@@ -208,7 +208,6 @@
           <div class="savings-goals-heading">
             <div><p class="eyebrow">Goals</p><h2>Your savings goals</h2></div>
             <div class="savings-goal-heading-actions">
-              <button class="button-secondary savings-history-button" type="button" data-action="open-savings-history"><svg><use href="#i-activity"/></svg><span>History</span></button>
               <button class="button-secondary manage-goals-button" id="manageGoalsButton" type="button" data-action="toggle-manage-goals">Manage goals</button>
               <button class="button-primary" type="button" data-action="open-goal"><svg><use href="#i-plus"/></svg><span>New goal</span></button>
             </div>
@@ -303,28 +302,28 @@
     </nav>
   </div>
 
-  <dialog id="savingsHistoryDialog" class="app-dialog history-dialog">
+  <dialog id="goalHistoryDialog" class="app-dialog history-dialog goal-history-dialog">
     <div class="dialog-panel">
       <div class="dialog-header">
-        <div><p class="eyebrow">Savings</p><h2>Savings history</h2><p class="dialog-subtitle" id="savingsHistorySubtitle">Contributions and returns across your goals.</p></div>
+        <div><p class="eyebrow">Goal history</p><h2 id="goalHistoryTitle">Savings goal</h2><p class="dialog-subtitle" id="goalHistorySubtitle">Savings activity for this goal.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body history-dialog-body">
-        <div class="history-dialog-summary"><strong id="savingsHistoryCount">0 entries</strong><span>Goal savings activity stays here, separate from Activity.</span></div>
-        <div class="transaction-list full history-transaction-list" id="savingsHistoryList"></div>
+        <div class="history-dialog-summary"><strong id="goalHistoryCount">0 entries</strong><span>Only activity for this goal is shown.</span></div>
+        <div class="goal-history-list" id="goalHistoryList"></div>
       </div>
     </div>
   </dialog>
 
-  <dialog id="allowanceHistoryDialog" class="app-dialog history-dialog">
+  <dialog id="allowanceHistoryDialog" class="app-dialog history-dialog allowance-history-dialog">
     <div class="dialog-panel">
       <div class="dialog-header">
-        <div><p class="eyebrow">Income</p><h2>Allowance history</h2><p class="dialog-subtitle">Your recorded allowance entries are kept with Allowance settings.</p></div>
+        <div><p class="eyebrow">Income</p><h2>Allowance history</h2><p class="dialog-subtitle">Recorded from Allowance settings.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body history-dialog-body">
-        <div class="history-dialog-summary"><strong id="allowanceHistoryCount">0 entries</strong><span>Edit or undo recent entries while they are still editable.</span></div>
-        <div class="transaction-list full history-transaction-list" id="allowanceHistoryList"></div>
+        <div class="history-dialog-summary allowance-history-summary"><strong id="allowanceHistoryCount">0 entries</strong><span>Recent entries can still be edited or undone.</span></div>
+        <div class="allowance-history-list" id="allowanceHistoryList"></div>
       </div>
     </div>
   </dialog>

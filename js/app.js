@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.5.3';
+  const APP_VERSION = '2.5.4';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -58,6 +58,7 @@
   let lastReceiptTransactionId = '';
   let activeWalletPickerTarget = '';
   let currentGoalEditId = null;
+  let currentGoalHistoryId = '';
 
   function localDateKey(date = new Date()) {
     const year = date.getFullYear();
@@ -863,6 +864,7 @@
             <div class="goal-card-head">
               <div><p class="eyebrow">Savings goal</p><h3>${escapeHtml(goal.name)}</h3><p class="goal-amount money-value">${escapeHtml(amountCopy)}</p></div>
               <div class="goal-card-actions">
+                <button class="goal-history-button" type="button" data-action="open-goal-history" data-goal-id="${escapeHtml(goal.id)}" aria-label="View history for ${escapeHtml(goal.name)}">${icon('i-activity')}<span>History</span></button>
                 <span class="round-icon green-soft">${icon('i-target')}</span>
               </div>
             </div>
@@ -881,16 +883,79 @@
       }).join('');
     }
     renderSavingsGoalOverview(visibleGoals, selectedAccount, isWalletMode);
-    renderSavingsHistory();
+    if (currentGoalHistoryId && els.goalHistoryDialog?.open) renderGoalHistory();
   }
 
-  function savingsHistoryTransactions() {
-    const selectedAccount = state.accounts[savingsWalletIndex] || state.accounts[0] || null;
-    const isWalletMode = savingsMode === 'wallet' && selectedAccount;
-    return [...state.transactions]
-      .filter((tx) => tx.type === 'saving' || tx.type === 'saving_return')
-      .filter((tx) => !isWalletMode || tx.accountId === selectedAccount.id)
-      .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
+  function goalHistoryEntries(goalId) {
+    const transactions = state.transactions
+      .filter((tx) => (tx.type === 'saving' || tx.type === 'saving_return') && tx.goalId === goalId)
+      .map((tx) => ({ kind: 'transaction', createdAt: tx.createdAt || `${tx.date || ''}T12:00:00`, tx }));
+    const transfers = state.goalTransfers
+      .filter((item) => item.fromGoalId === goalId || item.toGoalId === goalId)
+      .map((item) => ({ kind: 'goal_transfer', createdAt: item.createdAt || '', transfer: item }));
+    return [...transactions, ...transfers].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  }
+
+  function goalTransferHistoryRow(entry, goal) {
+    const transfer = entry.transfer;
+    const incoming = transfer.toGoalId === goal.id;
+    const otherGoalId = incoming ? transfer.fromGoalId : transfer.toGoalId;
+    const otherGoal = state.goals.find((item) => item.id === otherGoalId);
+    const otherName = otherGoal?.name || 'another goal';
+    const parsed = Date.parse(transfer.createdAt || '');
+    const timing = Number.isFinite(parsed)
+      ? `${DATE_LABEL.format(new Date(parsed))} · ${TIME_LABEL.format(new Date(parsed))}`
+      : '';
+    const amount = `${incoming ? '+' : '−'}${currency(transfer.amount, true)}`;
+    return `
+      <div class="goal-history-row goal-transfer-history-row">
+        <span class="round-icon accent-soft">${icon('i-transfer')}</span>
+        <div class="goal-history-copy">
+          <strong>${incoming ? 'Transferred in' : 'Transferred out'}</strong>
+          <small>${escapeHtml(incoming ? `From ${otherName}` : `To ${otherName}`)}${timing ? ` · ${escapeHtml(timing)}` : ''}</small>
+        </div>
+        <div class="goal-history-amount"><strong class="money-value">${amount}</strong><span class="inline-lock" aria-label="Transfer record">${icon('i-lock')}</span></div>
+      </div>`;
+  }
+
+  function goalTransactionHistoryRow(entry, goal) {
+    const tx = entry.tx;
+    const isReturn = tx.type === 'saving_return';
+    const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Wallet';
+    const time = transactionTimeLabel(tx);
+    const date = tx.date ? DATE_LABEL.format(fromDateKey(tx.date)) : '';
+    const timing = [account, date, time].filter(Boolean).join(' · ');
+    const amount = `${isReturn ? '−' : '+'}${currency(tx.amount, true)}`;
+    const canUndo = !isReturn && canModifyTransaction(tx) && !state.goalTransfers.some((item) => item.fromGoalId === goal.id || item.toGoalId === goal.id);
+    const status = canUndo
+      ? `<button class="compact-history-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')}<span>Undo</span></button>`
+      : `<span class="inline-lock" aria-label="Locked">${icon('i-lock')}</span>`;
+    return `
+      <div class="goal-history-row ${escapeHtml(tx.type)}">
+        <span class="round-icon ${isReturn ? 'green-soft' : 'purple-soft'}">${icon('i-savings')}</span>
+        <div class="goal-history-copy">
+          <strong>${isReturn ? 'Savings returned' : 'Savings added'}</strong>
+          <small>${escapeHtml(timing)}</small>
+        </div>
+        <div class="goal-history-amount"><strong class="money-value">${amount}</strong>${status}</div>
+      </div>`;
+  }
+
+  function renderGoalHistory() {
+    if (!els.goalHistoryList) return;
+    const goal = state.goals.find((item) => item.id === currentGoalHistoryId);
+    if (!goal) {
+      if (els.goalHistoryDialog?.open) closeDialog(els.goalHistoryDialog);
+      currentGoalHistoryId = '';
+      return;
+    }
+    const entries = goalHistoryEntries(goal.id);
+    els.goalHistoryTitle.textContent = goal.name;
+    els.goalHistorySubtitle.textContent = 'Savings added, returned, or moved for this goal.';
+    els.goalHistoryCount.textContent = `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
+    els.goalHistoryList.innerHTML = entries.length
+      ? entries.map((entry) => entry.kind === 'goal_transfer' ? goalTransferHistoryRow(entry, goal) : goalTransactionHistoryRow(entry, goal)).join('')
+      : `<div class="empty-state"><span class="round-icon purple-soft">${icon('i-savings')}</span><strong>No history yet</strong><span>Savings activity for this goal will appear here.</span></div>`;
   }
 
   function allowanceHistoryTransactions() {
@@ -899,35 +964,33 @@
       .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
   }
 
-  function renderSavingsHistory() {
-    if (!els.savingsHistoryList) return;
-    const selectedAccount = state.accounts[savingsWalletIndex] || state.accounts[0] || null;
-    const isWalletMode = savingsMode === 'wallet' && selectedAccount;
-    const history = savingsHistoryTransactions();
-    els.savingsHistorySubtitle.textContent = isWalletMode
-      ? `Contributions and returns from ${selectedAccount.name}.`
-      : 'Contributions and returns across all savings goals.';
-    els.savingsHistoryCount.textContent = `${history.length} entr${history.length === 1 ? 'y' : 'ies'}`;
-    els.savingsHistoryList.innerHTML = renderTransactionRows(history, true, {
-      includeDate: true,
-      emptyTitle: 'No savings history yet',
-      emptyCopy: 'Savings contributions and returns will appear here.',
-      emptyIcon: 'i-savings',
-      emptyTone: 'purple-soft'
-    });
+  function renderAllowanceHistoryRows(history) {
+    if (!history.length) {
+      return `<div class="empty-state"><span class="round-icon green-soft">${icon('i-arrow-down')}</span><strong>No allowance history yet</strong><span>Recorded allowance entries will appear here.</span></div>`;
+    }
+    return history.map((tx) => {
+      const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Wallet';
+      const date = tx.date ? DATE_LABEL.format(fromDateKey(tx.date)) : '';
+      const time = transactionTimeLabel(tx);
+      const timing = [account, date, time].filter(Boolean).join(' · ');
+      const modifiable = canModifyTransaction(tx);
+      const actions = modifiable
+        ? `<div class="allowance-history-actions">${canEditTransaction(tx) ? `<button class="compact-history-action" type="button" data-action="edit-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')}<span>Edit</span></button>` : ''}<button class="compact-history-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')}<span>Undo</span></button></div>`
+        : `<span class="inline-lock allowance-inline-lock" aria-label="Locked">${icon('i-lock')}<span>Locked</span></span>`;
+      return `
+        <div class="allowance-history-row">
+          <span class="round-icon green-soft">${icon('i-arrow-down')}</span>
+          <div class="allowance-history-copy"><strong>Allowance received</strong><small>${escapeHtml(timing)}</small>${modifiable ? actions : ''}</div>
+          <div class="allowance-history-amount"><strong class="money-value">+${currency(tx.amount, true)}</strong>${modifiable ? '' : actions}</div>
+        </div>`;
+    }).join('');
   }
 
   function renderAllowanceHistory() {
     if (!els.allowanceHistoryList) return;
     const history = allowanceHistoryTransactions();
     els.allowanceHistoryCount.textContent = `${history.length} entr${history.length === 1 ? 'y' : 'ies'}`;
-    els.allowanceHistoryList.innerHTML = renderTransactionRows(history, true, {
-      includeDate: true,
-      emptyTitle: 'No allowance history yet',
-      emptyCopy: 'Recorded allowance entries will appear here.',
-      emptyIcon: 'i-arrow-down',
-      emptyTone: 'green-soft'
-    });
+    els.allowanceHistoryList.innerHTML = renderAllowanceHistoryRows(history);
     if (els.allowanceHistorySummary) {
       const latest = history[0];
       const latestDate = latest?.date ? DATE_LABEL.format(fromDateKey(latest.date)) : '';
@@ -937,10 +1000,13 @@
     }
   }
 
-  function openSavingsHistory() {
-    renderSavingsHistory();
-    openDialog(els.savingsHistoryDialog);
-    requestAnimationFrame(() => els.savingsHistoryDialog.focus());
+  function openGoalHistory(goalId) {
+    const goal = state.goals.find((item) => item.id === goalId && !item.removedAt);
+    if (!goal) return;
+    currentGoalHistoryId = goal.id;
+    renderGoalHistory();
+    openDialog(els.goalHistoryDialog);
+    requestAnimationFrame(() => els.goalHistoryDialog.focus());
   }
 
   function openAllowanceHistory() {
@@ -2104,7 +2170,7 @@
     }
     if (action === 'open-allowance') openDifferentAllowance();
     if (action === 'open-allowance-history') openAllowanceHistory();
-    if (action === 'open-savings-history') openSavingsHistory();
+    if (action === 'open-goal-history') openGoalHistory(button.dataset.goalId);
     if (action === 'apply-update') applyAvailableUpdate();
     if (action === 'dismiss-update') hideUpdateAvailable();
     if (action === 'check-update') checkForUpdates({ announce: true, force: true });
@@ -2138,7 +2204,7 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsGoalOverview', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'savingsHistoryDialog', 'savingsHistorySubtitle', 'savingsHistoryCount', 'savingsHistoryList', 'themeIcon', 'themeSwitch', 'themeSettingButton',
+      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsGoalOverview', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList', 'themeIcon', 'themeSwitch', 'themeSettingButton',
       'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
