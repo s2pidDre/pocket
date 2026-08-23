@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.8.0';
+  const APP_VERSION = '2.8.1';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const LIGHT_THEME_PASSWORD = '0322';
   const LIGHT_THEME_SESSION_KEY = 'pocket-light-theme-unlocked';
@@ -103,11 +103,50 @@
     'Save gently, spend mindfully.',
     'One peso at a time—you’ve got this ♡'
   ];
+  const COMPANION_HEART_COMPLIMENTS = [
+    'There’s something beautiful about the way you keep showing up for yourself ♡',
+    'You deserve credit for the quiet effort nobody else gets to see ♡',
+    'The care you give your future self is a kind of love.',
+    'You don’t need a perfect day to be someone worth being proud of ♡',
+    'Your discipline is growing quietly, and it looks lovely on you ✨',
+    'You’re allowed to feel proud of how far you’ve come, even if you’re still growing.',
+    'You have a gentle kind of strength—the kind that keeps trying ♡',
+    'The fact that you keep coming back says something wonderful about you.',
+    'You’re doing more than managing money—you’re building trust with yourself ♡',
+    'I hope you give yourself the same kindness you give your goals.',
+    'Your progress may look small today, but your effort is never small ♡',
+    'You’re becoming more thoughtful with every little choice, and that matters.',
+    'Even on imperfect days, there is still so much about you to be proud of ♡',
+    'You’re worth cheering for, not only when you succeed, but while you’re trying too.',
+    'The way you keep choosing your future is genuinely something special ♡'
+  ];
   const COMPANION_VIEW_LINES = {
     home: ['Ready for a fresh little money day? ♡', 'Your pocket, your pace ✨', 'I’ll watch the numbers with you ♡'],
     activity: ['Little check-ins make habits easier ♡', 'Look at you keeping track ✨', 'Knowing where it went is already progress ♡'],
     savings: ['Tiny savings can grow into big dreams ♡', 'Your future self is cheering too ✨', 'This goal is growing with you ♡'],
     more: ['Everything is tucked neatly here ♡', 'A quick check, then back to your day ✨', 'Little routines can make money feel lighter ♡']
+  };
+  const COMPANION_VIEW_COMPLIMENTS = {
+    home: [
+      'Taking a moment to check in with yourself like this is a quiet form of self-care ♡',
+      'I like how you keep making space for the future you want.',
+      'You make these little check-ins mean something bigger than numbers ♡'
+    ],
+    activity: [
+      'Facing the numbers instead of avoiding them takes more courage than people realize ♡',
+      'You’re being honest with yourself, and that is such a strong habit to build.',
+      'Keeping track—even after an imperfect day—is something to be proud of ♡'
+    ],
+    savings: [
+      'The way you keep choosing your future is genuinely beautiful ♡',
+      'Every little amount you save says, “my future matters too.”',
+      'You’re turning patience into something real. That’s pretty amazing ♡'
+    ],
+    more: [
+      'Taking time to organize things is a quiet kind of self-respect ♡',
+      'You’re creating a little more calm for yourself, one setting at a time.',
+      'I hope you notice how much care you put into making things work for you ♡'
+    ]
   };
 
   function isLightThemeUnlocked() {
@@ -1647,6 +1686,14 @@
     return '';
   }
 
+  function companionPickHeartCompliment() {
+    const viewPool = COMPANION_VIEW_COMPLIMENTS[currentView] || [];
+    const pool = viewPool.length && Math.random() < .48
+      ? [...viewPool, ...COMPANION_HEART_COMPLIMENTS]
+      : COMPANION_HEART_COMPLIMENTS;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
   function companionPickAffirmation() {
     const memoryLine = companionMemoryLine();
     if (memoryLine && Math.random() < .58) return memoryLine;
@@ -1656,6 +1703,14 @@
     const viewPool = COMPANION_VIEW_LINES[currentView] || [];
     const pool = Math.random() < .42 && viewPool.length ? viewPool : COMPANION_AFFIRMATIONS;
     return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function companionPickScheduledMessage() {
+    const heartfelt = Math.random() < .36;
+    return {
+      heartfelt,
+      text: heartfelt ? companionPickHeartCompliment() : companionPickAffirmation()
+    };
   }
 
   function scheduleCompanionAction(delay = 7000 + Math.random() * 7500) {
@@ -1707,11 +1762,13 @@
       if (!companionIsAvailable()) return;
       if (!document.querySelector('dialog[open]') && Date.now() - companionLastMessageAt > 17000) {
         companionQueueAction('affirmation', async () => {
+          const message = companionPickScheduledMessage();
           companionSetPhase('react');
-          companionSetMood('gentle');
-          companionSetProp(Math.random() < .26 ? 'flower' : '');
-          companionSay(companionPickAffirmation(), 5200);
-          await companionPose(Math.random() < .58 ? 'waving' : 'listening', 1550);
+          companionSetMood(message.heartfelt ? (Math.random() < .48 ? 'proud' : 'gentle') : 'gentle');
+          companionSetProp(message.heartfelt ? 'flower' : (Math.random() < .26 ? 'flower' : ''));
+          if (message.heartfelt && els.pocketCompanion) companionEmitEffect(els.pocketCompanion, 'heart', 5, false);
+          companionSay(message.text, message.heartfelt ? 6800 : 5200);
+          await companionPose(message.heartfelt ? (Math.random() < .5 ? 'listening' : 'waving') : (Math.random() < .58 ? 'waving' : 'listening'), message.heartfelt ? 1900 : 1550);
           companionSetProp('');
           return true;
         }, { spontaneous: true });
@@ -3460,7 +3517,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.8.0');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.8.1');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
