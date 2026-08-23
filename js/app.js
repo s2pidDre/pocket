@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.6.0';
+  const APP_VERSION = '2.6.1';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const LIGHT_THEME_PASSWORD = '0322';
   const LIGHT_THEME_SESSION_KEY = 'pocket-light-theme-unlocked';
@@ -1057,12 +1057,12 @@
 
   function renderSettings() {
     const lightMode = state.settings.theme === 'light';
-    els.themeLabel.textContent = lightMode ? 'Unlocked · pink pixel theme' : 'Locked · password required';
-    els.themeIcon.innerHTML = `<use href="#${lightMode ? 'i-sparkle' : 'i-lock'}"></use>`;
+    els.themeLabel.textContent = lightMode ? 'On' : 'Off';
+    els.themeIcon.innerHTML = '<use href="#i-sun"></use>';
     els.themeSwitch.classList.toggle('is-on', lightMode);
     els.themeSettingButton.classList.toggle('is-locked', !lightMode);
     els.themeSettingButton.setAttribute('aria-checked', lightMode ? 'true' : 'false');
-    els.themeSettingButton.setAttribute('aria-label', lightMode ? 'Turn off pink light mode' : 'Unlock pink light mode');
+    els.themeSettingButton.setAttribute('aria-label', lightMode ? 'Turn off light mode' : 'Turn on light mode');
     els.privacyLabel.textContent = state.settings.privacy ? 'On · amounts hidden' : 'Off · amounts visible';
     els.privacySwitch.classList.toggle('is-on', state.settings.privacy);
     els.privacySettingButton.setAttribute('aria-checked', state.settings.privacy ? 'true' : 'false');
@@ -1098,7 +1098,7 @@
 
   function renderAll() {
     document.documentElement.dataset.theme = state.settings.theme;
-    if (els.themeColorMeta) els.themeColorMeta.setAttribute('content', state.settings.theme === 'light' ? '#f48fbc' : '#0d0e10');
+    if (els.themeColorMeta) els.themeColorMeta.setAttribute('content', state.settings.theme === 'light' ? '#f1b5cc' : '#0d0e10');
     renderHeader();
     renderPrivacy();
     renderHome();
@@ -1356,7 +1356,7 @@
 
   function unlockLightTheme() {
     if (els.themePassword.value !== LIGHT_THEME_PASSWORD) {
-      els.themePasswordError.textContent = 'Wrong password. Dark mode stays active.';
+      els.themePasswordError.textContent = 'Incorrect password.';
       els.themePassword.classList.add('is-invalid');
       els.themePassword.setAttribute('aria-invalid', 'true');
       els.themePassword.select();
@@ -1367,7 +1367,7 @@
     saveState();
     closeDialog(els.themeUnlockDialog);
     renderAll();
-    showToast('Pink pixel mode unlocked.');
+    showToast('Light mode enabled.');
   }
 
   function openExpense(prefill = {}) {
@@ -2240,7 +2240,7 @@
         setLightThemeUnlocked(false);
         saveState();
         renderAll();
-        showToast('Dark mode restored.');
+        showToast('Dark mode enabled.');
       } else {
         openThemeUnlock();
       }
@@ -2577,7 +2577,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.6.0');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.6.1');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

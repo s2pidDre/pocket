@@ -2974,82 +2974,107 @@ dialog[open] .wallet-picker-panel {
 }
 
 
-/* v2.6.0: password-gated cute pink pixel light mode. Dark mode remains the default. */
+/* v2.6.1: discreet password-gated light mode with a softer pink pixel aesthetic. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #fff4f9;
-  --surface: #fffafd;
-  --surface-2: #fff0f6;
-  --surface-3: #f9dfea;
-  --text: #4b2940;
-  --text-2: #7a5369;
-  --text-3: #a47b91;
-  --line: #f3c9dc;
-  --line-strong: #e9a9c7;
-  --primary: #ec6fa8;
-  --primary-strong: #d95393;
-  --primary-soft: #ffe0ee;
-  --green: #3f9f80;
-  --green-soft: #def6eb;
-  --red: #d95f78;
-  --red-soft: #ffe3e9;
-  --amber: #b97a43;
-  --amber-soft: #fff0d9;
-  --purple-soft: #f1e2ff;
-  --shadow: 4px 4px 0 rgba(208, 100, 151, .16);
-  --pixel-shadow: #eab3cd;
-  --pixel-deep: #b94e82;
-  --pixel-cream: #fff7fb;
+  --bg: #fff7fa;
+  --surface: #fffdfd;
+  --surface-2: #fff2f7;
+  --surface-3: #fae7ef;
+  --text: #493641;
+  --text-2: #765b68;
+  --text-3: #9d7d8c;
+  --line: #f1d7e1;
+  --line-strong: #e6bfd0;
+  --primary: #da729f;
+  --primary-strong: #c65c8b;
+  --primary-soft: #fbe3ed;
+  --green: #4f967b;
+  --green-soft: #e4f4ed;
+  --red: #c86379;
+  --red-soft: #fde8ed;
+  --amber: #ad7951;
+  --amber-soft: #fff1e3;
+  --purple-soft: #f1e9fb;
+  --shadow: 0 1px 2px rgba(91, 55, 72, .04), 0 10px 28px rgba(151, 92, 120, .07);
+  --pixel-shadow: #efc8d8;
+  --pixel-deep: #b95682;
+  --pixel-cream: #fff9fb;
+  --cat-food: #cf9557;
+  --cat-transport: #78a3c1;
+  --cat-school: #9985c2;
+  --cat-load: #69a9b0;
+  --cat-personal: #cf778d;
+  --cat-other: #948a91;
 }
 
 :root[data-theme="light"] body {
+  font-family: ui-rounded, "SF Pro Rounded", "Nunito Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: -.005em;
   background-color: var(--bg);
   background-image:
-    linear-gradient(rgba(236, 111, 168, .045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(236, 111, 168, .045) 1px, transparent 1px),
-    radial-gradient(circle at 12% 10%, rgba(255, 187, 218, .28), transparent 24%),
-    radial-gradient(circle at 88% 88%, rgba(229, 194, 255, .22), transparent 24%);
-  background-size: 12px 12px, 12px 12px, auto, auto;
+    linear-gradient(rgba(218, 114, 159, .026) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(218, 114, 159, .026) 1px, transparent 1px),
+    radial-gradient(circle at 12% 8%, rgba(249, 201, 220, .32), transparent 26%),
+    radial-gradient(circle at 90% 88%, rgba(221, 207, 244, .24), transparent 24%);
+  background-size: 14px 14px, 14px 14px, auto, auto;
 }
 
 :root[data-theme="light"] .sidebar,
 :root[data-theme="light"] .topbar,
 :root[data-theme="light"] .bottom-nav {
-  background: color-mix(in srgb, #fff9fc 94%, transparent);
-  border-color: var(--line-strong);
+  background: color-mix(in srgb, #fffdfd 94%, transparent);
+  border-color: var(--line);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 :root[data-theme="light"] .topbar {
-  box-shadow: 0 3px 0 rgba(236, 111, 168, .08);
+  box-shadow: 0 2px 0 rgba(218, 114, 159, .045);
 }
 
 :root[data-theme="light"] .brand-mark {
-  border-radius: 7px;
-  background: #f27eb3;
-  border: 2px solid #b94e82;
-  box-shadow: 3px 3px 0 #f7bfd8;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #e989b2, #d96f9e);
+  border: 1px solid #bd5e88;
+  box-shadow: 2px 2px 0 #f1c4d6;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-weight: 800;
 }
 
-:root[data-theme="light"] .brand-copy strong,
 :root[data-theme="light"] h1,
 :root[data-theme="light"] h2,
 :root[data-theme="light"] h3,
-:root[data-theme="light"] .eyebrow,
+:root[data-theme="light"] .brand-copy strong,
 :root[data-theme="light"] .button-primary,
 :root[data-theme="light"] .button-secondary,
 :root[data-theme="light"] .button-danger,
 :root[data-theme="light"] .text-button,
 :root[data-theme="light"] .nav-item,
 :root[data-theme="light"] .bottom-nav-item,
-:root[data-theme="light"] .status-pill,
-:root[data-theme="light"] .switch {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+:root[data-theme="light"] .status-pill {
+  font-family: ui-rounded, "SF Pro Rounded", "Nunito Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
+
+:root[data-theme="light"] h1,
+:root[data-theme="light"] h2,
+:root[data-theme="light"] h3 {
+  letter-spacing: -.025em;
 }
 
 :root[data-theme="light"] .eyebrow {
-  color: #c25589;
-  letter-spacing: .12em;
+  color: #b85f87;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-weight: 750;
+  letter-spacing: .105em;
+}
+
+:root[data-theme="light"] .money-value,
+:root[data-theme="light"] .wallet-mode-balance,
+:root[data-theme="light"] .stat-value,
+:root[data-theme="light"] .metric-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
 }
 
 :root[data-theme="light"] .card,
@@ -3057,33 +3082,33 @@ dialog[open] .wallet-picker-panel {
 :root[data-theme="light"] .savings-dashboard,
 :root[data-theme="light"] .savings-goal-overview,
 :root[data-theme="light"] .daily-prompt {
-  border: 2px solid var(--line-strong);
-  border-radius: 10px;
-  box-shadow: 4px 4px 0 rgba(208, 100, 151, .16);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  box-shadow: 3px 3px 0 rgba(191, 102, 143, .11), var(--shadow);
 }
 
 :root[data-theme="light"] .wallet-mode-card {
   background:
-    linear-gradient(135deg, rgba(255,255,255,.74), transparent 45%),
-    linear-gradient(135deg, #fffafd, #ffedf5);
+    linear-gradient(135deg, rgba(255,255,255,.82), transparent 46%),
+    linear-gradient(135deg, #fffdfd, #fff0f6);
   overflow: hidden;
 }
 
 :root[data-theme="light"] .wallet-mode-card::before {
   background:
-    linear-gradient(90deg, rgba(236,111,168,.08) 1px, transparent 1px),
-    linear-gradient(rgba(236,111,168,.08) 1px, transparent 1px);
-  background-size: 10px 10px;
-  opacity: .55;
+    linear-gradient(90deg, rgba(218,114,159,.052) 1px, transparent 1px),
+    linear-gradient(rgba(218,114,159,.052) 1px, transparent 1px);
+  background-size: 12px 12px;
+  opacity: .58;
 }
 
 :root[data-theme="light"] .wallet-mode-card-glow {
   border-radius: 0;
-  width: 150px;
-  height: 150px;
-  right: -30px;
-  top: -38px;
-  background: repeating-linear-gradient(45deg, rgba(236,111,168,.12) 0 10px, rgba(255,255,255,.1) 10px 20px);
+  width: 154px;
+  height: 154px;
+  right: -34px;
+  top: -40px;
+  background: repeating-linear-gradient(45deg, rgba(218,114,159,.075) 0 9px, rgba(255,255,255,.08) 9px 18px);
   transform: translateX(var(--wallet-glow-shift)) rotate(8deg);
 }
 
@@ -3091,82 +3116,79 @@ dialog[open] .wallet-picker-panel {
 :root[data-theme="light"] .round-icon,
 :root[data-theme="light"] .icon-button,
 :root[data-theme="light"] .bottom-add {
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--line));
-  box-shadow: 2px 2px 0 rgba(208, 100, 151, .16);
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line));
+  box-shadow: 2px 2px 0 rgba(191, 102, 143, .10);
 }
 
 :root[data-theme="light"] .button-primary,
 :root[data-theme="light"] .button-secondary,
 :root[data-theme="light"] .button-danger {
-  border-radius: 7px;
-  border: 2px solid var(--pixel-deep);
-  box-shadow: 3px 3px 0 var(--pixel-shadow);
-  transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--pixel-deep) 72%, var(--line));
+  box-shadow: 2px 2px 0 var(--pixel-shadow);
+  font-weight: 720;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
 }
 
 :root[data-theme="light"] .button-primary {
-  background: #f17eb3;
+  background: #dc76a2;
   color: #fff;
 }
-:root[data-theme="light"] .button-primary:hover { background: #e765a1; }
+:root[data-theme="light"] .button-primary:hover { background: #cf678f; }
 :root[data-theme="light"] .button-secondary {
-  background: #fff4f9;
+  background: #fff8fb;
   color: var(--text);
-  border-color: #d987ad;
+  border-color: #dca4bc;
 }
 :root[data-theme="light"] .button-primary:active,
 :root[data-theme="light"] .button-secondary:active,
 :root[data-theme="light"] .button-danger:active {
-  transform: translate(2px, 2px);
+  transform: translate(1px, 1px);
   box-shadow: 1px 1px 0 var(--pixel-shadow);
 }
 
-:root[data-theme="light"] .nav-item { border-radius: 7px; }
+:root[data-theme="light"] .nav-item { border-radius: 10px; }
 :root[data-theme="light"] .nav-item.is-active {
-  color: #b94e82;
-  background: #ffe0ee;
-  box-shadow: inset 0 0 0 2px #efb6d0;
+  color: #b55580;
+  background: #fbe4ee;
+  box-shadow: inset 0 0 0 1px #edbed1;
 }
-:root[data-theme="light"] .bottom-nav-item.is-active { color: #c85188; }
+:root[data-theme="light"] .bottom-nav-item.is-active { color: #bd5c87; }
 
 :root[data-theme="light"] .bottom-add {
-  background: #f17eb3;
-  border: 2px solid #b94e82;
-  box-shadow: 3px 3px 0 #f4b7d2;
+  background: linear-gradient(145deg, #e586af, #d96f9e);
+  border: 1px solid #bd5e88;
+  box-shadow: 2px 2px 0 #efbfd2;
 }
 
 :root[data-theme="light"] .setting-row {
-  border-radius: 8px;
+  border-radius: 11px;
 }
 :root[data-theme="light"] .setting-row:hover {
-  background: #fff0f6;
+  background: #fff3f7;
 }
-:root[data-theme="light"] .theme-lock-row.is-locked .round-icon {
-  background: #f3e5ec;
-  color: #9c7087;
-  border-style: dashed;
-}
-:root[data-theme="light"] .theme-lock-row:not(.is-locked) .round-icon {
-  background: #ffdbea;
-  color: #d04e8c;
+:root[data-theme="light"] .theme-lock-row .round-icon {
+  background: #fbe7ef;
+  color: #bd5c87;
+  border-style: solid;
 }
 
 :root[data-theme="light"] .switch {
-  border-radius: 6px;
-  border: 2px solid #d598b4;
-  background: #f7e4ed;
-  box-shadow: inset 2px 2px 0 rgba(255,255,255,.75);
+  border-radius: 8px;
+  border: 1px solid #d9a6bb;
+  background: #f7e8ee;
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.85);
 }
 :root[data-theme="light"] .switch::after {
-  border-radius: 3px;
-  background: #fffafd;
-  border: 1px solid #d598b4;
-  box-shadow: 1px 1px 0 #e5acc6;
+  border-radius: 6px;
+  background: #fffdfd;
+  border: 1px solid #d9a6bb;
+  box-shadow: 1px 1px 0 #e8bfd0;
 }
 :root[data-theme="light"] .switch.is-on {
-  background: #f17eb3;
-  border-color: #b94e82;
+  background: #dc76a2;
+  border-color: #bd5e88;
 }
 
 :root[data-theme="light"] .text-input,
@@ -3174,72 +3196,73 @@ dialog[open] .wallet-picker-panel {
 :root[data-theme="light"] .amount-field,
 :root[data-theme="light"] .compact-amount,
 :root[data-theme="light"] .wallet-picker-trigger {
-  border-radius: 7px;
-  border-width: 2px;
-  border-color: #edbdd2;
-  background: #fffafd;
+  border-radius: 10px;
+  border-width: 1px;
+  border-color: #eac5d4;
+  background: #fffdfd;
 }
 :root[data-theme="light"] .text-input:focus,
 :root[data-theme="light"] select:focus,
 :root[data-theme="light"] .wallet-picker-trigger:focus-visible {
-  border-color: #e3659f;
-  box-shadow: 0 0 0 3px rgba(236,111,168,.13);
+  border-color: #d8759f;
+  box-shadow: 0 0 0 3px rgba(218,114,159,.11);
 }
 
 :root[data-theme="light"] .app-dialog::backdrop {
-  background: rgba(92, 44, 70, .30);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
+  background: rgba(78, 52, 65, .24);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 :root[data-theme="light"] .dialog-panel {
-  border: 2px solid #e9a9c7;
-  border-radius: 10px;
-  box-shadow: 6px 6px 0 rgba(185,78,130,.22);
+  border: 1px solid #e4b9cb;
+  border-radius: 14px;
+  box-shadow: 4px 4px 0 rgba(185,86,130,.13), 0 22px 55px rgba(92,50,70,.14);
 }
 :root[data-theme="light"] .dialog-header,
-:root[data-theme="light"] .dialog-footer { border-color: #f0bfd5; }
+:root[data-theme="light"] .dialog-footer { border-color: #f0d0dd; }
 
 :root[data-theme="light"] .progress-track,
 :root[data-theme="light"] .metric-track,
 :root[data-theme="light"] .wallet-summary-track {
-  border-radius: 3px;
+  border-radius: 5px;
+  background: #f5e7ed;
 }
 :root[data-theme="light"] .progress-fill,
 :root[data-theme="light"] .metric-fill,
 :root[data-theme="light"] .wallet-summary-fill {
-  border-radius: 2px;
+  border-radius: 4px;
 }
 
 :root[data-theme="light"] .goal-card-metrics > div,
 :root[data-theme="light"] .wallet-day-card,
 :root[data-theme="light"] .wallet-month-card {
-  border-radius: 7px;
-  border-color: #f0c4d8;
-  background: #fff4f9;
+  border-radius: 10px;
+  border-color: #efd0dc;
+  background: #fff7fa;
 }
 
 :root[data-theme="light"] .history-dialog .goal-history-row,
 :root[data-theme="light"] .history-dialog .allowance-history-row,
 :root[data-theme="light"] .transaction-row {
-  border-color: #f1cada;
+  border-color: #efd3de;
 }
 
 :root[data-theme="light"] .toast {
-  border: 2px solid #cf6295;
-  border-radius: 7px;
-  background: #5d3049;
-  box-shadow: 4px 4px 0 rgba(185,78,130,.28);
+  border: 1px solid #c5658f;
+  border-radius: 10px;
+  background: #593746;
+  box-shadow: 3px 3px 0 rgba(185,86,130,.18), 0 12px 30px rgba(73,54,65,.16);
 }
 
-/* Locked theme dialog stays readable in dark mode and becomes part of the pixel theme after unlock. */
+/* The access prompt stays visually neutral until light mode is actually enabled. */
 .theme-unlock-dialog { width: min(430px, calc(100vw - 28px)); }
 .theme-unlock-preview {
-  min-height: 86px;
+  min-height: 82px;
   margin-bottom: 18px;
   padding: 15px 16px;
-  border: 2px solid color-mix(in srgb, var(--primary) 38%, var(--line-strong));
-  border-radius: 10px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-soft) 70%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line-strong));
+  border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-soft) 56%, var(--surface)), var(--surface));
   display: flex;
   align-items: center;
   gap: 7px;
@@ -3247,26 +3270,27 @@ dialog[open] .wallet-picker-panel {
   position: relative;
 }
 .theme-unlock-preview span {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
   background: var(--primary);
-  box-shadow: 5px 0 0 color-mix(in srgb, var(--primary) 65%, #fff);
+  box-shadow: 4px 0 0 color-mix(in srgb, var(--primary) 55%, #fff);
 }
-.theme-unlock-preview span:nth-child(2) { transform: translateY(-8px); }
-.theme-unlock-preview span:nth-child(3) { transform: translateY(8px); }
+.theme-unlock-preview span:nth-child(2) { transform: translateY(-7px); }
+.theme-unlock-preview span:nth-child(3) { transform: translateY(7px); }
 .theme-unlock-preview strong {
   margin-left: auto;
   color: var(--primary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  letter-spacing: .12em;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: .11em;
 }
 .theme-password-input {
   text-align: center;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 24px;
   font-weight: 800;
-  letter-spacing: .35em;
+  letter-spacing: .34em;
 }
 .theme-password-input.is-invalid {
   border-color: var(--red) !important;
@@ -3284,8 +3308,8 @@ dialog[open] .wallet-picker-panel {
     border-bottom-width: 2px;
   }
   :root[data-theme="light"] .bottom-nav {
-    border-top: 2px solid #e9a9c7;
-    box-shadow: 0 -3px 0 rgba(236,111,168,.07);
+    border-top: 1px solid #e6bfd0;
+    box-shadow: 0 -2px 0 rgba(218,114,159,.045);
   }
   :root[data-theme="light"] .top-add { border-radius: 8px; }
 }
@@ -3308,6 +3332,6 @@ dialog[open] .wallet-picker-panel {
   :root[data-theme="light"] .wallet-mode-card,
   :root[data-theme="light"] .savings-dashboard,
   :root[data-theme="light"] .savings-goal-overview {
-    box-shadow: 3px 3px 0 rgba(208,100,151,.15);
+    box-shadow: 2px 2px 0 rgba(191,102,143,.10), var(--shadow);
   }
 }
