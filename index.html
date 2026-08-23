@@ -160,16 +160,13 @@
             <select id="activityType" aria-label="Filter selected day activity">
               <option value="all">All</option>
               <option value="expense">Expenses</option>
-              <option value="income">Allowance</option>
-              <option value="saving">Savings</option>
               <option value="transfer">Transfers</option>
             </select>
           </div>
 
-          <article class="card activity-summary-strip" aria-label="Selected day summary">
+          <article class="card activity-summary-strip activity-summary-strip-two" aria-label="Selected day summary">
             <div class="activity-summary-item"><span class="summary-dot red-soft"><svg><use href="#i-arrow-up"/></svg></span><div><small>Spent</small><strong class="money-value" id="monthSpent">₱0</strong></div></div>
-            <div class="activity-summary-item"><span class="summary-dot green-soft"><svg><use href="#i-arrow-down"/></svg></span><div><small>Received</small><strong class="money-value" id="monthReceived">₱0</strong></div></div>
-            <div class="activity-summary-item"><span class="summary-dot purple-soft"><svg><use href="#i-savings"/></svg></span><div><small>Saved</small><strong class="money-value" id="monthSaved">₱0</strong></div></div>
+            <div class="activity-summary-item"><span class="summary-dot accent-soft"><svg><use href="#i-transfer"/></svg></span><div><small>Transferred</small><strong class="money-value" id="monthTransferred">₱0</strong></div></div>
           </article>
 
           <article class="card section-card activity-card" id="activityDayCard">
@@ -211,6 +208,7 @@
           <div class="savings-goals-heading">
             <div><p class="eyebrow">Goals</p><h2>Your savings goals</h2></div>
             <div class="savings-goal-heading-actions">
+              <button class="button-secondary savings-history-button" type="button" data-action="open-savings-history"><svg><use href="#i-activity"/></svg><span>History</span></button>
               <button class="button-secondary manage-goals-button" id="manageGoalsButton" type="button" data-action="toggle-manage-goals">Manage goals</button>
               <button class="button-primary" type="button" data-action="open-goal"><svg><use href="#i-plus"/></svg><span>New goal</span></button>
             </div>
@@ -240,6 +238,11 @@
               <button class="setting-row" type="button" data-action="open-allowance">
                 <span class="round-icon green-soft"><svg><use href="#i-arrow-down"/></svg></span>
                 <span><strong>Add allowance</strong><small id="allowanceRecordSummary">Enter the amount, date received, and which wallet it went into.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+              <button class="setting-row" type="button" data-action="open-allowance-history">
+                <span class="round-icon neutral-soft"><svg><use href="#i-activity"/></svg></span>
+                <span><strong>Allowance history</strong><small id="allowanceHistorySummary">Review previous allowance entries.</small></span>
                 <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
             </article>
@@ -299,6 +302,32 @@
       <button class="bottom-nav-item" data-view="more"><svg><use href="#i-more"/></svg><span>More</span></button>
     </nav>
   </div>
+
+  <dialog id="savingsHistoryDialog" class="app-dialog history-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Savings</p><h2>Savings history</h2><p class="dialog-subtitle" id="savingsHistorySubtitle">Contributions and returns across your goals.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body history-dialog-body">
+        <div class="history-dialog-summary"><strong id="savingsHistoryCount">0 entries</strong><span>Goal savings activity stays here, separate from Activity.</span></div>
+        <div class="transaction-list full history-transaction-list" id="savingsHistoryList"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="allowanceHistoryDialog" class="app-dialog history-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Income</p><h2>Allowance history</h2><p class="dialog-subtitle">Your recorded allowance entries are kept with Allowance settings.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body history-dialog-body">
+        <div class="history-dialog-summary"><strong id="allowanceHistoryCount">0 entries</strong><span>Edit or undo recent entries while they are still editable.</span></div>
+        <div class="transaction-list full history-transaction-list" id="allowanceHistoryList"></div>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="allowanceDialog" class="app-dialog compact-dialog allowance-dialog">
     <form method="dialog" class="dialog-panel" id="allowanceForm" autocomplete="off">

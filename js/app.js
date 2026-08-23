@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.5.1';
+  const APP_VERSION = '2.5.3';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -453,18 +453,20 @@
     return TIME_LABEL.format(new Date(parsed));
   }
 
-  function transactionSubtitle(tx) {
+  function transactionSubtitle(tx, includeDate = false) {
     const time = transactionTimeLabel(tx);
+    const date = includeDate && tx.date ? DATE_LABEL.format(fromDateKey(tx.date)) : '';
     const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Account';
-    if (tx.type === 'saving') return `Saved from ${account}${time ? ` · ${time}` : ''}`;
-    if (tx.type === 'saving_return') return `Returned to ${account}${time ? ` · ${time}` : ''}`;
+    const withTiming = (base) => [base, date, time].filter(Boolean).join(' · ');
+    if (tx.type === 'saving') return withTiming(`Saved from ${account}`);
+    if (tx.type === 'saving_return') return withTiming(`Returned to ${account}`);
     if (tx.type === 'transfer') {
       const from = state.accounts.find((item) => item.id === tx.fromAccountId)?.name || 'Wallet';
       const to = state.accounts.find((item) => item.id === tx.toAccountId)?.name || 'Wallet';
-      return `${from} → ${to}${time ? ` · ${time}` : ''}`;
+      return withTiming(`${from} → ${to}`);
     }
-    if (tx.type === 'income') return `Allowance · ${account}`;
-    return `${tx.category || 'Other'} · ${account}${time ? ` · ${time}` : ''}`;
+    if (tx.type === 'income') return withTiming(`Allowance · ${account}`);
+    return withTiming(`${tx.category || 'Other'} · ${account}`);
   }
 
   function renderTransactionActions(tx) {
@@ -483,9 +485,10 @@
     return `<div class="transaction-actions"><div class="transaction-actions-row">${actions.join('')}</div></div>`;
   }
 
-  function renderTransactionRows(transactions, full = false) {
+  function renderTransactionRows(transactions, full = false, options = {}) {
+    const { includeDate = false, emptyTitle = 'No transactions found', emptyCopy = 'Your activity will appear here.', emptyIcon = 'i-activity', emptyTone = 'neutral-soft' } = options;
     if (!transactions.length) {
-      return `<div class="empty-state"><span class="round-icon neutral-soft">${icon('i-activity')}</span><strong>No transactions found</strong><span>Your activity will appear here.</span></div>`;
+      return `<div class="empty-state"><span class="round-icon ${escapeHtml(emptyTone)}">${icon(emptyIcon)}</span><strong>${escapeHtml(emptyTitle)}</strong><span>${escapeHtml(emptyCopy)}</span></div>`;
     }
 
     return transactions.map((tx) => {
@@ -501,7 +504,7 @@
           <span class="round-icon ${meta.tone}">${icon(meta.icon)}</span>
           <div class="transaction-copy">
             <strong>${escapeHtml(transactionTitle(tx))}</strong>
-            <small>${escapeHtml(transactionSubtitle(tx))}</small>
+            <small>${escapeHtml(transactionSubtitle(tx, includeDate))}</small>
           </div>
           <div class="transaction-amount">
             <strong class="money-value">${amountLabel}</strong>
@@ -731,8 +734,8 @@
   function filteredActivity() {
     const type = els.activityType.value;
     return [...state.transactions]
-      .filter((tx) => tx.date === activityDate)
-      .filter((tx) => type === 'all' || (type === 'saving' ? (tx.type === 'saving' || tx.type === 'saving_return') : tx.type === type))
+      .filter((tx) => tx.date === activityDate && (tx.type === 'expense' || tx.type === 'transfer'))
+      .filter((tx) => type === 'all' || tx.type === type)
       .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
   }
 
@@ -755,13 +758,15 @@
     els.activityNextDay.disabled = activityDate >= today;
 
     els.monthSpent.textContent = currency(sumTransactions('expense', activityDate, activityDate), true);
-    els.monthReceived.textContent = currency(sumTransactions('income', activityDate, activityDate), true);
-    const savedNet = sumTransactions('saving', activityDate, activityDate) - sumTransactions('saving_return', activityDate, activityDate);
-    els.monthSaved.textContent = currency(savedNet, true);
+    els.monthTransferred.textContent = currency(sumTransactions('transfer', activityDate, activityDate), true);
     const filtered = filteredActivity();
     els.activityCount.textContent = `${filtered.length} entr${filtered.length === 1 ? 'y' : 'ies'}`;
-    els.allTransactions.innerHTML = renderTransactionRows(filtered, true);
-    els.activitySwipeHint.classList.toggle('is-hidden', state.transactions.length === 0);
+    els.allTransactions.innerHTML = renderTransactionRows(filtered, true, {
+      emptyTitle: 'No spending activity',
+      emptyCopy: 'Expenses and wallet transfers for this day will appear here.'
+    });
+    const hasActivity = state.transactions.some((tx) => tx.type === 'expense' || tx.type === 'transfer');
+    els.activitySwipeHint.classList.toggle('is-hidden', !hasActivity);
   }
 
   function renderSavingsGoalOverview(goals, selectedAccount, isWalletMode) {
@@ -876,6 +881,72 @@
       }).join('');
     }
     renderSavingsGoalOverview(visibleGoals, selectedAccount, isWalletMode);
+    renderSavingsHistory();
+  }
+
+  function savingsHistoryTransactions() {
+    const selectedAccount = state.accounts[savingsWalletIndex] || state.accounts[0] || null;
+    const isWalletMode = savingsMode === 'wallet' && selectedAccount;
+    return [...state.transactions]
+      .filter((tx) => tx.type === 'saving' || tx.type === 'saving_return')
+      .filter((tx) => !isWalletMode || tx.accountId === selectedAccount.id)
+      .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
+  }
+
+  function allowanceHistoryTransactions() {
+    return [...state.transactions]
+      .filter((tx) => tx.type === 'income')
+      .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
+  }
+
+  function renderSavingsHistory() {
+    if (!els.savingsHistoryList) return;
+    const selectedAccount = state.accounts[savingsWalletIndex] || state.accounts[0] || null;
+    const isWalletMode = savingsMode === 'wallet' && selectedAccount;
+    const history = savingsHistoryTransactions();
+    els.savingsHistorySubtitle.textContent = isWalletMode
+      ? `Contributions and returns from ${selectedAccount.name}.`
+      : 'Contributions and returns across all savings goals.';
+    els.savingsHistoryCount.textContent = `${history.length} entr${history.length === 1 ? 'y' : 'ies'}`;
+    els.savingsHistoryList.innerHTML = renderTransactionRows(history, true, {
+      includeDate: true,
+      emptyTitle: 'No savings history yet',
+      emptyCopy: 'Savings contributions and returns will appear here.',
+      emptyIcon: 'i-savings',
+      emptyTone: 'purple-soft'
+    });
+  }
+
+  function renderAllowanceHistory() {
+    if (!els.allowanceHistoryList) return;
+    const history = allowanceHistoryTransactions();
+    els.allowanceHistoryCount.textContent = `${history.length} entr${history.length === 1 ? 'y' : 'ies'}`;
+    els.allowanceHistoryList.innerHTML = renderTransactionRows(history, true, {
+      includeDate: true,
+      emptyTitle: 'No allowance history yet',
+      emptyCopy: 'Recorded allowance entries will appear here.',
+      emptyIcon: 'i-arrow-down',
+      emptyTone: 'green-soft'
+    });
+    if (els.allowanceHistorySummary) {
+      const latest = history[0];
+      const latestDate = latest?.date ? DATE_LABEL.format(fromDateKey(latest.date)) : '';
+      els.allowanceHistorySummary.textContent = latest
+        ? `${history.length} entr${history.length === 1 ? 'y' : 'ies'}${latestDate ? ` · Latest ${latestDate}` : ''}`
+        : 'No allowance entries yet.';
+    }
+  }
+
+  function openSavingsHistory() {
+    renderSavingsHistory();
+    openDialog(els.savingsHistoryDialog);
+    requestAnimationFrame(() => els.savingsHistoryDialog.focus());
+  }
+
+  function openAllowanceHistory() {
+    renderAllowanceHistory();
+    openDialog(els.allowanceHistoryDialog);
+    requestAnimationFrame(() => els.allowanceHistoryDialog.focus());
   }
 
   function renderWallets() {
@@ -908,6 +979,7 @@
     els.privacySwitch.classList.toggle('is-on', state.settings.privacy);
     els.privacySettingButton.setAttribute('aria-checked', state.settings.privacy ? 'true' : 'false');
     els.allowanceRecordSummary.textContent = 'Enter the amount, received date, and destination wallet. No routine or schedule required.';
+    renderAllowanceHistory();
     renderWallets();
   }
 
@@ -1795,6 +1867,7 @@
       return;
     }
     if (tx.type === 'income') {
+      closeDialog(els.allowanceHistoryDialog);
       setView('more');
       openDifferentAllowance({ id: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date });
       return;
@@ -2030,6 +2103,8 @@
       }
     }
     if (action === 'open-allowance') openDifferentAllowance();
+    if (action === 'open-allowance-history') openAllowanceHistory();
+    if (action === 'open-savings-history') openSavingsHistory();
     if (action === 'apply-update') applyAvailableUpdate();
     if (action === 'dismiss-update') hideUpdateAvailable();
     if (action === 'check-update') checkForUpdates({ announce: true, force: true });
@@ -2062,9 +2137,9 @@
     [
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
-      'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthReceived',
-      'monthSaved', 'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsGoalOverview', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'themeIcon', 'themeSwitch', 'themeSettingButton',
-      'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'walletsList', 'importFile',
+      'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
+      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'savingsGoalOverview', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'savingsHistoryDialog', 'savingsHistorySubtitle', 'savingsHistoryCount', 'savingsHistoryList', 'themeIcon', 'themeSwitch', 'themeSettingButton',
+      'themeLabel', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
