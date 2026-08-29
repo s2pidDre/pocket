@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '3.1.1';
+  const APP_VERSION = '3.1.2';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -2559,6 +2559,109 @@
     return '';
   }
 
+  function companionRealDataLine(view = currentView) {
+    if (!state) return '';
+    const privacy = Boolean(state.settings?.privacy);
+    const today = localDateKey();
+    const month = monthRange();
+    const activeGoals = state.goals.filter((goal) => !goal.removedAt);
+    const todayExpenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.date === today);
+    const todaySpent = todayExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const monthExpenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.date >= month.start && tx.date <= month.end);
+    const monthSpent = monthExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const candidates = [];
+
+    const add = (condition, line) => {
+      if (condition && line) candidates.push(line);
+    };
+
+    if (view === 'home') {
+      const account = selectedWalletAccount();
+      if (todayExpenses.length) {
+        add(true, privacy
+          ? `You’ve logged ${todayExpenses.length} expense${todayExpenses.length === 1 ? '' : 's'} today ♡`
+          : `Today you’ve logged ${todayExpenses.length} expense${todayExpenses.length === 1 ? '' : 's'} totaling ${currency(todaySpent, true)}.`);
+      }
+      if (account) {
+        const balance = Math.max(0, accountBalance(account.id));
+        add(!privacy && balance >= 0, `${account.name} has ${currency(balance, true)} available right now ♡`);
+        const saved = walletSavingsBalance(account.id);
+        add(!privacy && saved > 0, `${account.name} has already helped you set aside ${currency(saved, true)}.`);
+      }
+      const balance = Math.max(0, totalBalance());
+      add(!privacy && state.accounts.length > 1, `Across your wallets, you have ${currency(balance, true)} available.`);
+    }
+
+    if (view === 'activity') {
+      if (todayExpenses.length) {
+        const summary = walletExpenseSummaryForTransactions(todayExpenses);
+        if (summary.top) {
+          add(true, privacy
+            ? `${summary.top[0]} is your biggest expense category today.`
+            : `${summary.top[0]} is your biggest category today at ${currency(summary.top[1], true)}.`);
+        }
+        add(true, privacy
+          ? `There ${todayExpenses.length === 1 ? 'is' : 'are'} ${todayExpenses.length} expense entr${todayExpenses.length === 1 ? 'y' : 'ies'} today.`
+          : `Your expenses today add up to ${currency(todaySpent, true)} across ${todayExpenses.length} entr${todayExpenses.length === 1 ? 'y' : 'ies'}.`);
+      }
+      add(monthExpenses.length > 0, privacy
+        ? `You’ve recorded ${monthExpenses.length} expense entr${monthExpenses.length === 1 ? 'y' : 'ies'} this month.`
+        : `You’ve recorded ${currency(monthSpent, true)} in expenses this month so far.`);
+    }
+
+    if (view === 'savings') {
+      const savedTotal = totalSavings();
+      add(savedTotal > 0, privacy
+        ? `You currently have ${activeGoals.length} active savings goal${activeGoals.length === 1 ? '' : 's'} growing ♡`
+        : `Your savings goals currently hold ${currency(savedTotal, true)} altogether ♡`);
+
+      const incomplete = activeGoals
+        .filter((goal) => Number(goal.target || 0) > 0 && Number(goal.current || 0) < Number(goal.target || 0))
+        .map((goal) => {
+          const target = Math.max(Number(goal.target || 0), 1);
+          const current = Math.max(0, Number(goal.current || 0));
+          return { goal, current, target, percent: Math.min(100, Math.round(current / target * 100)), remaining: Math.max(0, target - current) };
+        })
+        .sort((a, b) => b.percent - a.percent);
+      if (incomplete.length) {
+        const nearest = incomplete[0];
+        add(true, privacy
+          ? `One of your goals is already ${nearest.percent}% complete ✨`
+          : `${nearest.goal.name} is ${nearest.percent}% complete — ${currency(nearest.remaining, true)} to go.`);
+      }
+
+      const completed = activeGoals.filter((goal) => Number(goal.target || 0) > 0 && Number(goal.current || 0) >= Number(goal.target || 0));
+      add(completed.length > 0, `You’ve completed ${completed.length} savings goal${completed.length === 1 ? '' : 's'} here. That’s real progress ♡`);
+    }
+
+    if (view === 'more') {
+      add(state.accounts.length > 1, `You’re keeping ${state.accounts.length} wallets organized in Pocket.`);
+      const latestAllowance = state.transactions
+        .filter((tx) => tx.type === 'income')
+        .sort((a, b) => Date.parse(b.createdAt || b.date || '') - Date.parse(a.createdAt || a.date || ''))[0];
+      if (latestAllowance) {
+        const account = state.accounts.find((item) => item.id === latestAllowance.accountId);
+        add(true, privacy
+          ? 'Your latest allowance record is safely tucked into your history.'
+          : `Your latest allowance was ${currency(latestAllowance.amount, true)}${account ? ` into ${account.name}` : ''}.`);
+      }
+      add(state.transactions.length > 0, `Pocket is currently keeping ${state.transactions.length} transaction${state.transactions.length === 1 ? '' : 's'} in your local history.`);
+    }
+
+    if (!candidates.length) return '';
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  function walletExpenseSummaryForTransactions(expenses) {
+    const categories = expenses.reduce((map, tx) => {
+      const name = tx.category || 'Other';
+      map[name] = (map[name] || 0) + Number(tx.amount || 0);
+      return map;
+    }, {});
+    const top = Object.entries(categories).sort((a, b) => b[1] - a[1])[0] || null;
+    return { top };
+  }
+
   function companionPickHeartCompliment() {
     const viewPool = COMPANION_VIEW_COMPLIMENTS[currentView] || [];
     const pool = viewPool.length && Math.random() < .48
@@ -2568,6 +2671,8 @@
   }
 
   function companionPickAffirmation() {
+    const realDataLine = companionRealDataLine(currentView);
+    if (realDataLine && Math.random() < .30) return realDataLine;
     const memoryLine = companionMemoryLine();
     if (memoryLine && Math.random() < .58) return memoryLine;
     const hour = new Date().getHours();
@@ -2931,8 +3036,10 @@
       companionQueueAction(`view-${view}`, async () => {
         const visited = await companionVisitContextElement({ view, silent: true, mood: 'curious', duration: 1050 });
         if (visited && Date.now() - companionLastMessageAt > 26000 && Math.random() < .34) {
+          const realDataLine = Math.random() < .42 ? companionRealDataLine(view) : '';
           const lines = COMPANION_VIEW_LINES[view] || [];
-          if (lines.length) companionSay(lines[Math.floor(Math.random() * lines.length)], 4600);
+          const line = realDataLine || (lines.length ? lines[Math.floor(Math.random() * lines.length)] : '');
+          if (line) companionSay(line, realDataLine ? 5600 : 4600);
         }
         return visited;
       }, { spontaneous: true });
@@ -4559,7 +4666,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.1.1');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.1.2');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
