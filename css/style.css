@@ -5399,3 +5399,96 @@ body:has(dialog[open]) .pocket-companion .companion-bunny { pointer-events: none
     transition: none !important;
   }
 }
+
+
+/* Pocket v3.0.2 — organic companion effects + consistent no-zoom mobile behavior. */
+html,
+body {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+/* Keep the app pannable/scrollable while preventing gesture zoom inside the installed/mobile app UI. */
+html,
+body,
+.app-shell {
+  touch-action: pan-x pan-y;
+}
+
+@media (max-width: 820px) {
+  input,
+  select,
+  textarea,
+  .text-input,
+  .amount-field input,
+  .compact-amount input,
+  .secret-select-row select,
+  .secret-pin-field {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Remove the old eight fixed sparkles. Their rectangular placement made the bunny feel boxed in. */
+.companion-sparkles,
+.pocket-companion.is-celebrating .companion-sparkles,
+.pocket-companion.is-savings .companion-sparkles,
+.pocket-companion.is-allowance .companion-sparkles,
+:root[data-theme="light"] .companion-sparkles,
+:root[data-theme="light"] .pocket-companion.is-celebrating .companion-sparkles,
+:root[data-theme="light"] .pocket-companion.is-savings .companion-sparkles,
+:root[data-theme="light"] .pocket-companion.is-allowance .companion-sparkles {
+  display: none !important;
+  opacity: 0 !important;
+  animation: none !important;
+}
+
+/* Keep the roaming bunny visually clean: no halo plate and no rectangular visual footprint. */
+:root[data-theme="light"] .pocket-companion,
+:root[data-theme="light"] .pocket-companion .companion-bunny {
+  background: transparent !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="light"] .pocket-companion::before {
+  content: none !important;
+  display: none !important;
+}
+
+:root[data-theme="light"] .pocket-companion::after {
+  width: 44px !important;
+  height: 6px !important;
+  bottom: 1px !important;
+  background: radial-gradient(ellipse at center, rgba(131, 80, 105, .13), rgba(131, 80, 105, 0) 74%) !important;
+  filter: blur(2.5px) !important;
+  opacity: .62 !important;
+}
+
+:root[data-theme="light"] .pocket-companion .companion-bunny > svg {
+  filter: drop-shadow(0 5px 4px rgba(101, 61, 81, .10)) !important;
+}
+
+:root[data-theme="light"] .pocket-companion.is-held .companion-bunny > svg,
+:root[data-theme="light"] .pocket-companion.is-petting .companion-bunny > svg,
+:root[data-theme="light"] .pocket-companion.is-dragging .companion-bunny > svg {
+  filter: drop-shadow(0 7px 5px rgba(101, 61, 81, .14)) !important;
+}
+
+/* Dynamic particles now stay tiny and airy so they read as reactions, not a rectangular frame. */
+.companion-world-fx i {
+  border-radius: 999px;
+  transform-origin: center;
+}
+.companion-world-fx.fx-heart i {
+  border-radius: 0;
+}
+.companion-world-fx.fx-sparkle i,
+.companion-world-fx.fx-soft i {
+  filter: drop-shadow(0 0 4px rgba(255,255,255,.45));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-world-fx { display: none !important; }
+}

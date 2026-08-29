@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '3.0.1';
+  const APP_VERSION = '3.0.2';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -2118,25 +2118,56 @@
     layer.setAttribute('aria-hidden', 'true');
     document.body.appendChild(layer);
     companionEffectNodes.add(layer);
-    const total = Math.max(3, Math.min(14, count));
+    const isBunnyEffect = element === els.companionBunny || element === els.pocketCompanion;
+    const bunnyAnchors = [
+      [.36,.18], [.62,.16], [.24,.38], [.76,.36], [.30,.57], [.70,.58], [.42,.72], [.59,.73]
+    ];
+    const total = Math.max(isBunnyEffect ? 2 : 3, Math.min(isBunnyEffect ? 8 : 14, count));
     for (let i = 0; i < total; i += 1) {
       const particle = document.createElement('i');
-      const startX = rect.left + rect.width * (.28 + Math.random() * .44);
-      const startY = rect.top + rect.height * (.28 + Math.random() * .44);
+      let startX;
+      let startY;
+      if (isBunnyEffect) {
+        const anchor = bunnyAnchors[(i + Math.floor(Math.random() * bunnyAnchors.length)) % bunnyAnchors.length];
+        startX = rect.left + rect.width * anchor[0] + (Math.random() - .5) * 6;
+        startY = rect.top + rect.height * anchor[1] + (Math.random() - .5) * 5;
+      } else {
+        startX = rect.left + rect.width * (.28 + Math.random() * .44);
+        startY = rect.top + rect.height * (.28 + Math.random() * .44);
+      }
       particle.style.left = `${startX}px`;
       particle.style.top = `${startY}px`;
-      particle.style.animationDelay = `${i * 34}ms`;
+      particle.style.animationDelay = `${i * 38}ms`;
       layer.appendChild(particle);
       if (particle.animate) {
-        const endX = towardCompanion ? bunnyX + (Math.random() - .5) * 14 : startX + (Math.random() - .5) * 58;
-        const endY = towardCompanion ? bunnyY + (Math.random() - .5) * 12 : startY - 34 - Math.random() * 42;
-        const midX = (startX + endX) / 2 + (Math.random() - .5) * 18;
-        const midY = Math.min(startY, endY) - 22 - Math.random() * 18;
+        let endX;
+        let endY;
+        let midX;
+        let midY;
+        if (isBunnyEffect) {
+          const centerX = rect.left + rect.width * .5;
+          const centerY = rect.top + rect.height * .48;
+          const vx = startX - centerX;
+          const vy = startY - centerY;
+          const length = Math.max(1, Math.hypot(vx, vy));
+          const radialX = vx / length;
+          const radialY = vy / length;
+          const outward = type === 'heart' ? 24 + Math.random() * 18 : 18 + Math.random() * 22;
+          endX = startX + radialX * outward + (Math.random() - .5) * 12;
+          endY = startY + radialY * outward - 28 - Math.random() * (type === 'heart' ? 26 : 18);
+          midX = startX + (endX - startX) * .46 + (Math.random() - .5) * 14;
+          midY = startY - 18 - Math.random() * 14;
+        } else {
+          endX = towardCompanion ? bunnyX + (Math.random() - .5) * 14 : startX + (Math.random() - .5) * 58;
+          endY = towardCompanion ? bunnyY + (Math.random() - .5) * 12 : startY - 34 - Math.random() * 42;
+          midX = (startX + endX) / 2 + (Math.random() - .5) * 18;
+          midY = Math.min(startY, endY) - 22 - Math.random() * 18;
+        }
         particle.animate([
-          { transform: 'translate3d(0,0,0) scale(.65)', opacity: 0 },
-          { transform: `translate3d(${midX - startX}px,${midY - startY}px,0) scale(1.08)`, opacity: 1, offset: .42 },
-          { transform: `translate3d(${endX - startX}px,${endY - startY}px,0) scale(.78)`, opacity: 0 }
-        ], { duration: 820 + Math.random() * 320, delay: i * 34, easing: 'cubic-bezier(.2,.72,.25,1)', fill: 'forwards' });
+          { transform: 'translate3d(0,4px,0) scale(.45) rotate(-8deg)', opacity: 0 },
+          { transform: `translate3d(${midX - startX}px,${midY - startY}px,0) scale(1) rotate(4deg)`, opacity: .96, offset: .34 },
+          { transform: `translate3d(${endX - startX}px,${endY - startY}px,0) scale(.72) rotate(18deg)`, opacity: 0 }
+        ], { duration: (isBunnyEffect ? 980 : 820) + Math.random() * 360, delay: i * 38, easing: 'cubic-bezier(.18,.76,.24,1)', fill: 'forwards' });
       }
     }
     window.setTimeout(() => {
@@ -4131,6 +4162,9 @@
         closeDialog(els.secretPocketDialog);
       }
     });
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach((eventName) => {
+      document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
+    });
     els.versionSecretTrigger.addEventListener('click',handleSecretVersionTap);
     els.versionSecretTrigger.addEventListener('pointerdown',startSecretRecoveryHold);
     ['pointerup','pointercancel','pointerleave'].forEach((eventName)=>els.versionSecretTrigger.addEventListener(eventName,cancelSecretRecoveryHold));
@@ -4205,7 +4239,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.0.1');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.0.2');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
