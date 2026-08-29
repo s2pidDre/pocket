@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.9.1';
+  const APP_VERSION = '2.9.2';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -2425,7 +2425,17 @@
     els.secretRememberSwitch.classList.toggle('is-on',Boolean(secretConfig?.remember)); els.secretRememberToggle.setAttribute('aria-checked',secretConfig?.remember?'true':'false'); els.secretRememberLabel.textContent=secretConfig?.remember?'On · stays unlocked on this device':'Off · locks after this browser session'; if(!unlocked&&els.secretPocketDialog.open) closeDialog(els.secretPocketDialog);
   }
   function openSecretPocketSettings() { if(!isSecretPocketUnlocked()){ openThemeUnlock(); return; } renderSecretPocketSettings(); openDialog(els.secretPocketDialog); }
-  function setSecretTheme(theme) { if(!isSecretPocketUnlocked()) return openThemeUnlock(); state.settings.theme=theme==='light'?'light':'dark'; saveState(); renderAll(); syncSecretLightWorld({ force: true }); if (state.settings.theme === 'light') window.setTimeout(() => emitSecretLightFx('confetti', { count: companionReducedMotion ? 3 : 8, area: 'center', duration: companionReducedMotion ? 900 : 2500 }), 90); showToast(state.settings.theme==='light'?'Light Pocket enabled.':'Dark Pocket enabled. Secret Pocket stays unlocked.'); }
+  function setSecretTheme(theme) {
+    if(!isSecretPocketUnlocked()) return openThemeUnlock();
+    const nextTheme=theme==='light'?'light':'dark';
+    state.settings.theme=nextTheme;
+    saveState();
+    closeDialog(els.secretPocketDialog);
+    renderAll();
+    syncSecretLightWorld({ force: true });
+    if (nextTheme === 'light') window.setTimeout(() => emitSecretLightFx('confetti', { count: companionReducedMotion ? 3 : 8, area: 'center', duration: companionReducedMotion ? 900 : 2500 }), 90);
+    showToast(nextTheme==='light'?'Light Pocket enabled. Welcome back ♡':'Dark Pocket enabled. Secret Pocket stays unlocked.');
+  }
   function toggleSecretCompanion() { secretConfig.companionEnabled=!secretConfig.companionEnabled; saveSecretConfig(); renderSecretPocketSettings(); syncCompanion({fast:true}); if (secretPocketLightActive()) emitSecretLightFx(secretConfig.companionEnabled ? 'heart' : 'soft', { count: companionReducedMotion ? 2 : 5, area: 'bottom', duration: companionReducedMotion ? 820 : 2000 }); showToast(secretConfig.companionEnabled?'Pocket companion enabled.':'Pocket companion tucked away.'); }
   function toggleSecretRemember() { const remember=!secretConfig.remember; setSecretPocketUnlocked(true,remember); renderSecretPocketSettings(); renderSettings(); showToast(remember?'Secret Pocket will stay unlocked on this device.':'Secret Pocket will lock after this browser session.'); }
   function resetCompanionPosition() { if(!els.pocketCompanion) return; companionCancelTravel(); delete els.pocketCompanion.dataset.placed; companionPosition={x:null,y:null}; syncCompanion({fast:true}); showToast('Companion position reset.'); }
@@ -3581,6 +3591,11 @@
     els.changeSecretPinForm.addEventListener('submit',(event)=>{event.preventDefault();changeSecretPin();});
     els.secretCompanionSpeech.addEventListener('change',()=>{secretConfig.companionSpeech=els.secretCompanionSpeech.value;saveSecretConfig();renderSecretPocketSettings();syncCompanion({fast:true});});
     els.secretCompanionMovement.addEventListener('change',()=>{secretConfig.companionMovement=els.secretCompanionMovement.value;saveSecretConfig();clearCompanionTimers();syncCompanion({fast:true});});
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && els.secretPocketDialog?.open) {
+        closeDialog(els.secretPocketDialog);
+      }
+    });
     els.versionSecretTrigger.addEventListener('click',handleSecretVersionTap);
     els.versionSecretTrigger.addEventListener('pointerdown',startSecretRecoveryHold);
     ['pointerup','pointercancel','pointerleave'].forEach((eventName)=>els.versionSecretTrigger.addEventListener(eventName,cancelSecretRecoveryHold));
@@ -3654,7 +3669,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.9.1');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.9.2');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

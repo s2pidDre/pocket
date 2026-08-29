@@ -4583,3 +4583,63 @@ body:has(dialog[open]) .pocket-companion { opacity: 0; transition: opacity .18s 
     transition: none !important;
   }
 }
+
+
+/* Pocket v2.9.2 — Secret Pocket escape and mobile usability fix. */
+.secret-pocket-dialog .dialog-panel {
+  min-height: 0;
+  max-height: inherit;
+}
+.secret-pocket-dialog .dialog-header,
+.secret-pocket-dialog .dialog-footer {
+  flex: 0 0 auto;
+}
+.secret-pocket-dialog .secret-settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.secret-pocket-footer {
+  justify-content: stretch;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 78%, transparent), var(--surface));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.secret-pocket-done {
+  width: 100%;
+  min-height: 44px;
+}
+:root[data-theme="light"] .secret-pocket-footer {
+  border-top-color: rgba(231, 195, 213, .94);
+  background: linear-gradient(180deg, rgba(255,251,253,.82), rgba(255,244,250,.96));
+}
+@media (max-width: 560px) {
+  .secret-pocket-dialog,
+  .secret-pocket-dialog[open] {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 30px);
+    height: min(760px, calc(100dvh - 30px));
+    margin: auto;
+  }
+  .secret-pocket-dialog .dialog-panel {
+    height: 100%;
+    max-height: 100%;
+  }
+  .secret-pocket-dialog .secret-settings-body {
+    padding-bottom: 14px;
+  }
+  .secret-pocket-footer {
+    padding-top: 10px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
+@media (max-height: 700px) {
+  .secret-pocket-dialog,
+  .secret-pocket-dialog[open] {
+    max-height: calc(100dvh - 18px);
+    height: calc(100dvh - 18px);
+  }
+  .secret-pocket-dialog .dialog-header { padding-top: 11px; padding-bottom: 9px; }
+  .secret-pocket-dialog .secret-settings-body { padding-top: 10px; }
+}
