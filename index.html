@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.1.0">
+  <link rel="stylesheet" href="css/style.css?v=3.1.1">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -272,7 +272,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.1.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.1.1</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -781,85 +781,89 @@
     </div>
     <div class="companion-bunny" id="companionBunny">
       <svg viewBox="0 0 112 112" role="img" aria-label="Pixel bunny companion" shape-rendering="crispEdges">
-        <g class="bunny-shadow"><path d="M27 102h58v3H91v3H21v-3h6z"/></g>
+        <g class="bunny-shadow"><path d="M25 102h14v-2h34v2h16v3H95v3H17v-3h8z"/></g>
 
         <g class="bunny-tail">
-          <path d="M82 73h12v4h5v13h-5v5H81v-5h-4V78h5z" class="bunny-fur bunny-stroke"/>
-          <rect x="88" y="79" width="6" height="6" class="bunny-tail-light"/>
+          <path d="M81 74h11v3h4v4h3v10h-3v4h-4v4H80v-4h-4V80h5z" class="bunny-fur bunny-stroke"/>
+          <rect x="87" y="80" width="6" height="6" class="bunny-tail-light"/>
+          <rect x="84" y="86" width="4" height="4" class="bunny-tail-light"/>
         </g>
 
         <g class="bunny-ear bunny-ear-left">
-          <path d="M24 43V17h4v-6h14v4h5v28z" class="bunny-fur bunny-stroke"/>
-          <path d="M31 37V19h4v-3h5v4h3v17z" class="bunny-pink"/>
+          <path d="M24 44V21h3v-5h4v-4h14v4h4v5h3v23z" class="bunny-fur bunny-stroke"/>
+          <path d="M31 39V24h3v-4h8v4h3v15z" class="bunny-pink"/>
         </g>
         <g class="bunny-ear bunny-ear-right">
-          <path d="M66 43V15h5v-4h14v6h4v26z" class="bunny-fur bunny-stroke"/>
-          <path d="M70 37V20h3v-4h6v3h4v18z" class="bunny-pink"/>
+          <path d="M60 44V21h3v-5h4v-4h14v4h4v5h3v23z" class="bunny-fur bunny-stroke"/>
+          <path d="M67 39V24h3v-4h8v4h3v15z" class="bunny-pink"/>
         </g>
 
         <g class="bunny-body-group">
-          <path d="M31 73h50v4h6v20h-6v6H31v-6h-6V77h6z" class="bunny-fur bunny-stroke bunny-body"/>
+          <path d="M34 74h44v3h5v18h-5v7H34v-7h-5V77h5z" class="bunny-fur bunny-stroke bunny-body"/>
+          <path d="M42 76h28v3H42z" class="bunny-tail-light"/>
           <g class="bunny-foot bunny-foot-left">
-            <path d="M29 94h20v11h-4v3H29v-3h-4v-7h4z" class="bunny-fur bunny-stroke"/>
-            <rect x="32" y="100" width="4" height="3" class="bunny-paw"/><rect x="39" y="100" width="4" height="3" class="bunny-paw"/>
+            <path d="M28 94h22v4h2v7h-3v3H30v-3h-4v-7h2z" class="bunny-fur bunny-stroke"/>
+            <rect x="33" y="100" width="4" height="3" class="bunny-paw"/><rect x="40" y="100" width="4" height="3" class="bunny-paw"/>
           </g>
           <g class="bunny-foot bunny-foot-right">
-            <path d="M63 94h20v4h4v7h-4v3H67v-3h-4z" class="bunny-fur bunny-stroke"/>
-            <rect x="69" y="100" width="4" height="3" class="bunny-paw"/><rect x="76" y="100" width="4" height="3" class="bunny-paw"/>
+            <path d="M62 94h22v4h2v7h-4v3H63v-3h-3v-7h2z" class="bunny-fur bunny-stroke"/>
+            <rect x="68" y="100" width="4" height="3" class="bunny-paw"/><rect x="75" y="100" width="4" height="3" class="bunny-paw"/>
           </g>
-          <g class="bunny-arm bunny-arm-left"><path d="M24 76h14v5h3v14H29v-3h-5z" class="bunny-fur bunny-stroke"/></g>
-          <g class="bunny-arm bunny-arm-right"><path d="M74 76h14v16h-5v3H71V81h3z" class="bunny-fur bunny-stroke"/></g>
+          <g class="bunny-arm bunny-arm-left"><path d="M25 77h13v4h3v13H29v-3h-4z" class="bunny-fur bunny-stroke"/></g>
+          <g class="bunny-arm bunny-arm-right"><path d="M74 77h13v14h-4v3H71V81h3z" class="bunny-fur bunny-stroke"/></g>
           <g class="companion-charm">
-            <rect x="48" y="77" width="16" height="13" class="charm-bg"/>
-            <rect x="53" y="80" width="6" height="2" class="charm-heart"/>
-            <rect x="51" y="82" width="10" height="4" class="charm-heart"/>
-            <rect x="54" y="86" width="4" height="2" class="charm-heart"/>
+            <rect x="48" y="79" width="16" height="12" rx="1" ry="1" class="charm-bg"/>
+            <rect x="53" y="81" width="6" height="2" class="charm-heart"/>
+            <rect x="51" y="83" width="10" height="4" class="charm-heart"/>
+            <rect x="54" y="87" width="4" height="2" class="charm-heart"/>
           </g>
         </g>
 
         <g class="bunny-head-group">
-          <path d="M22 36h68v4h7v7h4v29h-4v8h-7v6H22v-6h-7v-8h-4V47h4v-7h7z" class="bunny-fur bunny-stroke bunny-head"/>
-          <path d="M48 34h5v-4h4v4h5v4H48z" class="bunny-fur bunny-stroke bunny-tuft"/>
+          <path d="M18 40h76v3h4v4h3v27h-3v8h-4v6H18v-6h-4v-8h-3V47h3v-4h4z" class="bunny-fur bunny-stroke bunny-head"/>
+          <path d="M46 38h7v-4h6v4h7v3H46z" class="bunny-fur bunny-stroke bunny-tuft"/>
+          <path d="M30 44h52v3H30z" class="bunny-tail-light"/>
           <g class="bunny-ear-bow">
-            <rect x="79" y="37" width="5" height="5" class="bow-dark"/><rect x="86" y="35" width="7" height="7" class="bow-pink"/><rect x="75" y="35" width="7" height="7" class="bow-pink"/><rect x="82" y="39" width="5" height="5" class="bow-pink"/>
+            <rect x="77" y="39" width="5" height="5" class="bow-dark"/><rect x="84" y="37" width="8" height="8" class="bow-pink"/><rect x="73" y="37" width="8" height="8" class="bow-pink"/><rect x="80" y="41" width="5" height="5" class="bow-pink"/>
           </g>
-          <rect x="25" y="62" width="14" height="8" class="bunny-blush"/><rect x="73" y="62" width="14" height="8" class="bunny-blush"/>
-          <rect x="28" y="64" width="3" height="3" class="bunny-blush-dot"/><rect x="34" y="66" width="3" height="3" class="bunny-blush-dot"/>
-          <rect x="76" y="66" width="3" height="3" class="bunny-blush-dot"/><rect x="82" y="64" width="3" height="3" class="bunny-blush-dot"/>
+          <rect x="24" y="63" width="16" height="8" rx="1" ry="1" class="bunny-blush"/><rect x="72" y="63" width="16" height="8" rx="1" ry="1" class="bunny-blush"/>
+          <rect x="27" y="65" width="3" height="3" class="bunny-blush-dot"/><rect x="34" y="66" width="3" height="3" class="bunny-blush-dot"/>
+          <rect x="75" y="66" width="3" height="3" class="bunny-blush-dot"/><rect x="82" y="65" width="3" height="3" class="bunny-blush-dot"/>
 
           <g class="companion-brows">
-            <rect x="31" y="46" width="10" height="2" class="bunny-brow bunny-brow-left"/><rect x="71" y="46" width="10" height="2" class="bunny-brow bunny-brow-right"/>
+            <rect x="31" y="48" width="10" height="2" class="bunny-brow bunny-brow-left"/><rect x="71" y="48" width="10" height="2" class="bunny-brow bunny-brow-right"/>
           </g>
           <g class="companion-eye-open">
-            <rect x="31" y="50" width="11" height="14" class="bunny-eye"/><rect x="70" y="50" width="11" height="14" class="bunny-eye"/>
-            <rect x="33" y="52" width="4" height="4" class="bunny-eye-shine"/><rect x="72" y="52" width="4" height="4" class="bunny-eye-shine"/>
-            <rect x="37" y="52" width="2" height="2" class="bunny-eye-twinkle"/><rect x="76" y="52" width="2" height="2" class="bunny-eye-twinkle"/>
-            <rect x="38" y="59" width="2" height="2" class="bunny-eye-soft"/><rect x="77" y="59" width="2" height="2" class="bunny-eye-soft"/>
-            <rect x="29" y="51" width="2" height="3" class="bunny-lash bunny-lash-left"/><rect x="81" y="51" width="2" height="3" class="bunny-lash bunny-lash-right"/>
+            <rect x="30" y="52" width="12" height="14" rx="1" ry="1" class="bunny-eye"/><rect x="70" y="52" width="12" height="14" rx="1" ry="1" class="bunny-eye"/>
+            <rect x="32" y="53" width="4" height="4" class="bunny-eye-shine"/><rect x="72" y="53" width="4" height="4" class="bunny-eye-shine"/>
+            <rect x="36" y="54" width="2" height="2" class="bunny-eye-twinkle"/><rect x="76" y="54" width="2" height="2" class="bunny-eye-twinkle"/>
+            <rect x="38" y="60" width="2" height="2" class="bunny-eye-soft"/><rect x="78" y="60" width="2" height="2" class="bunny-eye-soft"/>
+            <rect x="28" y="53" width="2" height="3" class="bunny-lash bunny-lash-left"/><rect x="82" y="53" width="2" height="3" class="bunny-lash bunny-lash-right"/>
           </g>
           <g class="companion-eye-surprised">
-            <rect x="30" y="49" width="13" height="16" class="bunny-eye"/><rect x="69" y="49" width="13" height="16" class="bunny-eye"/>
-            <rect x="33" y="51" width="5" height="5" class="bunny-eye-shine"/><rect x="72" y="51" width="5" height="5" class="bunny-eye-shine"/>
-            <rect x="39" y="58" width="2" height="2" class="bunny-eye-soft"/><rect x="78" y="58" width="2" height="2" class="bunny-eye-soft"/>
+            <rect x="29" y="51" width="14" height="16" rx="1" ry="1" class="bunny-eye"/><rect x="69" y="51" width="14" height="16" rx="1" ry="1" class="bunny-eye"/>
+            <rect x="32" y="53" width="5" height="5" class="bunny-eye-shine"/><rect x="72" y="53" width="5" height="5" class="bunny-eye-shine"/>
+            <rect x="38" y="60" width="2" height="2" class="bunny-eye-soft"/><rect x="78" y="60" width="2" height="2" class="bunny-eye-soft"/>
           </g>
           <g class="companion-eye-happy">
-            <path d="M31 59h3v-3h5v3h3v3H31z" class="bunny-line"/><path d="M70 59h3v-3h5v3h3v3H70z" class="bunny-line"/>
+            <path d="M30 60h3v-3h6v3h3v3H30z" class="bunny-line"/><path d="M70 60h3v-3h6v3h3v3H70z" class="bunny-line"/>
           </g>
           <g class="companion-eye-sleep">
-            <rect x="31" y="58" width="11" height="3" class="bunny-line"/><rect x="70" y="58" width="11" height="3" class="bunny-line"/>
+            <rect x="30" y="59" width="12" height="3" class="bunny-line"/><rect x="70" y="59" width="12" height="3" class="bunny-line"/>
           </g>
           <g class="bunny-face-mouth companion-mouth-smile">
-            <rect x="53" y="64" width="6" height="4" class="bunny-nose"/>
-            <rect x="50" y="69" width="4" height="2" class="bunny-line"/><rect x="59" y="69" width="4" height="2" class="bunny-line"/>
-            <rect x="54" y="71" width="5" height="2" class="bunny-mouth-pink"/>
+            <rect x="53" y="65" width="6" height="4" class="bunny-nose"/>
+            <rect x="50" y="70" width="4" height="2" class="bunny-line"/><rect x="59" y="70" width="4" height="2" class="bunny-line"/>
+            <rect x="54" y="72" width="5" height="2" class="bunny-mouth-pink"/>
+            <rect x="55" y="74" width="3" height="2" class="bunny-mouth-pink"/>
           </g>
           <g class="companion-mouth-o">
-            <rect x="53" y="64" width="6" height="4" class="bunny-nose"/>
-            <rect x="53" y="70" width="7" height="6" class="bunny-line"/><rect x="55" y="72" width="3" height="3" class="bunny-mouth-pink"/>
+            <rect x="53" y="65" width="6" height="4" class="bunny-nose"/>
+            <rect x="53" y="71" width="7" height="6" class="bunny-line"/><rect x="55" y="73" width="3" height="3" class="bunny-mouth-pink"/>
           </g>
           <g class="companion-mouth-soft">
-            <rect x="53" y="64" width="6" height="4" class="bunny-nose"/>
-            <rect x="52" y="70" width="9" height="2" class="bunny-line"/>
+            <rect x="53" y="65" width="6" height="4" class="bunny-nose"/>
+            <rect x="51" y="71" width="10" height="2" class="bunny-line"/>
           </g>
         </g>
 
@@ -904,6 +908,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.1.0" defer></script>
+  <script src="js/app.js?v=3.1.1" defer></script>
 </body>
 </html>

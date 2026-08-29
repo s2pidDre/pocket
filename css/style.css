@@ -5696,3 +5696,42 @@ body,
     transition: none !important;
   }
 }
+
+
+/* Pocket v3.1.1 — Cuter bunny visual redesign */
+.companion-bunny {
+  width: 98px;
+  height: 108px;
+}
+.companion-bunny svg {
+  transform-origin: 50% 58%;
+}
+.bunny-fur { fill: #fff9fc; }
+.bunny-pink { fill: #f8b7d2; }
+.bunny-blush { fill: #ffd4e4; opacity: .96; }
+.bunny-blush-dot { fill: #f2a1bf; opacity: .82; }
+.bunny-eye, .bunny-line { fill: #593245; }
+.bunny-eye-soft { fill: #ab6988; }
+.bunny-eye-twinkle { fill: #fff4a9; }
+.bunny-eye-shine { fill: #ffffff; }
+.bunny-nose { fill: #ef88b2; }
+.bunny-mouth-pink { fill: #f3aac4; }
+.bunny-paw { fill: #f7b9cf; }
+.bunny-tail-light { fill: #ffffff; opacity: .82; }
+.bunny-shadow path { fill: rgba(195, 129, 162, .16); }
+.bunny-ear-bow .bow-pink { fill: #f49fc2; }
+.bunny-ear-bow .bow-dark { fill: #ca769d; }
+.charm-bg { fill: #f39abc; }
+.charm-heart { fill: #fff8fd; }
+.bunny-tuft { transform-origin: 56px 40px; animation: companion-cute-tuft 3.7s ease-in-out infinite; }
+.companion-bubble { bottom: 82px; }
+.companion-room-bunny { width: 122px; height: 122px; }
+:root[data-theme="light"] .pocket-companion .companion-bunny > svg {
+  filter:
+    drop-shadow(0 8px 6px rgba(126, 72, 99, .10))
+    drop-shadow(0 0 6px rgba(255, 212, 230, .18));
+}
+@keyframes companion-cute-tuft {
+  0%,100% { transform: translateY(0); }
+  50% { transform: translateY(-.6px); }
+}
