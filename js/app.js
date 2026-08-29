@@ -3,10 +3,16 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '2.8.2';
+  const APP_VERSION = '2.9.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
-  const LIGHT_THEME_PASSWORD = '0322';
-  const LIGHT_THEME_SESSION_KEY = 'pocket-light-theme-unlocked';
+  const DEFAULT_SECRET_PIN = '0322';
+  const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
+  const SECRET_SESSION_KEY = 'pocket-secret-pocket-unlocked';
+  const SECRET_TRUST_KEY = 'pocket-secret-pocket-trusted';
+  const LEGACY_LIGHT_SESSION_KEY = 'pocket-light-theme-unlocked';
+  const SECRET_TRIGGER_TAPS = 5;
+  const SECRET_TRIGGER_WINDOW = 2200;
+  const SECRET_RESET_HOLD = 8000;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: 'PHP',
@@ -79,6 +85,11 @@
   let companionQueueGeneration = 0;
   let companionPhase = 'idle';
   let companionMood = 'relaxed';
+  let secretConfig = null;
+  let secretTapCount = 0;
+  let secretTapTimer = 0;
+  let secretResetTimer = 0;
+  let secretResetTriggered = false;
   const companionEffectNodes = new Set();
   const companionMemory = {
     savings: 0,
@@ -149,17 +160,45 @@
     ]
   };
 
-  function isLightThemeUnlocked() {
-    try { return sessionStorage.getItem(LIGHT_THEME_SESSION_KEY) === '1'; }
-    catch (error) { return false; }
+  function defaultSecretConfig() {
+    return { pinSalt: '', pinHash: '', remember: false, companionEnabled: true, companionSpeech: 'normal', companionMovement: 'normal', discovered: false, firstRevealSeen: false };
   }
 
-  function setLightThemeUnlocked(unlocked) {
+  function loadSecretConfig() {
     try {
-      if (unlocked) sessionStorage.setItem(LIGHT_THEME_SESSION_KEY, '1');
-      else sessionStorage.removeItem(LIGHT_THEME_SESSION_KEY);
-    } catch (error) { /* Session storage is optional; the password gate still works in-memory. */ }
+      const parsed = JSON.parse(localStorage.getItem(SECRET_POCKET_KEY) || 'null');
+      const base = defaultSecretConfig();
+      if (!parsed || typeof parsed !== 'object') return base;
+      return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen) };
+    } catch (error) { return defaultSecretConfig(); }
   }
+
+  function saveSecretConfig() { try { localStorage.setItem(SECRET_POCKET_KEY, JSON.stringify(secretConfig || defaultSecretConfig())); } catch (error) {} }
+  function isSecretPocketUnlocked() {
+    try {
+      if (sessionStorage.getItem(SECRET_SESSION_KEY) === '1') return true;
+      const config = secretConfig || loadSecretConfig();
+      return Boolean(config.remember && localStorage.getItem(SECRET_TRUST_KEY) === '1');
+    } catch (error) { return false; }
+  }
+  function setSecretPocketUnlocked(unlocked, remember = false) {
+    secretConfig ||= loadSecretConfig();
+    try { if (unlocked) sessionStorage.setItem(SECRET_SESSION_KEY,'1'); else sessionStorage.removeItem(SECRET_SESSION_KEY); } catch (error) {}
+    try { if (unlocked && remember) localStorage.setItem(SECRET_TRUST_KEY,'1'); else localStorage.removeItem(SECRET_TRUST_KEY); } catch (error) {}
+    secretConfig.remember = Boolean(unlocked && remember); saveSecretConfig();
+  }
+  function secretRandomSalt() {
+    try { const bytes=new Uint8Array(16); crypto.getRandomValues(bytes); return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''); }
+    catch (error) { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
+  }
+  async function hashSecretPin(pin, salt) {
+    const input=`${salt}:${pin}:PocketSecret`; const seeds=[2166136261,2246822507,3266489909,668265263];
+    return seeds.map((seed,lane)=>{ let hash=seed>>>0; for(let round=0;round<2048;round+=1){ for(let i=0;i<input.length;i+=1){ hash ^= input.charCodeAt(i)+lane+round; hash=Math.imul(hash,16777619); hash ^= hash>>>13; } } return (hash>>>0).toString(16).padStart(8,'0'); }).join('');
+  }
+  async function verifySecretPin(pin) { secretConfig ||= loadSecretConfig(); if(!secretConfig.pinHash || !secretConfig.pinSalt) return pin===DEFAULT_SECRET_PIN; return (await hashSecretPin(pin,secretConfig.pinSalt))===secretConfig.pinHash; }
+  async function storeSecretPin(pin) { secretConfig ||= loadSecretConfig(); secretConfig.pinSalt=secretRandomSalt(); secretConfig.pinHash=await hashSecretPin(pin,secretConfig.pinSalt); secretConfig.discovered=true; saveSecretConfig(); }
+  function companionSpeechMode() { return secretConfig?.companionSpeech || 'normal'; }
+  function companionMovementMode() { return secretConfig?.companionMovement || 'normal'; }
 
   function localDateKey(date = new Date()) {
     const year = date.getFullYear();
@@ -397,7 +436,7 @@
     return {
       version: SCHEMA_VERSION,
       settings: {
-        theme: candidate.settings?.theme === 'light' && isLightThemeUnlocked() ? 'light' : 'dark',
+        theme: candidate.settings?.theme === 'light' && isSecretPocketUnlocked() ? 'light' : 'dark',
         privacy: Boolean(candidate.settings?.privacy),
         demoData: Boolean(candidate.settings?.demoData)
       },
@@ -1113,7 +1152,7 @@
   }
 
   function companionIsAvailable() {
-    return Boolean(els.pocketCompanion && state?.settings?.theme === 'light' && isLightThemeUnlocked());
+    return Boolean(els.pocketCompanion && state?.settings?.theme === 'light' && isSecretPocketUnlocked() && secretConfig?.companionEnabled !== false);
   }
 
   function companionWait(ms) {
@@ -1405,8 +1444,10 @@
     els.pocketCompanion.classList.remove('is-sleeping', 'is-blinking');
   }
 
-  function companionSay(message, duration = 5200) {
+  function companionSay(message, duration = 5200, options = {}) {
     if (!companionIsAvailable() || !message) return;
+    const speech = companionSpeechMode();
+    if (speech === 'off' || (speech === 'quiet' && !options.essential)) return;
     companionLastMessageAt = Date.now();
     els.companionMessage.textContent = message;
     els.companionBubble.classList.add('is-showing');
@@ -1445,7 +1486,7 @@
       home: ['.wallet-carousel .wallet-mode-card', '.home-wallet-overview', '[data-action="home-add-savings"]', '[data-action="home-add-expense"]', '[data-action="open-transfer"]'],
       activity: ['.activity-summary-strip', '#activityDayCard', '.activity-day-toolbar'],
       savings: ['.savings-balance-hero', '#goalsGrid .goal-card', '#goalsGrid .goal-progress-block', '[data-action="open-goal"]', '[data-action="open-contribution"]'],
-      more: ['#themeSettingButton', '.allowance-settings-card', '.settings-card']
+      more: ['#secretPocketSettingButton', '.allowance-settings-card', '.settings-card']
     };
     const seen = new Set();
     return (selectors[view] || []).flatMap((selector) => [...document.querySelectorAll(selector)]).filter((element) => {
@@ -1509,7 +1550,7 @@
     if (element.matches('.savings-balance-hero')) return 'Every bit tucked away counts ♡';
     if (element.matches('.wallet-mode-card, .home-wallet-overview')) return 'Keeping an eye on your pocket with you ♡';
     if (element.matches('.activity-summary-strip, #activityDayCard')) return 'You’re keeping track—that matters ✨';
-    if (element.matches('#themeSettingButton')) return 'This cozy little world is our secret ♡';
+    if (element.matches('#secretPocketSettingButton')) return 'This cozy little world is our secret ♡';
     if (element.matches('.allowance-settings-card')) return 'A little plan makes allowance feel lighter ✨';
     return '';
   }
@@ -1519,7 +1560,7 @@
     if (element.matches('.goal-card, .goal-progress-block, .savings-balance-hero, [data-action="home-add-savings"], [data-action="open-contribution"]')) return 'savings';
     if (element.matches('.activity-summary-strip, #activityDayCard, .activity-day-toolbar')) return 'activity';
     if (element.matches('.allowance-settings-card, .wallet-mode-card, .home-wallet-overview')) return 'pouch';
-    if (element.matches('#themeSettingButton, .settings-card')) return 'flower';
+    if (element.matches('#secretPocketSettingButton, .settings-card')) return 'flower';
     return '';
   }
 
@@ -1683,9 +1724,12 @@
     };
   }
 
-  function scheduleCompanionAction(delay = 7000 + Math.random() * 7500) {
+  function scheduleCompanionAction(delay) {
     window.clearTimeout(companionActionTimer);
     if (!companionIsAvailable()) return;
+    const calm = companionMovementMode() === 'calm';
+    if (!Number.isFinite(delay)) delay = calm ? 18000 + Math.random() * 15000 : 7000 + Math.random() * 7500;
+    else if (calm) delay = Math.max(12000, delay * 1.65);
     companionActionTimer = window.setTimeout(() => {
       if (!companionIsAvailable()) return;
       if (document.visibilityState !== 'visible' || document.querySelector('dialog[open]')) {
@@ -1698,7 +1742,11 @@
       }
       companionQueueAction('ambient', async () => {
         const roll = Math.random();
-        if (!companionReducedMotion && roll < .50) {
+        const calm = companionMovementMode() === 'calm';
+        if (calm && !companionReducedMotion && roll < .62) {
+          companionSetMood('relaxed');
+          await companionPose(Math.random() < .5 ? 'sitting' : 'curious', 1250);
+        } else if (!companionReducedMotion && roll < .50) {
           const visited = await companionVisitContextElement({ silent: Math.random() < .60, mood: 'curious' });
           if (!visited) {
             const pos = companionSafePosition();
@@ -1725,9 +1773,10 @@
     }, delay);
   }
 
-  function scheduleCompanionAffirmation(delay = 36000 + Math.random() * 30000) {
+  function scheduleCompanionAffirmation(delay) {
     window.clearTimeout(companionAffirmationTimer);
-    if (!companionIsAvailable()) return;
+    if (!companionIsAvailable() || companionSpeechMode() !== 'normal') return;
+    if (!Number.isFinite(delay)) delay = 36000 + Math.random() * 30000;
     companionAffirmationTimer = window.setTimeout(() => {
       if (!companionIsAvailable()) return;
       if (!document.querySelector('dialog[open]') && Date.now() - companionLastMessageAt > 17000) {
@@ -1775,7 +1824,7 @@
         if (Date.now() - companionLastMessageAt > 22000) companionSay('Tiny rest break… progress can be gentle too ♡', 6000);
         return true;
       }, { spontaneous: true });
-    }, 70000);
+    }, companionMovementMode() === 'calm' ? 105000 : 70000);
   }
 
   function syncCompanion(options = {}) {
@@ -1810,7 +1859,7 @@
       companionQueueAction('welcome', async () => {
         companionSetMood('happy');
         companionSetPhase('react');
-        companionSay('Hi! I’ll keep you company ♡', 5600);
+        companionSay('Hi! I’ll keep you company ♡', 5600, { essential: true });
         await companionPose('waving', 1500);
         await companionVisitContextElement({ silent: true, mood: 'curious', duration: 1050 });
         return true;
@@ -1890,7 +1939,7 @@
       await companionPose(action, kind === 'complete' ? 2600 : 1700);
 
       companionSetPhase('react');
-      companionSay(companionReactionMessage(kind, message), kind === 'complete' ? 6800 : 5200);
+      companionSay(companionReactionMessage(kind, message), kind === 'complete' ? 6800 : 5200, { essential: true });
       if (kind === 'complete') await companionPose('waving', 1150);
       else await companionWait(480);
       companionClearFocus();
@@ -1953,17 +2002,17 @@
   }
 
   function renderSettings() {
+    const secretUnlocked = isSecretPocketUnlocked();
     const lightMode = state.settings.theme === 'light';
-    els.themeLabel.textContent = lightMode ? 'On' : 'Off';
-    els.themeIcon.innerHTML = '<use href="#i-sun"></use>';
-    els.themeSwitch.classList.toggle('is-on', lightMode);
-    els.themeSettingButton.classList.toggle('is-locked', !lightMode);
-    els.themeSettingButton.setAttribute('aria-checked', lightMode ? 'true' : 'false');
-    els.themeSettingButton.setAttribute('aria-label', lightMode ? 'Turn off light mode' : 'Turn on light mode');
+    els.secretPocketSettingButton.hidden = !secretUnlocked;
+    els.secretPocketSummary.textContent = lightMode ? 'Light Pocket active · hidden settings' : 'Unlocked · currently using Dark Pocket';
+    els.appVersion.textContent = `Version ${APP_VERSION}${secretConfig?.discovered ? ' ♡' : ''}`;
+    els.versionSecretTrigger.setAttribute('aria-label', secretConfig?.discovered ? 'Installed Pocket version. Secret Pocket entrance.' : 'Installed Pocket version');
     els.privacyLabel.textContent = state.settings.privacy ? 'On · amounts hidden' : 'Off · amounts visible';
     els.privacySwitch.classList.toggle('is-on', state.settings.privacy);
     els.privacySettingButton.setAttribute('aria-checked', state.settings.privacy ? 'true' : 'false');
     els.allowanceRecordSummary.textContent = 'Enter the amount, received date, and destination wallet. No routine or schedule required.';
+    renderSecretPocketSettings();
     renderAllowanceHistory();
     renderWallets();
   }
@@ -2244,31 +2293,44 @@
     if (dialog.open) dialog.close();
   }
 
-  function openThemeUnlock() {
-    els.themeUnlockForm.reset();
-    els.themePasswordError.textContent = '';
-    els.themePassword.classList.remove('is-invalid');
-    els.themePassword.setAttribute('aria-invalid', 'false');
-    openDialog(els.themeUnlockDialog);
-    requestAnimationFrame(() => els.themePassword.focus({ preventScroll: true }));
+  function renderSecretPinDots() {
+    const length=String(els.themePassword?.value||'').length;
+    [...els.secretPinDots.querySelectorAll('span')].forEach((dot,index)=>dot.classList.toggle('is-filled',index<length));
+    els.secretUnlockButton.disabled=length!==4;
   }
-
-  function unlockLightTheme() {
-    if (els.themePassword.value !== LIGHT_THEME_PASSWORD) {
-      els.themePasswordError.textContent = 'Incorrect password.';
-      els.themePassword.classList.add('is-invalid');
-      els.themePassword.setAttribute('aria-invalid', 'true');
-      els.themePassword.select();
-      return;
-    }
-    setLightThemeUnlocked(true);
-    state.settings.theme = 'light';
-    saveState();
-    closeDialog(els.themeUnlockDialog);
-    renderAll();
-    syncCompanion({ welcome: true, fast: true });
-    showToast('Light mode enabled.');
+  function setSecretPinEntry(value) { els.themePassword.value=String(value||'').replace(/\D/g,'').slice(0,4); els.themePassword.classList.remove('is-invalid'); els.themePassword.setAttribute('aria-invalid','false'); els.themePasswordError.textContent=''; renderSecretPinDots(); }
+  function handleSecretKey(key) { const current=els.themePassword.value||''; if(key==='backspace') setSecretPinEntry(current.slice(0,-1)); else if(/^\d$/.test(key)&&current.length<4) setSecretPinEntry(`${current}${key}`); }
+  function openThemeUnlock() { if(isSecretPocketUnlocked()){ openSecretPocketSettings(); return; } els.themeUnlockForm.reset(); els.secretRememberUnlock.checked=Boolean(secretConfig?.remember); setSecretPinEntry(''); openDialog(els.themeUnlockDialog); requestAnimationFrame(()=>els.secretPinDots.focus({preventScroll:true})); }
+  function playSecretReveal(firstReveal=false) {
+    if(firstReveal&&els.secretPocketReveal){ els.secretPocketReveal.classList.add('is-showing'); window.setTimeout(()=>els.secretPocketReveal?.classList.remove('is-showing'),1550); }
+    syncCompanion({welcome:!firstReveal,fast:true});
+    if(firstReveal) window.setTimeout(()=>{ if(!companionIsAvailable()) return; companionSay('You found me ♡',5600,{essential:true}); companionQueueAction('secret-reveal',async()=>{ companionSetMood('happy'); await companionPose('waving',1500); return true; },{priority:true}); },520);
   }
+  async function unlockLightTheme() {
+    const pin=els.themePassword.value;
+    if(pin.length!==4 || !(await verifySecretPin(pin))){ els.themePasswordError.textContent='That code did not unlock Secret Pocket.'; els.themePassword.classList.add('is-invalid'); els.themePassword.setAttribute('aria-invalid','true'); setSecretPinEntry(''); return; }
+    const firstReveal=!secretConfig.firstRevealSeen; secretConfig.discovered=true; secretConfig.firstRevealSeen=true; setSecretPocketUnlocked(true,els.secretRememberUnlock.checked); saveSecretConfig(); state.settings.theme='light'; saveState(); closeDialog(els.themeUnlockDialog); renderAll(); playSecretReveal(firstReveal); showToast(firstReveal?'Secret Pocket unlocked ♡':'Secret Pocket unlocked.');
+  }
+  function renderSecretPocketSettings() {
+    if(!els.secretPocketDialog) return; const unlocked=isSecretPocketUnlocked(); const lightMode=state.settings.theme==='light';
+    els.secretThemeDark.classList.toggle('is-active',!lightMode); els.secretThemeLight.classList.toggle('is-active',lightMode); els.secretThemeDark.setAttribute('aria-pressed',lightMode?'false':'true'); els.secretThemeLight.setAttribute('aria-pressed',lightMode?'true':'false');
+    els.secretCompanionSwitch.classList.toggle('is-on',secretConfig?.companionEnabled!==false); els.secretCompanionToggle.setAttribute('aria-checked',secretConfig?.companionEnabled!==false?'true':'false'); els.secretCompanionLabel.textContent=secretConfig?.companionEnabled!==false?'On · bunny is active':'Off · light theme stays available';
+    els.secretCompanionSpeech.value=secretConfig?.companionSpeech||'normal'; els.secretCompanionMovement.value=secretConfig?.companionMovement||'normal'; els.secretCompanionSpeech.disabled=secretConfig?.companionEnabled===false; els.secretCompanionMovement.disabled=secretConfig?.companionEnabled===false;
+    els.secretRememberSwitch.classList.toggle('is-on',Boolean(secretConfig?.remember)); els.secretRememberToggle.setAttribute('aria-checked',secretConfig?.remember?'true':'false'); els.secretRememberLabel.textContent=secretConfig?.remember?'On · stays unlocked on this device':'Off · locks after this browser session'; if(!unlocked&&els.secretPocketDialog.open) closeDialog(els.secretPocketDialog);
+  }
+  function openSecretPocketSettings() { if(!isSecretPocketUnlocked()){ openThemeUnlock(); return; } renderSecretPocketSettings(); openDialog(els.secretPocketDialog); }
+  function setSecretTheme(theme) { if(!isSecretPocketUnlocked()) return openThemeUnlock(); state.settings.theme=theme==='light'?'light':'dark'; saveState(); renderAll(); showToast(state.settings.theme==='light'?'Light Pocket enabled.':'Dark Pocket enabled. Secret Pocket stays unlocked.'); }
+  function toggleSecretCompanion() { secretConfig.companionEnabled=!secretConfig.companionEnabled; saveSecretConfig(); renderSecretPocketSettings(); syncCompanion({fast:true}); showToast(secretConfig.companionEnabled?'Pocket companion enabled.':'Pocket companion tucked away.'); }
+  function toggleSecretRemember() { const remember=!secretConfig.remember; setSecretPocketUnlocked(true,remember); renderSecretPocketSettings(); renderSettings(); showToast(remember?'Secret Pocket will stay unlocked on this device.':'Secret Pocket will lock after this browser session.'); }
+  function resetCompanionPosition() { if(!els.pocketCompanion) return; companionCancelTravel(); delete els.pocketCompanion.dataset.placed; companionPosition={x:null,y:null}; syncCompanion({fast:true}); showToast('Companion position reset.'); }
+  function openChangeSecretPin() { els.changeSecretPinForm.reset(); els.changeSecretPinError.textContent=''; openDialog(els.changeSecretPinDialog); requestAnimationFrame(()=>els.newSecretPin.focus({preventScroll:true})); }
+  async function changeSecretPin() { const pin=els.newSecretPin.value.replace(/\D/g,'').slice(0,4); const confirmPin=els.confirmSecretPin.value.replace(/\D/g,'').slice(0,4); if(pin.length!==4){ els.changeSecretPinError.textContent='Enter exactly four digits.'; return; } if(pin!==confirmPin){ els.changeSecretPinError.textContent='The two PINs do not match.'; return; } await storeSecretPin(pin); closeDialog(els.changeSecretPinDialog); showToast('Secret PIN changed.'); }
+  function lockSecretPocket() { setSecretPocketUnlocked(false,false); state.settings.theme='dark'; saveState(); closeDialog(els.secretPocketDialog); renderAll(); showToast('Secret Pocket locked.'); }
+  function resetSecretPocketAccess() { secretConfig=defaultSecretConfig(); saveSecretConfig(); try{sessionStorage.removeItem(SECRET_SESSION_KEY);localStorage.removeItem(SECRET_TRUST_KEY);}catch(error){} state.settings.theme='dark'; saveState(); closeDialog(els.secretPocketDialog); renderAll(); showToast('Secret Pocket access reset to the default code.'); }
+  function openSecretPocketRecovery() { confirmAction('Reset Secret Pocket access?','This resets only the secret PIN and hidden appearance preferences. Wallets, transactions, savings, and allowance history are not changed.','Reset access',resetSecretPocketAccess); }
+  function handleSecretVersionTap() { if(secretResetTriggered){secretResetTriggered=false;return;} if(secretConfig?.discovered){ if(isSecretPocketUnlocked()) openSecretPocketSettings(); else openThemeUnlock(); return; } secretTapCount+=1; window.clearTimeout(secretTapTimer); secretTapTimer=window.setTimeout(()=>{secretTapCount=0;},SECRET_TRIGGER_WINDOW); if(secretTapCount>=SECRET_TRIGGER_TAPS){window.clearTimeout(secretTapTimer);secretTapCount=0;openThemeUnlock();} }
+  function startSecretRecoveryHold() { secretResetTriggered=false; window.clearTimeout(secretResetTimer); secretResetTimer=window.setTimeout(()=>{secretResetTriggered=true;openSecretPocketRecovery();},SECRET_RESET_HOLD); }
+  function cancelSecretRecoveryHold() { window.clearTimeout(secretResetTimer); secretResetTimer=0; }
 
   function openExpense(prefill = {}) {
     currentExpenseEditId = prefill.id || null;
@@ -3140,17 +3202,14 @@
     if (action === 'undo-transaction' || action === 'delete-transaction') undoTransaction(button.dataset.id);
     if (action === 'edit-receipt-transaction') editTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'undo-receipt-transaction') undoTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
-    if (action === 'toggle-theme') {
-      if (state.settings.theme === 'light') {
-        state.settings.theme = 'dark';
-        setLightThemeUnlocked(false);
-        saveState();
-        renderAll();
-        showToast('Dark mode enabled.');
-      } else {
-        openThemeUnlock();
-      }
-    }
+    if (action === 'open-secret-pocket') openSecretPocketSettings();
+    if (action === 'secret-theme-dark') setSecretTheme('dark');
+    if (action === 'secret-theme-light') setSecretTheme('light');
+    if (action === 'toggle-secret-companion') toggleSecretCompanion();
+    if (action === 'toggle-secret-remember') toggleSecretRemember();
+    if (action === 'reset-companion-position') resetCompanionPosition();
+    if (action === 'change-secret-pin') openChangeSecretPin();
+    if (action === 'lock-secret-pocket') lockSecretPocket();
     if (action === 'toggle-privacy') {
       state.settings.privacy = !state.settings.privacy;
       saveState(); renderAll();
@@ -3165,8 +3224,8 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList', 'themeIcon', 'themeSwitch', 'themeSettingButton',
-      'themeLabel', 'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
+      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
+      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
@@ -3407,16 +3466,18 @@
       event.preventDefault();
       addContribution();
     });
-    els.themeUnlockForm.addEventListener('submit', (event) => {
-      event.preventDefault();
-      unlockLightTheme();
-    });
-    els.themePassword.addEventListener('input', () => {
-      els.themePassword.value = els.themePassword.value.replace(/\D/g, '').slice(0, 4);
-      els.themePassword.classList.remove('is-invalid');
-      els.themePassword.setAttribute('aria-invalid', 'false');
-      els.themePasswordError.textContent = '';
-    });
+    els.themeUnlockForm.addEventListener('submit', (event) => { event.preventDefault(); unlockLightTheme(); });
+    els.secretKeypad.addEventListener('click', (event) => { const button=event.target.closest('[data-secret-key]'); if(button) handleSecretKey(button.dataset.secretKey); });
+    els.secretPinDots.addEventListener('click',()=>els.themePassword.focus({preventScroll:true}));
+    els.themeUnlockDialog.addEventListener('keydown',(event)=>{ if(/^\d$/.test(event.key)){event.preventDefault();handleSecretKey(event.key);} else if(event.key==='Backspace'){event.preventDefault();handleSecretKey('backspace');} });
+    els.themePassword.addEventListener('input',()=>setSecretPinEntry(els.themePassword.value));
+    [els.newSecretPin,els.confirmSecretPin].forEach((input)=>input.addEventListener('input',()=>{input.value=input.value.replace(/\D/g,'').slice(0,4);els.changeSecretPinError.textContent='';}));
+    els.changeSecretPinForm.addEventListener('submit',(event)=>{event.preventDefault();changeSecretPin();});
+    els.secretCompanionSpeech.addEventListener('change',()=>{secretConfig.companionSpeech=els.secretCompanionSpeech.value;saveSecretConfig();renderSecretPocketSettings();syncCompanion({fast:true});});
+    els.secretCompanionMovement.addEventListener('change',()=>{secretConfig.companionMovement=els.secretCompanionMovement.value;saveSecretConfig();clearCompanionTimers();syncCompanion({fast:true});});
+    els.versionSecretTrigger.addEventListener('click',handleSecretVersionTap);
+    els.versionSecretTrigger.addEventListener('pointerdown',startSecretRecoveryHold);
+    ['pointerup','pointercancel','pointerleave'].forEach((eventName)=>els.versionSecretTrigger.addEventListener(eventName,cancelSecretRecoveryHold));
 
     els.confirmDialog.querySelector('form').addEventListener('submit', (event) => {
       if (event.submitter?.value === 'cancel') { pendingConfirm = null; return; }
@@ -3487,7 +3548,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.8.2');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=2.9.0');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
@@ -3518,7 +3579,16 @@
 
   function init() {
     cacheElements();
-    els.appVersion.textContent = `Version ${APP_VERSION}`;
+    secretConfig = loadSecretConfig();
+    try {
+      if (sessionStorage.getItem(LEGACY_LIGHT_SESSION_KEY) === '1') {
+        secretConfig.discovered = true;
+        secretConfig.firstRevealSeen = true;
+        saveSecretConfig();
+        sessionStorage.setItem(SECRET_SESSION_KEY, '1');
+        sessionStorage.removeItem(LEGACY_LIGHT_SESSION_KEY);
+      }
+    } catch (error) { /* Legacy session migration is best-effort. */ }
     state = loadState();
     bindEvents();
     renderAll();

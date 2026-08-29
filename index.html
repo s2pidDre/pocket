@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=2.8.2">
+  <link rel="stylesheet" href="css/style.css?v=2.9.0">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -219,15 +219,15 @@
           <div class="settings-grid">
             <article class="card settings-card">
               <div class="section-heading compact"><div><p class="eyebrow">Preferences</p><h2>Appearance</h2></div></div>
-              <button class="setting-row theme-lock-row" id="themeSettingButton" type="button" data-action="toggle-theme" role="switch" aria-checked="false">
-                <span class="round-icon neutral-soft"><svg id="themeIcon"><use href="#i-sun"/></svg></span>
-                <span><strong>Light mode</strong><small id="themeLabel">Off</small></span>
-                <span class="switch" id="themeSwitch" aria-hidden="true"></span>
-              </button>
               <button class="setting-row" id="privacySettingButton" type="button" data-action="toggle-privacy" role="switch" aria-checked="false">
                 <span class="round-icon neutral-soft"><svg class="privacy-icon"><use href="#i-eye"/></svg></span>
                 <span><strong>Privacy mode</strong><small id="privacyLabel">Off · amounts visible</small></span>
                 <span class="switch" id="privacySwitch" aria-hidden="true"></span>
+              </button>
+              <button class="setting-row secret-pocket-entry" id="secretPocketSettingButton" type="button" data-action="open-secret-pocket" hidden>
+                <span class="round-icon secret-soft"><svg><use href="#i-sparkle"/></svg></span>
+                <span><strong>Secret Pocket</strong><small id="secretPocketSummary">Light world & companion</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
             </article>
 
@@ -270,11 +270,11 @@
 
             <article class="card settings-card">
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
-              <div class="setting-row static">
+              <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 2.3.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 2.9.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
-              </div>
+              </button>
               <button class="setting-row" type="button" data-action="check-update">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
                 <span><strong>Check for updates</strong><small>Look for a newer version now.</small></span>
@@ -621,23 +621,62 @@
   </dialog>
 
   <dialog id="themeUnlockDialog" class="app-dialog compact-dialog theme-unlock-dialog">
-    <form method="dialog" class="dialog-panel" id="themeUnlockForm" autocomplete="off">
+    <form method="dialog" class="dialog-panel secret-unlock-panel" id="themeUnlockForm" autocomplete="off">
       <div class="dialog-header">
-        <div><p class="eyebrow">Appearance</p><h2>Light mode</h2><p class="dialog-subtitle">Enter your password to continue.</p></div>
+        <div><p class="eyebrow">Secret Pocket</p><h2>Something is hidden here… ♡</h2><p class="dialog-subtitle">Enter the four-digit secret code.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
-      <div class="dialog-body">
-        <div class="theme-unlock-preview" aria-hidden="true"><span></span><span></span><span></span><strong>LIGHT MODE</strong></div>
-        <div class="field-group">
-          <label class="field-label" for="themePassword">Password</label>
-          <input class="text-input theme-password-input" id="themePassword" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" aria-describedby="themePasswordError" aria-invalid="false" placeholder="••••" autocomplete="off" enterkeyhint="done" required>
-          <p class="helper-text theme-password-error" id="themePasswordError" role="alert" aria-live="polite"></p>
+      <div class="dialog-body secret-unlock-body">
+        <div class="secret-emblem" aria-hidden="true"><span>♡</span><i></i><i></i><i></i></div>
+        <button class="secret-pin-dots" id="secretPinDots" type="button" aria-label="Secret code entry" tabindex="-1"><span></span><span></span><span></span><span></span></button>
+        <input class="secret-pin-capture" id="themePassword" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-describedby="themePasswordError" aria-invalid="false">
+        <p class="helper-text theme-password-error" id="themePasswordError" role="alert" aria-live="polite"></p>
+        <div class="secret-keypad" id="secretKeypad" aria-label="Secret code keypad">
+          <button type="button" data-secret-key="1">1</button><button type="button" data-secret-key="2">2</button><button type="button" data-secret-key="3">3</button>
+          <button type="button" data-secret-key="4">4</button><button type="button" data-secret-key="5">5</button><button type="button" data-secret-key="6">6</button>
+          <button type="button" data-secret-key="7">7</button><button type="button" data-secret-key="8">8</button><button type="button" data-secret-key="9">9</button>
+          <span aria-hidden="true"></span><button type="button" data-secret-key="0">0</button><button type="button" data-secret-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
         </div>
+        <label class="secret-remember-row" for="secretRememberUnlock"><input id="secretRememberUnlock" type="checkbox"><span><strong>Remember on this device</strong><small>Keep Secret Pocket unlocked after closing the browser.</small></span></label>
       </div>
-      <div class="dialog-footer">
-        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
-        <button class="button-primary" type="submit" value="default">Continue</button>
+      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-primary" id="secretUnlockButton" type="submit" value="default" disabled>Unlock</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="secretPocketDialog" class="app-dialog compact-dialog secret-pocket-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header"><div><p class="eyebrow">Secret Pocket</p><h2>Your hidden corner ♡</h2><p class="dialog-subtitle">Appearance and companion controls stay tucked away here.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-body secret-settings-body">
+        <section class="secret-settings-section">
+          <div class="secret-section-copy"><strong>Appearance</strong><small>Switch worlds without locking Secret Pocket.</small></div>
+          <div class="secret-choice-grid" role="group" aria-label="Pocket appearance">
+            <button class="secret-choice" id="secretThemeDark" type="button" data-action="secret-theme-dark" aria-pressed="false"><svg><use href="#i-moon"/></svg><span>Dark Pocket</span></button>
+            <button class="secret-choice" id="secretThemeLight" type="button" data-action="secret-theme-light" aria-pressed="false"><svg><use href="#i-sun"/></svg><span>Light Pocket</span></button>
+          </div>
+        </section>
+        <section class="secret-settings-section">
+          <button class="secret-control-row" id="secretCompanionToggle" type="button" data-action="toggle-secret-companion" role="switch" aria-checked="true"><span><strong>Pocket companion</strong><small id="secretCompanionLabel">On · bunny is active</small></span><span class="switch is-on" id="secretCompanionSwitch" aria-hidden="true"></span></button>
+          <label class="secret-select-row" for="secretCompanionSpeech"><span><strong>Companion speech</strong><small>Quiet keeps only important reactions.</small></span><select id="secretCompanionSpeech"><option value="normal">Normal</option><option value="quiet">Quiet</option><option value="off">Off</option></select></label>
+          <label class="secret-select-row" for="secretCompanionMovement"><span><strong>Companion movement</strong><small>Calm reduces roaming and ambient animation frequency.</small></span><select id="secretCompanionMovement"><option value="normal">Normal</option><option value="calm">Calm</option></select></label>
+          <button class="secret-action-row" type="button" data-action="reset-companion-position"><span><strong>Reset companion position</strong><small>Return the bunny to its default safe corner.</small></span><svg class="chevron"><use href="#i-chevron"/></svg></button>
+        </section>
+        <section class="secret-settings-section">
+          <button class="secret-control-row" id="secretRememberToggle" type="button" data-action="toggle-secret-remember" role="switch" aria-checked="false"><span><strong>Remember Secret Pocket</strong><small id="secretRememberLabel">Off · locks after this browser session</small></span><span class="switch" id="secretRememberSwitch" aria-hidden="true"></span></button>
+          <button class="secret-action-row" type="button" data-action="change-secret-pin"><span><strong>Change secret PIN</strong><small>Replace the default four-digit code.</small></span><svg class="chevron"><use href="#i-chevron"/></svg></button>
+          <button class="secret-action-row secret-lock-action" type="button" data-action="lock-secret-pocket"><span><strong>Lock Secret Pocket</strong><small>Return to dark mode and require the PIN again.</small></span><svg class="chevron"><use href="#i-lock"/></svg></button>
+        </section>
       </div>
+    </div>
+  </dialog>
+
+  <dialog id="changeSecretPinDialog" class="app-dialog compact-dialog secret-pin-change-dialog">
+    <form method="dialog" class="dialog-panel" id="changeSecretPinForm" autocomplete="off">
+      <div class="dialog-header"><div><p class="eyebrow">Secret Pocket</p><h2>Change secret PIN</h2><p class="dialog-subtitle">Use exactly four digits.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-body">
+        <div class="field-group"><label class="field-label" for="newSecretPin">New PIN</label><input class="text-input secret-pin-field" id="newSecretPin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="••••" required autocomplete="new-password"></div>
+        <div class="field-group"><label class="field-label" for="confirmSecretPin">Confirm PIN</label><input class="text-input secret-pin-field" id="confirmSecretPin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="••••" required autocomplete="new-password"><p class="helper-text theme-password-error" id="changeSecretPinError" role="alert" aria-live="polite"></p></div>
+      </div>
+      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-primary" type="submit" value="default">Save PIN</button></div>
     </form>
   </dialog>
 
@@ -652,6 +691,8 @@
     </form>
   </dialog>
 
+
+  <div class="secret-pocket-reveal" id="secretPocketReveal" aria-hidden="true"><div class="secret-pocket-reveal-mark">♡</div><strong>Secret Pocket</strong><span>You found me.</span></div>
 
   <div class="pocket-companion" id="pocketCompanion" data-context="home" aria-hidden="true">
     <div class="companion-bubble" id="companionBubble"><span id="companionMessage">Small steps still count ♡</span></div>
@@ -782,6 +823,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=2.8.2" defer></script>
+  <script src="js/app.js?v=2.9.0" defer></script>
 </body>
 </html>
