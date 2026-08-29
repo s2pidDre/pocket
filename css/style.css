@@ -5492,3 +5492,207 @@ body,
 @media (prefers-reduced-motion: reduce) {
   .companion-world-fx { display: none !important; }
 }
+
+
+/* Pocket v3.1.0 — Companion Animation 2.0: physical acting, gaze, perching, gestures, and idle stories. */
+.pocket-companion {
+  --gaze-x: 0px;
+  --gaze-y: 0px;
+  --head-look-x: 0px;
+  --head-look-y: 0px;
+  --head-look-rotate: 0deg;
+  --motion-lean: 0deg;
+  --ear-trail: 0deg;
+  --tail-swing: 0deg;
+  --motion-y: 0px;
+  --drag-lean: 0deg;
+  --drag-lag: 0deg;
+  --drag-lag-reverse: 0deg;
+  --pet-stroke-tilt: 0deg;
+  --pet-stroke-y: 0px;
+}
+
+/* Smooth gaze uses tiny physical shifts instead of snapping between four directions. */
+.pocket-companion:not(.is-blinking) .companion-eye-open {
+  transform: translate(var(--gaze-x), var(--gaze-y));
+  transition: none;
+}
+.pocket-companion.is-blinking .companion-eye-open {
+  transform: translate(var(--gaze-x), var(--gaze-y)) scaleY(.14);
+}
+.pocket-companion.is-gaze-active:not(.is-curious):not(.is-listening):not(.is-presenting):not(.is-tapping):not(.is-petting) .bunny-head-group {
+  transform: translate(var(--head-look-x), var(--head-look-y)) rotate(var(--head-look-rotate));
+  transition: transform .12s linear;
+}
+
+/* Secondary motion: body leads, ears/tail follow. */
+.pocket-companion.is-traveling .companion-bunny {
+  animation: companion-v31-travel-body .46s cubic-bezier(.37,0,.3,1) infinite !important;
+}
+.pocket-companion.is-traveling .bunny-ear-left {
+  animation: companion-v31-travel-ear-left .46s ease-in-out infinite !important;
+}
+.pocket-companion.is-traveling .bunny-ear-right {
+  animation: companion-v31-travel-ear-right .46s ease-in-out infinite !important;
+}
+.pocket-companion.is-traveling .bunny-tail {
+  animation: companion-v31-travel-tail .23s ease-in-out infinite alternate !important;
+}
+
+.pocket-companion.is-dragging .companion-bunny > svg {
+  transform: rotate(var(--drag-lean));
+  transform-origin: 50% 72%;
+}
+.pocket-companion.is-dragging .bunny-ear-left,
+.pocket-companion.is-dragging .bunny-ear-right {
+  animation: none !important;
+  transform: rotate(var(--drag-lag));
+}
+.pocket-companion.is-dragging .bunny-tail {
+  animation: none !important;
+  transform: rotate(var(--drag-lag-reverse));
+}
+
+/* Petting responds differently depending on where the user touches. */
+.pocket-companion.is-petting .bunny-head-group {
+  transform: translateY(var(--pet-stroke-y)) rotate(var(--pet-stroke-tilt));
+  transition: transform .12s ease-out;
+}
+.pocket-companion.is-petting[data-pet-zone="left-ear"] .bunny-ear-left {
+  animation: companion-v31-ear-scritch-left .52s ease-in-out infinite alternate !important;
+}
+.pocket-companion.is-petting[data-pet-zone="right-ear"] .bunny-ear-right {
+  animation: companion-v31-ear-scritch-right .52s ease-in-out infinite alternate !important;
+}
+.pocket-companion.is-petting[data-pet-zone="head"] .bunny-ear-left,
+.pocket-companion.is-petting[data-pet-zone="head"] .bunny-ear-right {
+  animation-duration: 1.05s !important;
+}
+.pocket-companion.is-petting[data-pet-zone="chest"] .bunny-body-group {
+  transform-origin: 50% 70%;
+  animation: companion-v31-cozy-chest .72s ease-in-out infinite alternate;
+}
+
+/* Drag releases now have physical settling rather than stopping instantly. */
+.pocket-companion.is-soft-drop .companion-bunny {
+  animation: companion-v31-soft-drop .34s cubic-bezier(.2,.9,.28,1.15) 1 !important;
+}
+.pocket-companion.is-bouncy-drop .companion-bunny {
+  animation: companion-v31-bouncy-drop .42s cubic-bezier(.2,.9,.28,1.15) 1 !important;
+}
+
+/* Perching reads as sitting on a surface instead of hovering over it. */
+.pocket-companion.is-perched::after {
+  width: 30px !important;
+  height: 4px !important;
+  bottom: 4px !important;
+  opacity: .38 !important;
+}
+.pocket-companion.is-perched .companion-bunny {
+  animation: companion-v31-perch-breathe 3.7s ease-in-out infinite !important;
+}
+.pocket-companion.is-perch-settling .companion-bunny {
+  animation: companion-v31-perch-settle .58s cubic-bezier(.2,.9,.28,1.12) 1 !important;
+}
+.pocket-companion.is-perched[data-perch-side="left"] .bunny-head-group { transform: rotate(1.4deg); }
+.pocket-companion.is-perched[data-perch-side="right"] .bunny-head-group { transform: rotate(-1.4deg); }
+
+/* Character-driven rare moments: no confetti required. */
+.pocket-companion.is-grooming .bunny-arm-left {
+  transform-origin: 80% 80%;
+  animation: companion-v31-groom-paw .42s ease-in-out 4 alternate;
+}
+.pocket-companion.is-grooming .bunny-head-group {
+  transform-origin: 50% 84%;
+  animation: companion-v31-groom-head .84s ease-in-out 2 alternate;
+}
+.pocket-companion.is-grooming .bunny-ear-left {
+  animation: companion-v31-groom-ear .84s ease-in-out 2 alternate !important;
+}
+.pocket-companion.is-trip .companion-bunny {
+  animation: companion-v31-trip .96s cubic-bezier(.36,.02,.22,1) 1 !important;
+}
+.pocket-companion.is-shy .companion-bunny {
+  animation: companion-v31-shy .95s ease-in-out 1 both !important;
+}
+.pocket-companion.is-shy .bunny-blush { opacity: 1; fill: #ffabc8; }
+.pocket-companion.is-startled .companion-bunny {
+  animation: companion-v31-startled .72s cubic-bezier(.2,.9,.3,1) 1 !important;
+}
+.pocket-companion.is-startled .companion-eye-open { transform: translate(var(--gaze-x), var(--gaze-y)) scale(1.06); }
+.pocket-companion.is-dozing-sit .companion-bunny {
+  animation: companion-v31-dozing 2.2s ease-in-out 1 both !important;
+}
+.pocket-companion.is-dozing-sit .companion-eye-open { display: none !important; }
+.pocket-companion.is-dozing-sit .companion-eye-sleep { display: block !important; }
+
+/* Accessory secondary motion now follows the body. */
+.pocket-companion[data-accessory="scarf"].is-traveling .companion-wearable::after,
+.pocket-companion[data-accessory="scarf"].is-dragging .companion-wearable::after {
+  transform-origin: 20% 0;
+  animation: companion-v31-scarf-trail .38s ease-in-out infinite alternate;
+}
+.pocket-companion[data-accessory="glasses"].is-landing .companion-wearable::before {
+  animation: companion-v31-glasses-settle .28s ease-out 1;
+}
+.pocket-companion[data-accessory="star"].is-landing .companion-wearable::before {
+  transform-origin: 50% 100%;
+  animation: companion-v31-crown-wobble .42s ease-out 1;
+}
+
+@keyframes companion-v31-travel-body {
+  0%,100% { transform: translateY(var(--motion-y)) rotate(var(--motion-lean)) scale(1.045,.955); }
+  20% { transform: translateY(calc(var(--motion-y) - 2px)) rotate(var(--motion-lean)) scale(.985,1.015); }
+  52% { transform: translateY(calc(var(--motion-y) - 6px)) rotate(var(--motion-lean)) scale(.965,1.035); }
+  82% { transform: translateY(calc(var(--motion-y) - 1px)) rotate(var(--motion-lean)) scale(1.015,.985); }
+}
+@keyframes companion-v31-travel-ear-left {
+  0%,100% { transform: rotate(calc(-2deg + var(--ear-trail))); }
+  50% { transform: rotate(calc(9deg + var(--ear-trail))); }
+}
+@keyframes companion-v31-travel-ear-right {
+  0%,100% { transform: rotate(calc(2deg + var(--ear-trail))); }
+  50% { transform: rotate(calc(-8deg + var(--ear-trail))); }
+}
+@keyframes companion-v31-travel-tail {
+  from { transform: rotate(calc(-5deg + var(--tail-swing))); }
+  to { transform: rotate(calc(8deg + var(--tail-swing))); }
+}
+@keyframes companion-v31-ear-scritch-left { from{transform:rotate(3deg)} to{transform:rotate(16deg) translateY(1px)} }
+@keyframes companion-v31-ear-scritch-right { from{transform:rotate(-3deg)} to{transform:rotate(-16deg) translateY(1px)} }
+@keyframes companion-v31-cozy-chest { from{transform:scale(1)} to{transform:scale(1.025,.98) translateY(1px)} }
+@keyframes companion-v31-soft-drop { 0%{transform:translateY(-2px) scale(.99,1.01)} 50%{transform:translateY(2px) scale(1.045,.955)} 100%{transform:translateY(0) scale(1)} }
+@keyframes companion-v31-bouncy-drop { 0%{transform:translateY(-5px) scale(.97,1.03)} 38%{transform:translateY(3px) scale(1.08,.92)} 66%{transform:translateY(-2px) scale(.99,1.01)} 100%{transform:translateY(0) scale(1)} }
+@keyframes companion-v31-perch-settle { 0%{transform:translateY(-7px) scale(.97,1.03)} 58%{transform:translateY(3px) scale(1.055,.945)} 78%{transform:translateY(-1px)} 100%{transform:translateY(0) scale(1)} }
+@keyframes companion-v31-perch-breathe { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-1.2px) scale(1.004,.996)} }
+@keyframes companion-v31-groom-paw { from{transform:rotate(0) translate(0,0)} to{transform:rotate(-34deg) translate(4px,-11px)} }
+@keyframes companion-v31-groom-head { from{transform:rotate(0)} to{transform:rotate(-5deg) translateY(1px)} }
+@keyframes companion-v31-groom-ear { from{transform:rotate(0)} to{transform:rotate(8deg)} }
+@keyframes companion-v31-trip { 0%{transform:translate(0,0) rotate(0)} 25%{transform:translate(3px,-4px) rotate(4deg)} 48%{transform:translate(7px,3px) rotate(12deg) scale(1.03,.97)} 66%{transform:translate(2px,2px) rotate(-5deg)} 100%{transform:translate(0,0) rotate(0)} }
+@keyframes companion-v31-shy { 0%{transform:translateY(0) rotate(0)} 45%{transform:translateY(3px) rotate(-2deg) scale(1.02,.98)} 100%{transform:translateY(1px) rotate(1deg)} }
+@keyframes companion-v31-startled { 0%{transform:translateY(0) scale(1)} 28%{transform:translateY(-10px) scale(.97,1.04)} 52%{transform:translateY(-6px) scale(1.02,.98)} 100%{transform:translateY(0) scale(1)} }
+@keyframes companion-v31-dozing { 0%{transform:translateY(0) rotate(0)} 45%{transform:translateY(5px) rotate(2.5deg) scale(1.03,.96)} 72%{transform:translateY(4px) rotate(1deg)} 100%{transform:translateY(5px) rotate(2deg) scale(1.025,.97)} }
+@keyframes companion-v31-scarf-trail { from{transform:rotate(3deg)} to{transform:rotate(18deg)} }
+@keyframes companion-v31-glasses-settle { 0%{transform:translateY(-2px)} 55%{transform:translateY(2px)} 100%{transform:translateY(0)} }
+@keyframes companion-v31-crown-wobble { 0%{transform:rotate(0)} 32%{transform:rotate(-7deg)} 62%{transform:rotate(5deg)} 100%{transform:rotate(0)} }
+
+@media (prefers-reduced-motion: reduce) {
+  .pocket-companion.is-gaze-active .bunny-head-group,
+  .pocket-companion.is-dragging .companion-bunny > svg,
+  .pocket-companion.is-dragging .bunny-ear,
+  .pocket-companion.is-dragging .bunny-tail,
+  .pocket-companion.is-soft-drop .companion-bunny,
+  .pocket-companion.is-bouncy-drop .companion-bunny,
+  .pocket-companion.is-perched .companion-bunny,
+  .pocket-companion.is-grooming .bunny-arm,
+  .pocket-companion.is-grooming .bunny-head-group,
+  .pocket-companion.is-trip .companion-bunny,
+  .pocket-companion.is-shy .companion-bunny,
+  .pocket-companion.is-startled .companion-bunny,
+  .pocket-companion.is-dozing-sit .companion-bunny,
+  .pocket-companion .companion-wearable::before,
+  .pocket-companion .companion-wearable::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

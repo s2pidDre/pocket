@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '3.0.2';
+  const APP_VERSION = '3.1.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -80,6 +80,13 @@
   let companionSingleTapTimer = 0;
   let companionLastTapAt = 0;
   let companionPointerLookFrame = 0;
+  let companionGazeFrame = 0;
+  let companionGazeTarget = { x: 0, y: 0 };
+  let companionGazeCurrent = { x: 0, y: 0 };
+  let companionPerchTarget = null;
+  let companionPerchedUntil = 0;
+  let companionPerchSide = 'center';
+  let companionStoryGeneration = 0;
   let companionReturnGap = 0;
   let secretLightAmbientTimer = 0;
   let secretLightViewToken = '';
@@ -100,6 +107,7 @@
   let secretResetTriggered = false;
   const companionEffectNodes = new Set();
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
+  const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
   const companionMemory = {
     savings: 0,
     expenses: 0,
@@ -1525,8 +1533,67 @@
     if (els.pocketCompanion) els.pocketCompanion.dataset.mood = mood;
   }
 
+  function companionClamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+
+  function companionApplyGaze() {
+    if (!els.pocketCompanion) return;
+    const x = companionGazeCurrent.x;
+    const y = companionGazeCurrent.y;
+    els.pocketCompanion.style.setProperty('--gaze-x', `${(x * 2.15).toFixed(2)}px`);
+    els.pocketCompanion.style.setProperty('--gaze-y', `${(y * 1.7).toFixed(2)}px`);
+    els.pocketCompanion.style.setProperty('--head-look-x', `${(x * 1.15).toFixed(2)}px`);
+    els.pocketCompanion.style.setProperty('--head-look-y', `${(y * .85).toFixed(2)}px`);
+    els.pocketCompanion.style.setProperty('--head-look-rotate', `${(x * 2.4).toFixed(2)}deg`);
+  }
+
+  function companionRunGazeFrame() {
+    companionGazeFrame = 0;
+    if (!els.pocketCompanion) return;
+    const ease = companionReducedMotion ? 1 : .18;
+    companionGazeCurrent.x += (companionGazeTarget.x - companionGazeCurrent.x) * ease;
+    companionGazeCurrent.y += (companionGazeTarget.y - companionGazeCurrent.y) * ease;
+    if (Math.abs(companionGazeTarget.x - companionGazeCurrent.x) < .008) companionGazeCurrent.x = companionGazeTarget.x;
+    if (Math.abs(companionGazeTarget.y - companionGazeCurrent.y) < .008) companionGazeCurrent.y = companionGazeTarget.y;
+    companionApplyGaze();
+    if (Math.abs(companionGazeTarget.x - companionGazeCurrent.x) > .008 || Math.abs(companionGazeTarget.y - companionGazeCurrent.y) > .008) {
+      companionGazeFrame = requestAnimationFrame(companionRunGazeFrame);
+    }
+  }
+
+  function companionSetGazeNormalized(x = 0, y = 0, immediate = false) {
+    companionGazeTarget = { x: companionClamp(Number(x) || 0, -1, 1), y: companionClamp(Number(y) || 0, -1, 1) };
+    if (immediate || companionReducedMotion) {
+      companionGazeCurrent = { ...companionGazeTarget };
+      companionApplyGaze();
+      return;
+    }
+    if (!companionGazeFrame) companionGazeFrame = requestAnimationFrame(companionRunGazeFrame);
+  }
+
   function companionSetLook(direction = 'center') {
-    if (els.pocketCompanion) els.pocketCompanion.dataset.look = direction;
+    if (!els.pocketCompanion) return;
+    els.pocketCompanion.dataset.look = direction;
+    const map = { left: [-.78, 0], right: [.78, 0], up: [0, -.76], down: [0, .68], center: [0, 0] };
+    companionSetGazeNormalized(...(map[direction] || map.center));
+  }
+
+  function companionSetMotionVector(dx = 0, dy = 0, intensity = 1) {
+    if (!els.pocketCompanion) return;
+    const direction = dx === 0 ? 0 : Math.sign(dx);
+    const lean = companionClamp(dx / 70, -1, 1) * 5 * intensity;
+    const vertical = companionClamp(dy / 90, -1, 1);
+    els.pocketCompanion.style.setProperty('--motion-lean', `${lean.toFixed(2)}deg`);
+    els.pocketCompanion.style.setProperty('--ear-trail', `${(-direction * (5 + Math.abs(lean) * .7) * intensity).toFixed(2)}deg`);
+    els.pocketCompanion.style.setProperty('--tail-swing', `${(direction * (7 + Math.abs(lean)) * intensity).toFixed(2)}deg`);
+    els.pocketCompanion.style.setProperty('--motion-y', `${(vertical * 1.5).toFixed(2)}px`);
+  }
+
+  function companionResetMotionVector() {
+    if (!els.pocketCompanion) return;
+    els.pocketCompanion.style.setProperty('--motion-lean', '0deg');
+    els.pocketCompanion.style.setProperty('--ear-trail', '0deg');
+    els.pocketCompanion.style.setProperty('--tail-swing', '0deg');
+    els.pocketCompanion.style.setProperty('--motion-y', '0px');
   }
 
   function companionLookAtPoint(clientX, clientY) {
@@ -1537,15 +1604,27 @@
     const dx = clientX - x;
     const dy = clientY - y;
     const distance = Math.hypot(dx, dy);
-    if (distance > 360 || companionPhase === 'travel' || companionPhase === 'interact') {
-      els.pocketCompanion?.classList.remove('is-pointer-aware');
+    if (distance > 390 || companionPhase === 'travel' || companionPhase === 'interact') {
+      els.pocketCompanion?.classList.remove('is-pointer-aware', 'is-gaze-active');
       if (companionPhase === 'idle') companionSetLook('center');
       return;
     }
     companionSetFacing(dx);
-    if (Math.abs(dx) > Math.abs(dy) * .72) companionSetLook(dx < 0 ? 'left' : 'right');
-    else companionSetLook(dy < 0 ? 'up' : 'down');
-    els.pocketCompanion?.classList.add('is-pointer-aware');
+    companionSetGazeNormalized(companionClamp(dx / 125, -1, 1), companionClamp(dy / 105, -1, 1));
+    const direction = Math.abs(dx) > Math.abs(dy) * .72 ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
+    els.pocketCompanion.dataset.look = direction;
+    els.pocketCompanion?.classList.add('is-pointer-aware', 'is-gaze-active');
+  }
+
+  function companionPetZoneFromPoint(clientX, clientY) {
+    const rect = els.companionBunny?.getBoundingClientRect();
+    if (!rect?.width || !rect?.height) return 'head';
+    const x = companionClamp((clientX - rect.left) / rect.width, 0, 1);
+    const y = companionClamp((clientY - rect.top) / rect.height, 0, 1);
+    if (y < .34 && x < .46) return 'left-ear';
+    if (y < .34 && x > .54) return 'right-ear';
+    if (y < .64) return 'head';
+    return 'chest';
   }
 
   function companionDragTo(clientX, clientY) {
@@ -1555,8 +1634,22 @@
     const dy = clientY - companionPointerState.startY;
     const x = Math.max(bounds.minX, Math.min(bounds.maxX, companionPointerState.originX + dx));
     const y = Math.max(bounds.minY, Math.min(bounds.maxY, companionPointerState.originY + dy));
+    const now = performance.now();
+    const elapsed = Math.max(8, now - (companionPointerState.lastAt || now));
+    const vx = (clientX - companionPointerState.lastX) / elapsed * 16;
+    const vy = (clientY - companionPointerState.lastY) / elapsed * 16;
+    companionPointerState.velocityX = vx;
+    companionPointerState.velocityY = vy;
+    companionPointerState.lastX = clientX;
+    companionPointerState.lastY = clientY;
+    companionPointerState.lastAt = now;
     els.pocketCompanion.style.setProperty('--companion-x', `${Math.round(x)}px`);
     els.pocketCompanion.style.setProperty('--companion-y', `${Math.round(y)}px`);
+    els.pocketCompanion.style.setProperty('--drag-lean', `${companionClamp(vx * 1.7, -8, 8).toFixed(2)}deg`);
+    const dragLag = companionClamp(-vx * 2.2, -12, 12);
+    els.pocketCompanion.style.setProperty('--drag-lag', `${dragLag.toFixed(2)}deg`);
+    els.pocketCompanion.style.setProperty('--drag-lag-reverse', `${(-dragLag).toFixed(2)}deg`);
+    companionSetMotionVector(vx * 24, vy * 24, .9);
     companionPosition = { x: Math.round(x), y: Math.round(y) };
     companionUpdateBubbleSide(x, y);
   }
@@ -1564,19 +1657,88 @@
   function companionPetMain() {
     if (!companionPointerState || companionPointerState.dragging || companionPointerState.petting) return;
     companionPointerState.petting = true;
+    companionPointerState.petRewardSteps = 0;
+    companionPointerState.strokeDistance = 0;
+    companionPointerState.petZone ||= companionPetZoneFromPoint(companionPointerState.startX, companionPointerState.startY);
     companionClearQueue();
     companionCancelTravel();
     companionClearPose();
+    companionClearPerch();
     companionSetMood('happy');
+    companionSetGazeNormalized(0, -.18);
     els.pocketCompanion?.classList.add('is-petting');
-    companionAdjustProfile({ affection: 3, energy: 1, pet: 1, mood: 'happy' }, { render: false });
-    if (els.companionBunny) companionEmitEffect(els.companionBunny, 'heart', 6, false);
-    companionSay('Head pats accepted ♡', 2600, { essential: true });
+    els.pocketCompanion.dataset.petZone = companionPointerState.petZone;
+    companionAdjustProfile({ affection: 2, energy: 1, pet: 1, mood: 'happy' }, { render: false });
+    if (els.companionBunny) companionEmitEffect(els.companionBunny, 'heart', 3, false);
+  }
+
+  function companionPetStroke(event) {
+    const pointer = companionPointerState;
+    if (!pointer?.petting || !els.pocketCompanion) return;
+    const now = performance.now();
+    const dx = event.clientX - pointer.lastX;
+    const dy = event.clientY - pointer.lastY;
+    const distance = Math.hypot(dx, dy);
+    pointer.strokeDistance += distance;
+    pointer.lastX = event.clientX;
+    pointer.lastY = event.clientY;
+    pointer.lastAt = now;
+    const tilt = companionClamp(dx * .42, -7, 7);
+    const lift = companionClamp(dy * .16, -2.5, 2.5);
+    els.pocketCompanion.style.setProperty('--pet-stroke-tilt', `${tilt.toFixed(2)}deg`);
+    els.pocketCompanion.style.setProperty('--pet-stroke-y', `${lift.toFixed(2)}px`);
+    els.pocketCompanion.classList.add('is-pet-stroking');
+    const earnedSteps = Math.min(3, Math.floor(pointer.strokeDistance / 52));
+    if (earnedSteps > pointer.petRewardSteps) {
+      const delta = earnedSteps - pointer.petRewardSteps;
+      pointer.petRewardSteps = earnedSteps;
+      companionAdjustProfile({ affection: delta, energy: delta * .5, interaction: false }, { render: false });
+    }
+  }
+
+  function companionPerchElementAt(clientX, clientY) {
+    if (!document.elementsFromPoint) return null;
+    const elements = document.elementsFromPoint(clientX, clientY);
+    for (const node of elements) {
+      if (!node || node === els.pocketCompanion || els.pocketCompanion?.contains(node) || node.closest?.('dialog')) continue;
+      const candidate = node.matches?.(COMPANION_PERCH_SELECTOR) ? node : node.closest?.(COMPANION_PERCH_SELECTOR);
+      if (candidate && companionVisibleElement(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  function companionClearPerch() {
+    companionPerchedUntil = 0;
+    companionPerchTarget = null;
+    companionPerchSide = 'center';
+    if (els.pocketCompanion) {
+      els.pocketCompanion.classList.remove('is-perched', 'is-perch-settling');
+      delete els.pocketCompanion.dataset.perchSide;
+    }
+  }
+
+  async function companionPerchOnElement(element, duration = 7000, immediate = false) {
+    if (!companionIsAvailable() || !element?.isConnected || !companionVisibleElement(element)) return false;
+    const target = companionTargetPosition(element, { forcePerch: true });
+    if (target.placement !== 'perch') return false;
+    if (immediate) await companionPlace(target.x, target.y, true);
+    else await companionMoveTo(target.x, target.y, { mode: 'hop' });
+    if (!companionIsAvailable() || !element.isConnected) return false;
+    companionPerchTarget = element;
+    companionPerchedUntil = Date.now() + duration;
+    companionPerchSide = target.perchSide || 'center';
+    els.pocketCompanion.dataset.perchSide = companionPerchSide;
+    els.pocketCompanion.classList.add('is-perched', 'is-perch-settling');
+    window.setTimeout(() => els.pocketCompanion?.classList.remove('is-perch-settling'), 620);
+    companionSetMood('relaxed');
+    companionLookAtElement(element);
+    return true;
   }
 
   function companionSingleTap() {
     companionAdjustProfile({ affection: 1, energy: -1, tap: 1, mood: 'curious' }, { render: false });
     companionQueueAction('direct-tap', async () => {
+      companionClearPerch();
       companionSetMood('curious');
       companionSetPhase('react');
       await companionPose(Math.random() < .55 ? 'waving' : 'curious', 950);
@@ -1587,8 +1749,9 @@
 
   function companionDoubleTap() {
     companionAdjustProfile({ affection: 2, energy: -3, tap: 2, mood: 'excited' }, { render: false });
-    if (els.companionBunny) companionEmitEffect(els.companionBunny, 'heart', 9, false);
+    if (els.companionBunny) companionEmitEffect(els.companionBunny, 'heart', 4, false);
     companionQueueAction('direct-double-tap', async () => {
+      companionClearPerch();
       companionSetMood('excited');
       companionSetPhase('react');
       await companionPose(Math.random() < .5 ? 'hopping' : 'spinning', 1050);
@@ -1622,30 +1785,44 @@
     resetCompanionIdleTimer();
     companionClearQueue();
     companionCancelTravel();
+    companionClearPerch();
     const bounds = companionBounds();
+    const now = performance.now();
     companionPointerState = {
       id: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      lastAt: now,
+      velocityX: 0,
+      velocityY: 0,
       originX: Number.isFinite(companionPosition.x) ? companionPosition.x : bounds.maxX,
       originY: Number.isFinite(companionPosition.y) ? companionPosition.y : bounds.maxY,
       startAt: Date.now(),
       dragging: false,
-      petting: false
+      petting: false,
+      strokeDistance: 0,
+      petRewardSteps: 0,
+      petZone: companionPetZoneFromPoint(event.clientX, event.clientY)
     };
     try { els.companionBunny?.setPointerCapture?.(event.pointerId); } catch (error) { /* Some browsers only allow capture for native active pointers. */ }
     els.pocketCompanion?.classList.add('is-held');
     window.clearTimeout(companionPetTimer);
-    companionPetTimer = window.setTimeout(companionPetMain, 520);
+    companionPetTimer = window.setTimeout(companionPetMain, 500);
   }
 
   function companionPointerMove(event) {
     if (!companionPointerState || event.pointerId !== companionPointerState.id) return;
     event.preventDefault();
+    if (companionPointerState.petting) {
+      companionPetStroke(event);
+      return;
+    }
     const dx = event.clientX - companionPointerState.startX;
     const dy = event.clientY - companionPointerState.startY;
     const distance = Math.hypot(dx, dy);
-    if (!companionPointerState.dragging && !companionPointerState.petting && distance > 11) {
+    if (!companionPointerState.dragging && distance > 11) {
       window.clearTimeout(companionPetTimer);
       companionPointerState.dragging = true;
       els.pocketCompanion?.classList.add('is-dragging');
@@ -1665,31 +1842,58 @@
     const duration = Date.now() - pointer.startAt;
     companionPointerState = null;
     try { els.companionBunny?.releasePointerCapture?.(event.pointerId); } catch (error) { /* already released */ }
-    els.pocketCompanion?.classList.remove('is-held', 'is-dragging');
+    els.pocketCompanion?.classList.remove('is-held', 'is-dragging', 'is-pet-stroking');
+    els.pocketCompanion?.style.setProperty('--pet-stroke-tilt', '0deg');
+    els.pocketCompanion?.style.setProperty('--pet-stroke-y', '0px');
+    els.pocketCompanion?.style.setProperty('--drag-lean', '0deg');
+    els.pocketCompanion?.style.setProperty('--drag-lag', '0deg');
+    els.pocketCompanion?.style.setProperty('--drag-lag-reverse', '0deg');
+    companionResetMotionVector();
 
     if (cancelled) {
       els.pocketCompanion?.classList.remove('is-petting');
+      if (els.pocketCompanion) delete els.pocketCompanion.dataset.petZone;
       return;
     }
     if (pointer.petting) {
-      window.setTimeout(() => els.pocketCompanion?.classList.remove('is-petting'), 420);
+      const zoneLines = {
+        'left-ear': 'That ear twitch means yes ♡',
+        'right-ear': 'Ear scritches accepted ♡',
+        head: 'That was a very good head pat ♡',
+        chest: `${companionName()} looks extra cozy now ♡`
+      };
+      if (Date.now() - companionLastMessageAt > 4200) companionSay(zoneLines[pointer.petZone] || 'Head pats accepted ♡', 2800, { essential: true });
+      window.setTimeout(() => {
+        els.pocketCompanion?.classList.remove('is-petting');
+        if (els.pocketCompanion) delete els.pocketCompanion.dataset.petZone;
+      }, 420);
       scheduleCompanionAction(7000);
       return;
     }
     if (dy < -55 && Math.abs(dx) < 70 && duration < 650) {
       companionPlace(pointer.originX, pointer.originY, true);
       companionAdjustProfile({ affection: 1, energy: -3, mood: 'excited' }, { render: false });
-      companionQueueAction('swipe-jump', async () => {
+      companionQueueAction('direct-swipe-jump', async () => {
         companionSetMood('excited');
-        await companionPose('hopping', 980);
+        await companionPose('hopping', 950);
         return true;
       }, { priority: true });
       return;
     }
     if (pointer.dragging) {
+      const dropTarget = companionPerchElementAt(event.clientX, event.clientY);
       const profile = companionAdjustProfile({ affection: 1, energy: -2, drag: 1, mood: 'curious' }, { render: false });
       companionSetMood('curious');
-      if (profile.drags % 4 === 0) companionSay('New favorite spot? ✨', 2600);
+      if (dropTarget) {
+        companionPerchOnElement(dropTarget, 9000, false).then((perched) => {
+          if (perched && Date.now() - companionLastMessageAt > 6500) companionSay('Oh! This spot is nice ♡', 2800);
+        });
+      } else {
+        const speed = Math.hypot(pointer.velocityX || 0, pointer.velocityY || 0);
+        els.pocketCompanion?.classList.add(speed > 5 ? 'is-bouncy-drop' : 'is-soft-drop');
+        window.setTimeout(() => els.pocketCompanion?.classList.remove('is-bouncy-drop', 'is-soft-drop'), 420);
+        if (profile.drags % 4 === 0) companionSay('New favorite spot? ✨', 2600);
+      }
       scheduleCompanionAction(8000);
       return;
     }
@@ -1713,7 +1917,8 @@
   function companionResetExpression() {
     companionSetLook('center');
     companionSetProp('');
-    if (!els.pocketCompanion?.classList.contains('is-sleeping')) companionSetMood('relaxed');
+    els.pocketCompanion?.classList.remove('is-gaze-active');
+    if (!els.pocketCompanion?.classList.contains('is-sleeping')) companionSetMood(companionMoodFromState());
   }
 
   function companionScheduleBlink() {
@@ -1777,14 +1982,20 @@
     window.clearTimeout(companionPetTimer);
     window.clearTimeout(companionSingleTapTimer);
     if (companionPointerLookFrame) cancelAnimationFrame(companionPointerLookFrame);
+    if (companionGazeFrame) cancelAnimationFrame(companionGazeFrame);
     companionActionTimer = companionAffirmationTimer = companionIdleTimer = companionBubbleTimer = companionPoseTimer = companionFocusTimer = companionBlinkTimer = companionPetTimer = companionSingleTapTimer = 0;
     companionPointerLookFrame = 0;
+    companionGazeFrame = 0;
+    companionStoryGeneration += 1;
     companionPointerState = null;
     companionClearQueue();
     companionCancelTravel();
     companionClearFocus();
     companionClearEffects();
-    els.pocketCompanion?.classList.remove('is-held','is-dragging','is-petting','is-pointer-aware','is-anticipating','is-landing');
+    companionClearPerch();
+    companionSetGazeNormalized(0, 0, true);
+    companionResetMotionVector();
+    els.pocketCompanion?.classList.remove('is-held','is-dragging','is-petting','is-pet-stroking','is-pointer-aware','is-gaze-active','is-anticipating','is-landing','is-soft-drop','is-bouncy-drop','is-grooming','is-shy','is-trip','is-startled','is-dozing-sit');
   }
 
   function companionQueueAction(name, runner, options = {}) {
@@ -1815,7 +2026,7 @@
       if (!els.pocketCompanion?.classList.contains('is-sleeping')) {
         companionSetPhase('rest');
         await companionWait(180);
-        companionClearPose();
+        companionClearPose({ preservePerch: true });
         companionResetExpression();
         companionSetPhase('idle');
       }
@@ -1878,8 +2089,9 @@
     return Promise.resolve();
   }
 
-  function companionMoveTo(x, y, options = {}) {
-    if (!els.pocketCompanion) return Promise.resolve();
+  async function companionMoveTo(x, y, options = {}) {
+    if (!els.pocketCompanion) return;
+    companionClearPerch();
     const bounds = companionBounds();
     const allowOffscreen = Boolean(options.allowOffscreen);
     const targetX = allowOffscreen ? Math.round(x) : Math.max(bounds.minX, Math.min(bounds.maxX, Math.round(x)));
@@ -1892,19 +2104,25 @@
 
     companionUpdateBubbleSide(targetX, targetY);
     companionSetFacing(dx);
+    companionSetMotionVector(dx, dy, 1);
     if (companionReducedMotion || !els.pocketCompanion.animate || distance < 3) {
       companionCancelTravel();
       els.pocketCompanion.style.setProperty('--companion-x', `${targetX}px`);
       els.pocketCompanion.style.setProperty('--companion-y', `${targetY}px`);
       companionPosition = { x: targetX, y: targetY };
-      return Promise.resolve();
+      companionResetMotionVector();
+      return;
     }
 
     companionCancelTravel();
-    companionSetPhase('travel');
-    els.pocketCompanion.classList.add('is-anticipating');
-    window.setTimeout(() => els.pocketCompanion?.classList.remove('is-anticipating'), 150);
     const token = ++companionTravelToken;
+    companionSetPhase('anticipate');
+    els.pocketCompanion.classList.add('is-anticipating');
+    await companionWait(options.mode === 'slide' ? 80 : 135);
+    els.pocketCompanion.classList.remove('is-anticipating');
+    if (!companionIsAvailable() || token !== companionTravelToken) return;
+
+    companionSetPhase('travel');
     const mode = options.mode || 'hop';
     const frames = [];
     let duration;
@@ -1915,20 +2133,20 @@
       duration = options.duration || Math.max(420, Math.min(880, distance * 2.8));
     } else {
       const hops = Math.max(1, Math.min(6, Math.ceil(distance / 92)));
-      const hopHeight = Math.max(18, Math.min(31, 18 + distance / 30));
+      const hopHeight = Math.max(18, Math.min(32, 18 + distance / 30));
       for (let hop = 0; hop < hops; hop += 1) {
         const start = hop / hops;
         const end = (hop + 1) / hops;
         const span = end - start;
-        const crouch = start + span * .10;
-        const apex = start + span * .47;
-        const land = start + span * .88;
+        const crouch = start + span * .11;
+        const apex = start + span * .46;
+        const land = start + span * .87;
         const sx = startX + dx * start;
         const sy = startY + dy * start;
         const cx = startX + dx * crouch;
         const cy = startY + dy * crouch + 2;
         const ax = startX + dx * apex;
-        const ay = startY + dy * apex - hopHeight * (hop === hops - 1 ? .92 : 1);
+        const ay = startY + dy * apex - hopHeight * (hop === hops - 1 ? .94 : 1);
         const lx = startX + dx * land;
         const ly = startY + dy * land + 2;
         const ex = startX + dx * end;
@@ -1953,12 +2171,10 @@
     els.pocketCompanion.style.setProperty('--companion-y', `${targetY}px`);
     companionPosition = { x: targetX, y: targetY };
 
-    return new Promise((resolve) => {
+    await new Promise((resolve) => {
       const finish = () => {
         if (token === companionTravelToken) {
           els.pocketCompanion?.classList.remove('is-traveling', 'is-anticipating');
-          els.pocketCompanion?.classList.add('is-landing');
-          window.setTimeout(() => els.pocketCompanion?.classList.remove('is-landing'), 280);
           companionTravelAnimation = null;
         }
         resolve();
@@ -1966,19 +2182,34 @@
       animation.addEventListener('finish', finish, { once: true });
       animation.addEventListener('cancel', finish, { once: true });
     });
+
+    if (token !== companionTravelToken || !companionIsAvailable()) return;
+    companionSetPhase('land');
+    els.pocketCompanion.classList.add('is-landing');
+    await companionWait(245);
+    els.pocketCompanion?.classList.remove('is-landing');
+    companionResetMotionVector();
   }
 
   const COMPANION_POSE_CLASSES = [
     'is-hopping', 'is-spinning', 'is-waving', 'is-peeking', 'is-celebrating', 'is-expense',
     'is-allowance', 'is-savings', 'is-curious', 'is-tapping', 'is-sitting', 'is-perched',
-    'is-listening', 'is-catching', 'is-presenting', 'is-stretching'
+    'is-listening', 'is-catching', 'is-presenting', 'is-stretching', 'is-grooming', 'is-shy',
+    'is-trip', 'is-startled', 'is-dozing-sit'
   ];
 
-  function companionClearPose() {
+  function companionClearPose(options = {}) {
     if (!els.pocketCompanion) return;
     window.clearTimeout(companionPoseTimer);
     companionPoseTimer = 0;
+    const keepPerch = Boolean(options.preservePerch && companionPerchTarget?.isConnected && Date.now() < companionPerchedUntil);
     els.pocketCompanion.classList.remove(...COMPANION_POSE_CLASSES);
+    if (keepPerch) {
+      els.pocketCompanion.classList.add('is-perched');
+      els.pocketCompanion.dataset.perchSide = companionPerchSide;
+    } else if (options.preservePerch) {
+      companionClearPerch();
+    }
   }
 
   function companionClearAction() {
@@ -2039,7 +2270,7 @@
     });
   }
 
-  function companionTargetPosition(element) {
+  function companionTargetPosition(element, options = {}) {
     const bounds = companionBounds();
     const rect = element.getBoundingClientRect();
     const bunnyW = bounds.boxWidth;
@@ -2047,14 +2278,19 @@
     let x;
     let y;
     let placement = 'side-right';
+    let perchSide = 'center';
     const isControl = element.matches('button, [role="button"], .segmented button, .small-icon-button, .primary-action');
-    const canPerch = !isControl && rect.width >= 126 && rect.top - bunnyH + 26 >= bounds.minY;
+    const forcePerch = Boolean(options.forcePerch);
+    const canPerch = !isControl && rect.width >= 118 && rect.top - bunnyH + 30 >= bounds.minY;
 
-    if (canPerch) {
+    if ((canPerch && Math.random() < .82) || (forcePerch && canPerch)) {
       placement = 'perch';
-      const bias = rect.left + rect.width * (Math.random() < .5 ? .28 : .72);
+      const preferred = options.perchSide || (Math.random() < .5 ? 'left' : 'right');
+      perchSide = preferred;
+      const ratio = preferred === 'left' ? .24 : preferred === 'right' ? .76 : .5;
+      const bias = rect.left + rect.width * ratio;
       x = bias - bunnyW / 2;
-      y = rect.top - bunnyH + 27;
+      y = rect.top - bunnyH + Math.min(34, Math.max(24, rect.height * .12));
     } else {
       const rightSpace = bounds.width - rect.right;
       const leftSpace = rect.left - bounds.minX;
@@ -2067,7 +2303,8 @@
     return {
       x: Math.max(bounds.minX, Math.min(bounds.maxX, Math.round(x))),
       y: Math.max(bounds.minY, Math.min(bounds.maxY, Math.round(y))),
-      placement
+      placement,
+      perchSide
     };
   }
 
@@ -2082,8 +2319,10 @@
     const dx = targetX - bunnyCenterX;
     const dy = targetY - bunnyCenterY;
     companionSetFacing(dx);
-    if (Math.abs(dx) > Math.abs(dy) * .7) companionSetLook(dx < 0 ? 'left' : 'right');
-    else companionSetLook(dy < 0 ? 'up' : 'down');
+    companionSetGazeNormalized(companionClamp(dx / 130, -1, 1), companionClamp(dy / 110, -1, 1));
+    const direction = Math.abs(dx) > Math.abs(dy) * .7 ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
+    els.pocketCompanion.dataset.look = direction;
+    els.pocketCompanion.classList.add('is-gaze-active');
   }
 
   function companionInteractionLine(element) {
@@ -2211,10 +2450,11 @@
   async function companionVisitElement(element, options = {}) {
     if (!companionIsAvailable() || !companionVisibleElement(element) || document.querySelector('dialog[open]')) return false;
     companionClearPose();
+    companionClearPerch();
     companionSetPhase('notice');
     companionSetMood(options.mood || 'curious');
     companionLookAtElement(element);
-    await companionWait(options.noticeDuration || 220);
+    await companionWait(options.noticeDuration || 260);
 
     const target = companionTargetPosition(element);
     companionSetPhase('travel');
@@ -2225,10 +2465,17 @@
     companionLookAtElement(element);
     const isTap = options.action === 'tapping' || element.matches('button, [role="button"], [data-action]');
     companionFocusElement(element, options.focusDuration || 2100, isTap);
-    if (target.placement === 'perch') els.pocketCompanion.classList.add('is-perched');
+    if (target.placement === 'perch') {
+      companionPerchTarget = element;
+      companionPerchedUntil = Date.now() + (options.perchDuration || 6200);
+      companionPerchSide = target.perchSide || 'center';
+      els.pocketCompanion.dataset.perchSide = companionPerchSide;
+      els.pocketCompanion.classList.add('is-perched', 'is-perch-settling');
+      window.setTimeout(() => els.pocketCompanion?.classList.remove('is-perch-settling'), 620);
+    }
     companionSetProp(options.prop ?? companionPropForElement(element));
     const action = options.action || (target.placement === 'perch' ? 'sitting' : (Math.random() < .58 ? 'tapping' : 'curious'));
-    if (options.effect) companionEmitEffect(element, options.effect, options.effectCount || 6, Boolean(options.effectToward));
+    if (options.effect) companionEmitEffect(element, options.effect, Math.min(options.effectCount || 4, 5), Boolean(options.effectToward));
     await companionPose(action, options.duration || (action === 'tapping' ? 1150 : 1350));
 
     companionSetPhase('react');
@@ -2237,11 +2484,14 @@
       const line = options.message || companionInteractionLine(element);
       if (line && Date.now() - companionLastMessageAt > 8500) companionSay(line, 4300);
     }
-    await companionWait(options.reactHold || 340);
+    await companionWait(options.reactHold || 360);
     companionSetPhase('rest');
     companionClearFocus();
     companionSetProp('');
-    companionSetLook('center');
+    if (target.placement !== 'perch') {
+      companionSetLook('center');
+      els.pocketCompanion.classList.remove('is-gaze-active');
+    }
     return true;
   }
 
@@ -2287,7 +2537,7 @@
       Math.min(window.innerWidth - 8, Math.max(8, pos.x + pos.boxWidth / 2)),
       Math.min(window.innerHeight - 8, Math.max(8, pos.y + pos.boxHeight / 2))
     );
-    if (fakeTarget && fakeTarget !== els.pocketCompanion) companionEmitEffect(fakeTarget, Math.random() < .5 ? 'heart' : 'sparkle', 7, false);
+    if (fakeTarget && fakeTarget !== els.pocketCompanion) companionEmitEffect(fakeTarget, Math.random() < .5 ? 'heart' : 'sparkle', 4, false);
     await companionPose(Math.random() < .55 ? 'catching' : 'spinning', 1250);
     if (Date.now() - companionLastMessageAt > 18000 && Math.random() < .42) companionSay('Tiny happy moment! ♡', 3600);
     companionSetProp('');
@@ -2336,6 +2586,92 @@
     };
   }
 
+  async function companionRareCharacterMoment() {
+    if (!companionIsAvailable() || companionReducedMotion) return false;
+    const roll = Math.random();
+    companionClearPerch();
+    companionSetPhase('interact');
+    if (roll < .28) {
+      companionSetMood('curious');
+      await companionPose('grooming', 1800);
+      return true;
+    }
+    if (roll < .50) {
+      companionSetMood('curious');
+      await companionPose('trip', 1050);
+      companionSetMood('shy');
+      await companionPose('shy', 1250);
+      if (Date.now() - companionLastMessageAt > 24000) companionSay('...you saw nothing ♡', 3000);
+      return true;
+    }
+    if (roll < .72) {
+      companionSetMood('curious');
+      await companionPose('startled', 800);
+      companionSetLook(Math.random() < .5 ? 'left' : 'right');
+      await companionWait(600);
+      companionSetLook('center');
+      return true;
+    }
+    companionSetMood('sleepy');
+    await companionPose('dozing-sit', 2200);
+    return true;
+  }
+
+  async function companionIdleStory() {
+    if (!companionIsAvailable() || document.querySelector('dialog[open]')) return false;
+    const generation = ++companionStoryGeneration;
+    const stillValid = () => generation === companionStoryGeneration && companionIsAvailable() && !document.querySelector('dialog[open]');
+    const personality = companionPersonality();
+    const targets = companionContextTargets(currentView);
+    const target = targets.length ? targets[Math.floor(Math.random() * targets.length)] : null;
+    const roll = Math.random();
+
+    companionClearPerch();
+    if (target && roll < .50) {
+      companionSetMood('curious');
+      companionLookAtElement(target);
+      await companionWait(280);
+      if (!stillValid()) return false;
+      const visited = await companionVisitElement(target, { silent: true, mood: 'curious', duration: 900, perchDuration: 7200 });
+      if (!visited || !stillValid()) return visited;
+      await companionWait(650);
+      if (!stillValid()) return false;
+      if (companionPerchTarget === target) {
+        companionSetMood('relaxed');
+        await companionPose(Math.random() < .6 ? 'grooming' : 'listening', 1550);
+      }
+      return true;
+    }
+
+    if (personality === 'playful' && roll < .76) {
+      const first = companionSafePosition(false);
+      await companionMoveTo(first.x, first.y, { mode: 'hop' });
+      if (!stillValid()) return false;
+      companionSetMood('excited');
+      await companionPose('stretching', 850);
+      if (!stillValid()) return false;
+      const second = companionSafePosition(true);
+      await companionMoveTo(second.x, second.y, { mode: 'hop' });
+      if (!stillValid()) return false;
+      await companionPose(Math.random() < .5 ? 'waving' : 'curious', 1000);
+      return true;
+    }
+
+    if (personality === 'curious' && roll < .82) {
+      await companionPeekFromEdge();
+      if (!stillValid()) return false;
+      companionSetMood('curious');
+      await companionPose('listening', 1050);
+      return true;
+    }
+
+    companionSetMood('relaxed');
+    await companionPose('stretching', 900);
+    if (!stillValid()) return false;
+    await companionPose(Math.random() < .5 ? 'grooming' : 'sitting', 1500);
+    return true;
+  }
+
   function scheduleCompanionAction(delay) {
     window.clearTimeout(companionActionTimer);
     if (!companionIsAvailable()) return;
@@ -2343,9 +2679,9 @@
     const personality = companionPersonality();
     const energy = companionProfileState().energy;
     if (!Number.isFinite(delay)) {
-      const base = calm ? 18000 + Math.random() * 15000 : 7000 + Math.random() * 7500;
-      delay = energy < 35 ? base * 1.65 : personality === 'playful' ? base * .82 : base;
-    } else if (calm) delay = Math.max(12000, delay * 1.65);
+      const base = calm ? 19000 + Math.random() * 16000 : 8200 + Math.random() * 8800;
+      delay = energy < 35 ? base * 1.7 : personality === 'playful' ? base * .82 : base;
+    } else if (calm) delay = Math.max(12000, delay * 1.55);
     companionActionTimer = window.setTimeout(() => {
       if (!companionIsAvailable()) return;
       if (document.visibilityState !== 'visible' || document.querySelector('dialog[open]')) {
@@ -2356,47 +2692,27 @@
         scheduleCompanionAction(7000);
         return;
       }
-      companionQueueAction('ambient', async () => {
-        const roll = Math.random();
-        const calm = companionMovementMode() === 'calm';
-        const personality = companionPersonality();
-        const tired = companionProfileState().energy < 34;
+      if (companionPerchTarget && Date.now() < companionPerchedUntil) {
+        companionQueueAction('perch-life', async () => {
+          if (!companionPerchTarget?.isConnected) { companionClearPerch(); return false; }
+          companionSetMood(companionProfileState().energy < 42 ? 'gentle' : 'relaxed');
+          companionLookAtElement(companionPerchTarget);
+          await companionPose(Math.random() < .58 ? 'grooming' : 'listening', 1350);
+          return true;
+        }, { spontaneous: true });
+        scheduleCompanionAction(6500 + Math.random() * 5000);
+        return;
+      }
+      companionQueueAction('ambient-story', async () => {
+        const tired = companionProfileState().energy < 30;
         if (tired) {
+          companionClearPerch();
           companionSetMood('gentle');
-          await companionPose(Math.random() < .7 ? 'sitting' : 'stretching', 1350);
-        } else if (calm && !companionReducedMotion && roll < .62) {
-          companionSetMood('relaxed');
-          await companionPose(Math.random() < .5 ? 'sitting' : 'curious', 1250);
-        } else if (personality === 'curious' && !companionReducedMotion && roll < .66) {
-          const visited = await companionVisitContextElement({ silent: Math.random() < .72, mood: 'curious', duration: 1100 });
-          if (!visited) await companionPeekFromEdge();
-        } else if (personality === 'playful' && !companionReducedMotion && roll < .38) {
-          const pos = companionSafePosition(false);
-          await companionMoveTo(pos.x, pos.y, { mode: 'hop' });
-          companionSetMood('excited');
-          await companionPose(Math.random() < .52 ? 'spinning' : 'hopping', 1180);
-        } else if (!companionReducedMotion && roll < .50) {
-          const visited = await companionVisitContextElement({ silent: Math.random() < .60, mood: 'curious' });
-          if (!visited) {
-            const pos = companionSafePosition();
-            await companionMoveTo(pos.x, pos.y, { mode: 'hop' });
-            companionSetMood('curious');
-            await companionPose('curious', 1200);
-          }
-        } else if (!companionReducedMotion && roll < .72) {
-          const pos = companionSafePosition(Math.random() < .45);
-          await companionMoveTo(pos.x, pos.y, { mode: 'hop' });
-          companionSetMood('happy');
-          await companionPose(Math.random() < .65 ? 'waving' : 'stretching', 1500);
-        } else if (!companionReducedMotion && roll < .84) {
-          await companionPeekFromEdge();
-        } else if (!companionReducedMotion && roll < .92) {
-          await companionSurpriseSequence();
-        } else {
-          companionSetMood(companionMoodFromState());
-          await companionPose('sitting', 1300);
+          await companionPose(Math.random() < .65 ? 'dozing-sit' : 'stretching', 1500);
+          return true;
         }
-        return true;
+        if (Math.random() < .10 && companionProfileState().affection >= 35) return companionRareCharacterMoment();
+        return companionIdleStory();
       }, { spontaneous: true });
       scheduleCompanionAction();
     }, delay);
@@ -2414,7 +2730,7 @@
           companionSetPhase('react');
           companionSetMood(message.heartfelt ? (Math.random() < .48 ? 'proud' : 'gentle') : 'gentle');
           companionSetProp(message.heartfelt ? 'flower' : (Math.random() < .26 ? 'flower' : ''));
-          if (message.heartfelt && els.pocketCompanion) companionEmitEffect(els.pocketCompanion, 'heart', 5, false);
+          if (message.heartfelt && els.pocketCompanion) companionEmitEffect(els.pocketCompanion, 'heart', 3, false);
           companionSay(message.text, message.heartfelt ? 6800 : 5200);
           await companionPose(message.heartfelt ? (Math.random() < .5 ? 'listening' : 'waving') : (Math.random() < .58 ? 'waving' : 'listening'), message.heartfelt ? 1900 : 1550);
           companionSetProp('');
@@ -2449,7 +2765,7 @@
         const targets = companionContextTargets(currentView).filter((element) => element.matches('.card, .goal-card, .savings-balance-hero, .home-wallet-overview'));
         if (targets.length && !companionReducedMotion) {
           const target = targets[Math.floor(Math.random() * targets.length)];
-          await companionVisitElement(target, { silent: true, action: 'sitting', duration: 800, focusDuration: 650, mood: 'sleepy' });
+          await companionVisitElement(target, { silent: true, action: 'dozing-sit', duration: 1200, focusDuration: 650, mood: 'sleepy', perchDuration: 12000 });
         }
         companionAdjustProfile({ energy: 3, mood: 'sleepy', interaction: false }, { render: false });
         companionSetPhase('rest');
@@ -2579,8 +2895,8 @@
       companionSetMood(mood);
       companionSetProp(prop);
       if (target) {
-        if (kind === 'savings' || kind === 'transfer') companionEmitFromBunnyToElement(target, effect, kind === 'savings' ? 8 : 6);
-        else companionEmitEffect(target, effect, kind === 'complete' ? 12 : 7, kind === 'allowance');
+        if (kind === 'savings' || kind === 'transfer') companionEmitFromBunnyToElement(target, effect, kind === 'savings' ? 5 : 4);
+        else companionEmitEffect(target, effect, kind === 'complete' ? 6 : 4, kind === 'allowance');
       }
       await companionPose(action, kind === 'complete' ? 2600 : 1700);
 
@@ -2880,6 +3196,8 @@
   function setView(view, updateHash = true) {
     if (!['home', 'activity', 'savings', 'more'].includes(view)) view = 'home';
     currentView = view;
+    companionClearPerch();
+    companionStoryGeneration += 1;
     els.contentScroll.classList.toggle('home-active', view === 'home');
     els.contentScroll.classList.toggle('activity-active', view === 'activity');
     els.contentScroll.classList.toggle('savings-active', view === 'savings');
@@ -4157,6 +4475,8 @@
     els.companionBunny.addEventListener('pointercancel', (event)=>companionPointerEnd(event,true));
     document.addEventListener('pointermove', companionPointerWatch, { passive: true });
     document.addEventListener('pointerover', (event)=>{ if(!companionIsAvailable()||companionPointerState||companionPhase!=='idle') return; const target=event.target.closest('button,[role=button],.card,.goal-card,.wallet-mode-card'); if(target&&companionVisibleElement(target)) companionLookAtElement(target); }, { passive: true });
+    els.contentScroll.addEventListener('scroll', ()=>{ if(companionPerchTarget){ companionClearPerch(); companionStoryGeneration += 1; } }, { passive: true });
+    window.addEventListener('resize', ()=>{ companionClearPerch(); companionSetGazeNormalized(0,0,true); }, { passive: true });
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && els.secretPocketDialog?.open) {
         closeDialog(els.secretPocketDialog);
@@ -4239,7 +4559,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.0.2');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.1.0');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
