@@ -4643,3 +4643,53 @@ body:has(dialog[open]) .pocket-companion { opacity: 0; transition: opacity .18s 
   .secret-pocket-dialog .dialog-header { padding-top: 11px; padding-bottom: 9px; }
   .secret-pocket-dialog .secret-settings-body { padding-top: 10px; }
 }
+
+
+/* Pocket v2.9.3 — keep the complete mobile navigation fixed above Secret Pocket effects. */
+@media (max-width: 820px) {
+  :root[data-theme="light"] .bottom-nav {
+    position: fixed !important;
+    z-index: 80 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: calc(var(--bottom-nav-height) + var(--safe-bottom)) !important;
+    padding: 8px 12px var(--safe-bottom) !important;
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    align-items: center !important;
+    transform: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    overflow: visible !important;
+    background: linear-gradient(180deg, rgba(255,255,255,.94), rgba(255,247,251,.92)) !important;
+    border-top: 1px solid rgba(230,191,208,.96) !important;
+    box-shadow: 0 -12px 30px rgba(160,101,131,.10), 0 -1px 0 rgba(255,255,255,.88) inset !important;
+    backdrop-filter: blur(20px) saturate(1.08) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(1.08) !important;
+  }
+  :root[data-theme="light"] .bottom-nav::after {
+    top: 0;
+    bottom: auto;
+    z-index: 0;
+  }
+  :root[data-theme="light"] .bottom-nav-item,
+  :root[data-theme="light"] .bottom-add {
+    position: relative;
+    z-index: 2;
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+  }
+  :root[data-theme="light"] .content-scroll {
+    padding-bottom: calc(var(--bottom-nav-height) + var(--safe-bottom) + 22px);
+  }
+  :root[data-theme="light"] .secret-light-scene { z-index: 0; }
+  :root[data-theme="light"] .secret-light-fx { z-index: 4; }
+}
+
+@media (max-width: 390px) {
+  :root[data-theme="light"] .bottom-nav { padding-left: 4px !important; padding-right: 4px !important; }
+  :root[data-theme="light"] .bottom-nav-item { min-width: 0; }
+}
