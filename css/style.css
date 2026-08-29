@@ -5312,3 +5312,90 @@ body:has(dialog[open]) .pocket-companion .companion-bunny { pointer-events: none
   .companion-room-bunny,
   .room-wall-stars i { animation:none !important; }
 }
+
+
+/* Pocket v3.0.1 — silhouette companion polish: remove boxed aura and tap hitbox visuals. */
+:root[data-theme="light"] .pocket-companion {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  filter: none;
+}
+
+/* The old oversized aura used the companion's rectangular layout bounds.
+   Remove it so the character no longer looks like it is inside a card/box. */
+:root[data-theme="light"] .pocket-companion::before {
+  content: none !important;
+  display: none !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+/* Keep only a tiny floor shadow underneath the feet, never around the hitbox. */
+:root[data-theme="light"] .pocket-companion::after {
+  content: "";
+  left: 50%;
+  bottom: -2px;
+  width: 58px;
+  height: 10px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(170, 99, 133, .18) 0%, rgba(213, 151, 181, .09) 44%, rgba(213, 151, 181, 0) 76%);
+  filter: blur(2px);
+  opacity: .8;
+}
+
+.pocket-companion .companion-bunny {
+  background: transparent !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pocket-companion .companion-bunny:focus,
+.pocket-companion .companion-bunny:focus-visible,
+.pocket-companion .companion-bunny:active {
+  outline: 0 !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A silhouette-following glow replaces the rectangular aura. */
+:root[data-theme="light"] .pocket-companion .companion-bunny > svg {
+  filter:
+    drop-shadow(0 7px 5px rgba(126, 72, 99, .12))
+    drop-shadow(0 0 5px rgba(255, 207, 229, .22));
+  transition: filter .2s ease;
+}
+
+:root[data-theme="light"] .pocket-companion.is-held .companion-bunny > svg,
+:root[data-theme="light"] .pocket-companion.is-petting .companion-bunny > svg {
+  filter:
+    drop-shadow(0 9px 6px rgba(126, 72, 99, .14))
+    drop-shadow(0 0 8px rgba(255, 190, 220, .32));
+}
+
+:root[data-theme="light"] .pocket-companion.is-dragging .companion-bunny {
+  filter: none !important;
+}
+
+:root[data-theme="light"] .pocket-companion.is-dragging .companion-bunny > svg {
+  filter:
+    drop-shadow(0 12px 7px rgba(126, 72, 99, .18))
+    drop-shadow(0 0 8px rgba(255, 196, 222, .24));
+}
+
+@media (max-width: 560px) {
+  :root[data-theme="light"] .pocket-companion::after {
+    width: 50px;
+    height: 8px;
+    bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="light"] .pocket-companion .companion-bunny > svg {
+    transition: none !important;
+  }
+}
