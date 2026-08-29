@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=2.9.0">
+  <link rel="stylesheet" href="css/style.css?v=2.9.1">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -272,7 +272,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 2.9.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 2.9.1</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -628,6 +628,10 @@
       </div>
       <div class="dialog-body secret-unlock-body">
         <div class="secret-emblem" aria-hidden="true"><span>♡</span><i></i><i></i><i></i></div>
+        <div class="secret-unlock-intro">
+          <div class="secret-unlock-chip-row" aria-hidden="true"><span>Soft theme</span><span>Dreamy motion</span><span>Bunny companion</span></div>
+          <p class="secret-unlock-copy">A dreamy Pocket with floating sparkles, glossy cards, and your cozy bunny companion is hiding behind this four-digit code.</p>
+        </div>
         <button class="secret-pin-dots" id="secretPinDots" type="button" aria-label="Secret code entry" tabindex="-1"><span></span><span></span><span></span><span></span></button>
         <input class="secret-pin-capture" id="themePassword" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-describedby="themePasswordError" aria-invalid="false">
         <p class="helper-text theme-password-error" id="themePasswordError" role="alert" aria-live="polite"></p>
@@ -647,6 +651,16 @@
     <div class="dialog-panel">
       <div class="dialog-header"><div><p class="eyebrow">Secret Pocket</p><h2>Your hidden corner ♡</h2><p class="dialog-subtitle">Appearance and companion controls stay tucked away here.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
       <div class="dialog-body secret-settings-body">
+        <section class="secret-world-hero" aria-label="Secret Pocket overview">
+          <div class="secret-world-hero-copy">
+            <p class="eyebrow">Hidden world</p>
+            <h3 id="secretWorldHeroTitle">Light Pocket is ready ♡</h3>
+            <p id="secretWorldHeroSubtitle">Dreamy glass cards, floating sparkles, and a cozy companion.</p>
+          </div>
+          <div class="secret-world-hero-badges" aria-hidden="true">
+            <span>Pastel motion</span><span>Secret access</span><span>Bunny friend</span>
+          </div>
+        </section>
         <section class="secret-settings-section">
           <div class="secret-section-copy"><strong>Appearance</strong><small>Switch worlds without locking Secret Pocket.</small></div>
           <div class="secret-choice-grid" role="group" aria-label="Pocket appearance">
@@ -691,6 +705,13 @@
     </form>
   </dialog>
 
+
+  <div class="secret-light-scene" id="secretLightScene" aria-hidden="true">
+    <span class="secret-scene-orb orb-a"></span><span class="secret-scene-orb orb-b"></span><span class="secret-scene-orb orb-c"></span>
+    <span class="secret-scene-cloud cloud-a"></span><span class="secret-scene-cloud cloud-b"></span><span class="secret-scene-cloud cloud-c"></span>
+    <span class="secret-scene-star star-a"></span><span class="secret-scene-star star-b"></span><span class="secret-scene-star star-c"></span><span class="secret-scene-star star-d"></span><span class="secret-scene-star star-e"></span><span class="secret-scene-star star-f"></span>
+  </div>
+  <div class="secret-light-fx" id="secretLightFx" aria-hidden="true"></div>
 
   <div class="secret-pocket-reveal" id="secretPocketReveal" aria-hidden="true"><div class="secret-pocket-reveal-mark">♡</div><strong>Secret Pocket</strong><span>You found me.</span></div>
 
@@ -823,6 +844,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=2.9.0" defer></script>
+  <script src="js/app.js?v=2.9.1" defer></script>
 </body>
 </html>
