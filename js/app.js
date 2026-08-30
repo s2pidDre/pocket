@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '3.1.3';
+  const APP_VERSION = '3.2.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -88,6 +88,7 @@
   let companionPerchSide = 'center';
   let companionStoryGeneration = 0;
   let companionReturnGap = 0;
+  let companionSessionBaseline = null;
   let secretLightAmbientTimer = 0;
   let secretLightViewToken = '';
   let companionTravelToken = 0;
@@ -108,7 +109,12 @@
   const companionEffectNodes = new Set();
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
-  const COMPANION_REAL_DATA_SPEECH = { scheduledChance: .66, viewSpeechChance: .68, viewDataChance: .82, scheduledMin: 22000, scheduledJitter: 18000, messageCooldown: 11000 };
+  const COMPANION_DATA_SPEECH_LEVELS = {
+    quiet: { scheduledChance: .30, viewSpeechChance: .28, viewDataChance: .72, scheduledMin: 48000, scheduledJitter: 26000, messageCooldown: 24000 },
+    balanced: { scheduledChance: .56, viewSpeechChance: .50, viewDataChance: .80, scheduledMin: 30000, scheduledJitter: 20000, messageCooldown: 16000 },
+    chatty: { scheduledChance: .82, viewSpeechChance: .80, viewDataChance: .91, scheduledMin: 16000, scheduledJitter: 12000, messageCooldown: 9000 },
+    'very-chatty': { scheduledChance: .94, viewSpeechChance: .92, viewDataChance: .97, scheduledMin: 9000, scheduledJitter: 7000, messageCooldown: 6000 }
+  };
   const companionRecentDataLines = [];
   const companionMemory = {
     savings: 0,
@@ -199,7 +205,25 @@
       visitStreak: 1,
       lastVisitDay: '',
       lastSeenAt: 0,
-      lastInteractionAt: 0
+      lastInteractionAt: 0,
+      dataSnapshot: { capturedAt: 0, savingsTotal: 0, totalBalance: 0, goals: {}, wallets: {} }
+    };
+  }
+
+  function normalizeCompanionDataSnapshot(input) {
+    const source = input && typeof input === 'object' ? input : {};
+    const goals = source.goals && typeof source.goals === 'object' ? source.goals : {};
+    const wallets = source.wallets && typeof source.wallets === 'object' ? source.wallets : {};
+    return {
+      capturedAt: Math.max(0, Number(source.capturedAt || 0)),
+      savingsTotal: Math.max(0, Number(source.savingsTotal || 0)),
+      totalBalance: Number.isFinite(Number(source.totalBalance)) ? Number(source.totalBalance) : 0,
+      goals: Object.fromEntries(Object.entries(goals).map(([id, value]) => [id, {
+        percent: Math.max(0, Math.min(100, Number(value?.percent || 0))),
+        current: Math.max(0, Number(value?.current || 0)),
+        target: Math.max(0, Number(value?.target || 0))
+      }])),
+      wallets: Object.fromEntries(Object.entries(wallets).map(([id, value]) => [id, Number.isFinite(Number(value)) ? Number(value) : 0]))
     };
   }
 
@@ -226,12 +250,13 @@
       visitStreak: Math.max(1, Number(source.visitStreak || 1)),
       lastVisitDay: typeof source.lastVisitDay === 'string' ? source.lastVisitDay : '',
       lastSeenAt: Math.max(0, Number(source.lastSeenAt || 0)),
-      lastInteractionAt: Math.max(0, Number(source.lastInteractionAt || 0))
+      lastInteractionAt: Math.max(0, Number(source.lastInteractionAt || 0)),
+      dataSnapshot: normalizeCompanionDataSnapshot(source.dataSnapshot)
     };
   }
 
   function defaultSecretConfig() {
-    return { pinSalt: '', pinHash: '', remember: false, companionEnabled: true, companionSpeech: 'normal', companionMovement: 'normal', discovered: false, firstRevealSeen: false, companionProfile: defaultCompanionProfile() };
+    return { pinSalt: '', pinHash: '', remember: false, companionEnabled: true, companionSpeech: 'normal', companionMovement: 'normal', companionDataSpeech: 'chatty', discovered: false, firstRevealSeen: false, companionProfile: defaultCompanionProfile() };
   }
 
   function loadSecretConfig() {
@@ -239,7 +264,7 @@
       const parsed = JSON.parse(localStorage.getItem(SECRET_POCKET_KEY) || 'null');
       const base = defaultSecretConfig();
       if (!parsed || typeof parsed !== 'object') return base;
-      return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
+      return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', companionDataSpeech: ['quiet','balanced','chatty','very-chatty'].includes(parsed.companionDataSpeech) ? parsed.companionDataSpeech : 'chatty', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
     } catch (error) { return defaultSecretConfig(); }
   }
 
@@ -269,6 +294,8 @@
   async function storeSecretPin(pin) { secretConfig ||= loadSecretConfig(); secretConfig.pinSalt=secretRandomSalt(); secretConfig.pinHash=await hashSecretPin(pin,secretConfig.pinSalt); secretConfig.discovered=true; saveSecretConfig(); }
   function companionSpeechMode() { return secretConfig?.companionSpeech || 'normal'; }
   function companionMovementMode() { return secretConfig?.companionMovement || 'normal'; }
+  function companionDataSpeechLevel() { return ['quiet','balanced','chatty','very-chatty'].includes(secretConfig?.companionDataSpeech) ? secretConfig.companionDataSpeech : 'chatty'; }
+  function companionDataSpeechSettings() { return COMPANION_DATA_SPEECH_LEVELS[companionDataSpeechLevel()] || COMPANION_DATA_SPEECH_LEVELS.chatty; }
   function companionProfileState() {
     secretConfig ||= loadSecretConfig();
     if (!secretConfig.companionProfile || typeof secretConfig.companionProfile !== 'object') secretConfig.companionProfile = defaultCompanionProfile();
@@ -336,8 +363,28 @@
     return localDateKey(date);
   }
 
+  function captureCompanionDataSnapshot() {
+    if (!state) return normalizeCompanionDataSnapshot(null);
+    const goals = {};
+    state.goals.filter((goal) => !goal.removedAt).forEach((goal) => {
+      const target = Math.max(0, Number(goal.target || 0));
+      const current = Math.max(0, Number(goal.current || 0));
+      goals[goal.id] = { current, target, percent: target > 0 ? Math.min(100, Math.round(current / target * 100)) : 0 };
+    });
+    const wallets = {};
+    state.accounts.forEach((account) => { wallets[account.id] = accountBalance(account.id); });
+    return {
+      capturedAt: Date.now(),
+      savingsTotal: Math.max(0, totalSavings()),
+      totalBalance: totalBalance(),
+      goals,
+      wallets
+    };
+  }
+
   function prepareCompanionProfile() {
     const profile = companionProfileState();
+    if (!companionSessionBaseline) companionSessionBaseline = normalizeCompanionDataSnapshot(profile.dataSnapshot);
     const now = Date.now();
     companionReturnGap = profile.lastSeenAt ? Math.max(0, now - profile.lastSeenAt) : 0;
     if (profile.lastSeenAt) {
@@ -351,6 +398,7 @@
     }
     profile.lastSeenAt = now;
     profile.mood = companionMoodFromState();
+    profile.dataSnapshot = captureCompanionDataSnapshot();
     saveSecretConfig();
   }
 
@@ -358,6 +406,7 @@
     if (!secretConfig?.companionProfile) return;
     const profile = companionProfileState();
     profile.lastSeenAt = Date.now();
+    profile.dataSnapshot = captureCompanionDataSnapshot();
     saveSecretConfig();
   }
 
@@ -410,6 +459,7 @@
     }
     if (els.companionNameInput && document.activeElement !== els.companionNameInput) els.companionNameInput.value = profile.name || 'Bunny';
     if (els.companionPersonality) els.companionPersonality.value = profile.personality || 'gentle';
+    if (els.companionDataSpeech) els.companionDataSpeech.value = companionDataSpeechLevel();
     if (els.companionAccessoryGrid) {
       els.companionAccessoryGrid.querySelectorAll('[data-accessory]').forEach((button) => {
         const active = button.dataset.accessory === profile.accessory;
@@ -1337,7 +1387,7 @@
         const primarySaved = isWalletMode ? walletCurrent : totalCurrent;
         const primarySavedLabel = isWalletMode ? `From ${selectedAccount.name}` : 'Saved';
         return `
-          <article class="card goal-card">
+          <article class="card goal-card" data-goal-id="${escapeHtml(goal.id)}">
             <div class="goal-card-head">
               <div><p class="eyebrow">Savings goal</p><h3>${escapeHtml(goal.name)}</h3><p class="goal-amount money-value">${escapeHtml(amountCopy)}</p></div>
               <div class="goal-card-actions">
@@ -2283,7 +2333,7 @@
     let perchSide = 'center';
     const isControl = element.matches('button, [role="button"], .segmented button, .small-icon-button, .primary-action');
     const forcePerch = Boolean(options.forcePerch);
-    const canPerch = !isControl && rect.width >= 118 && rect.top - bunnyH + 30 >= bounds.minY;
+    const canPerch = !options.avoidPerch && !isControl && rect.width >= 118 && rect.top - bunnyH + 30 >= bounds.minY;
 
     if ((canPerch && Math.random() < .82) || (forcePerch && canPerch)) {
       placement = 'perch';
@@ -2458,7 +2508,7 @@
     companionLookAtElement(element);
     await companionWait(options.noticeDuration || 260);
 
-    const target = companionTargetPosition(element);
+    const target = companionTargetPosition(element, { forcePerch: options.forcePerch, perchSide: options.perchSide, avoidPerch: options.avoidPerch });
     companionSetPhase('travel');
     await companionMoveTo(target.x, target.y, { mode: 'hop' });
     if (!companionIsAvailable() || document.querySelector('dialog[open]')) return false;
@@ -2488,8 +2538,8 @@
     }
     await companionWait(options.reactHold || 360);
     companionSetPhase('rest');
-    companionClearFocus();
-    companionSetProp('');
+    if (!options.keepFocus) companionClearFocus();
+    if (!options.keepProp) companionSetProp('');
     if (target.placement !== 'perch') {
       companionSetLook('center');
       els.pocketCompanion.classList.remove('is-gaze-active');
@@ -2561,61 +2611,121 @@
     return '';
   }
 
-  function companionRealDataLine(view = currentView) {
-    if (!state) return '';
+  function companionVisibleTarget(selectors = []) {
+    for (const selector of selectors) {
+      const elements = [...document.querySelectorAll(selector)].filter(companionVisibleElement);
+      if (elements.length) return elements[0];
+    }
+    return null;
+  }
+
+  function companionWalletTarget(accountId) {
+    const card = [...document.querySelectorAll('.wallet-mode-card[data-wallet-id]')].find((element) => element.dataset.walletId === accountId && companionVisibleElement(element));
+    return card || companionVisibleTarget(['.home-wallet-overview']);
+  }
+
+  function companionGoalTarget(goalId) {
+    return [...document.querySelectorAll('#goalsGrid .goal-card[data-goal-id]')].find((element) => element.dataset.goalId === goalId && companionVisibleElement(element)) || null;
+  }
+
+  function companionRealDataObservation(view = currentView) {
+    if (!state) return null;
     const privacy = Boolean(state.settings?.privacy);
     const today = localDateKey();
+    const yesterday = addDays(today, -1);
     const month = monthRange();
     const activeGoals = state.goals.filter((goal) => !goal.removedAt);
     const todayExpenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.date === today);
+    const yesterdayExpenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.date === yesterday);
     const todaySpent = todayExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const yesterdaySpent = yesterdayExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
     const monthExpenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.date >= month.start && tx.date <= month.end);
     const monthSpent = monthExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const baseline = companionSessionBaseline?.capturedAt ? companionSessionBaseline : null;
     const candidates = [];
 
-    const add = (condition, line) => {
-      if (condition && line) candidates.push(line);
+    const add = (condition, text, target = null, options = {}) => {
+      if (!condition || !text) return;
+      candidates.push({ text, target: target && companionVisibleElement(target) ? target : null, prop: options.prop || '', compare: Boolean(options.compare) });
     };
 
     if (view === 'home') {
       const account = selectedWalletAccount();
+      const homeTarget = companionVisibleTarget(['.home-wallet-overview']);
       if (todayExpenses.length) {
         add(true, privacy
           ? `You’ve logged ${todayExpenses.length} expense${todayExpenses.length === 1 ? '' : 's'} today ♡`
-          : `Today you’ve logged ${todayExpenses.length} expense${todayExpenses.length === 1 ? '' : 's'} totaling ${currency(todaySpent, true)}.`);
+          : `Today you’ve logged ${todayExpenses.length} expense${todayExpenses.length === 1 ? '' : 's'} totaling ${currency(todaySpent, true)}.`, homeTarget, { prop: 'receipt' });
+      }
+      if (yesterdayExpenses.length || todayExpenses.length) {
+        const delta = todaySpent - yesterdaySpent;
+        if (Math.abs(delta) >= .01) {
+          const direction = delta < 0 ? 'lower' : 'higher';
+          add(true, privacy
+            ? `Today’s spending is ${direction} than yesterday.`
+            : `Today’s spending is ${currency(Math.abs(delta), true)} ${direction} than yesterday.`, homeTarget, { prop: 'receipt', compare: true });
+        } else if (todayExpenses.length && yesterdayExpenses.length) {
+          add(true, `Today’s spending is almost exactly the same as yesterday.`, homeTarget, { prop: 'receipt', compare: true });
+        }
       }
       if (account) {
+        const walletTarget = companionWalletTarget(account.id);
         const balance = Math.max(0, accountBalance(account.id));
-        add(!privacy && balance >= 0, `${account.name} has ${currency(balance, true)} available right now ♡`);
+        add(!privacy && balance >= 0, `${account.name} has ${currency(balance, true)} available right now ♡`, walletTarget, { prop: 'pouch' });
         const saved = walletSavingsBalance(account.id);
-        add(!privacy && saved > 0, `${account.name} has already helped you set aside ${currency(saved, true)}.`);
+        add(!privacy && saved > 0, `${account.name} has already helped you set aside ${currency(saved, true)}.`, walletTarget, { prop: 'savings' });
+        const previousBalance = baseline?.wallets?.[account.id];
+        if (Number.isFinite(previousBalance) && Math.abs(balance - previousBalance) >= .01) {
+          const direction = balance > previousBalance ? 'up' : 'down';
+          add(!privacy, `${account.name} is ${direction} ${currency(Math.abs(balance - previousBalance), true)} since your last Pocket visit.`, walletTarget, { prop: 'pouch', compare: true });
+        }
       }
       const balance = Math.max(0, totalBalance());
-      add(!privacy && state.accounts.length > 1, `Across your wallets, you have ${currency(balance, true)} available.`);
+      add(!privacy && state.accounts.length > 1, `Across your wallets, you have ${currency(balance, true)} available.`, homeTarget, { prop: 'pouch' });
     }
 
     if (view === 'activity') {
+      const activityTarget = companionVisibleTarget(['.activity-summary-strip', '#activityDayCard']);
       if (todayExpenses.length) {
         const summary = walletExpenseSummaryForTransactions(todayExpenses);
         if (summary.top) {
           add(true, privacy
             ? `${summary.top[0]} is your biggest expense category today.`
-            : `${summary.top[0]} is your biggest category today at ${currency(summary.top[1], true)}.`);
+            : `${summary.top[0]} is your biggest category today at ${currency(summary.top[1], true)}.`, activityTarget, { prop: 'activity' });
         }
         add(true, privacy
           ? `There ${todayExpenses.length === 1 ? 'is' : 'are'} ${todayExpenses.length} expense entr${todayExpenses.length === 1 ? 'y' : 'ies'} today.`
-          : `Your expenses today add up to ${currency(todaySpent, true)} across ${todayExpenses.length} entr${todayExpenses.length === 1 ? 'y' : 'ies'}.`);
+          : `Your expenses today add up to ${currency(todaySpent, true)} across ${todayExpenses.length} entr${todayExpenses.length === 1 ? 'y' : 'ies'}.`, activityTarget, { prop: 'receipt' });
+      }
+      if (yesterdayExpenses.length || todayExpenses.length) {
+        const delta = todaySpent - yesterdaySpent;
+        if (Math.abs(delta) >= .01) {
+          const direction = delta < 0 ? 'lower' : 'higher';
+          add(true, privacy
+            ? `Compared with yesterday, today’s spending is ${direction}.`
+            : `Compared with yesterday, today’s spending is ${currency(Math.abs(delta), true)} ${direction}.`, activityTarget, { prop: 'activity', compare: true });
+        }
+        const countDelta = todayExpenses.length - yesterdayExpenses.length;
+        if (countDelta !== 0) add(true, `You’ve logged ${Math.abs(countDelta)} ${countDelta > 0 ? 'more' : 'fewer'} expense entr${Math.abs(countDelta) === 1 ? 'y' : 'ies'} today than yesterday.`, activityTarget, { prop: 'activity', compare: true });
       }
       add(monthExpenses.length > 0, privacy
         ? `You’ve recorded ${monthExpenses.length} expense entr${monthExpenses.length === 1 ? 'y' : 'ies'} this month.`
-        : `You’ve recorded ${currency(monthSpent, true)} in expenses this month so far.`);
+        : `You’ve recorded ${currency(monthSpent, true)} in expenses this month so far.`, activityTarget, { prop: 'activity' });
     }
 
     if (view === 'savings') {
+      const savingsTarget = companionVisibleTarget(['.savings-balance-hero']);
       const savedTotal = totalSavings();
       add(savedTotal > 0, privacy
         ? `You currently have ${activeGoals.length} active savings goal${activeGoals.length === 1 ? '' : 's'} growing ♡`
-        : `Your savings goals currently hold ${currency(savedTotal, true)} altogether ♡`);
+        : `Your savings goals currently hold ${currency(savedTotal, true)} altogether ♡`, savingsTarget, { prop: 'savings' });
+
+      if (baseline && savedTotal > baseline.savingsTotal + .01) {
+        const delta = savedTotal - baseline.savingsTotal;
+        add(true, privacy
+          ? `Your savings are higher than when you last opened Pocket ♡`
+          : `Your savings grew by ${currency(delta, true)} since your last Pocket visit ♡`, savingsTarget, { prop: 'savings', compare: true });
+      }
 
       const incomplete = activeGoals
         .filter((goal) => Number(goal.target || 0) > 0 && Number(goal.current || 0) < Number(goal.target || 0))
@@ -2627,17 +2737,31 @@
         .sort((a, b) => b.percent - a.percent);
       if (incomplete.length) {
         const nearest = incomplete[0];
+        const goalTarget = companionGoalTarget(nearest.goal.id) || savingsTarget;
         add(true, privacy
-          ? `One of your goals is already ${nearest.percent}% complete ✨`
-          : `${nearest.goal.name} is ${nearest.percent}% complete — ${currency(nearest.remaining, true)} to go.`);
+          ? `${nearest.goal.name} is already ${nearest.percent}% complete ✨`
+          : `${nearest.goal.name} is ${nearest.percent}% complete — ${currency(nearest.remaining, true)} to go.`, goalTarget, { prop: 'savings' });
+      }
+
+      for (const goal of activeGoals) {
+        const target = Math.max(0, Number(goal.target || 0));
+        if (!target) continue;
+        const currentPercent = Math.min(100, Math.round(Math.max(0, Number(goal.current || 0)) / target * 100));
+        const previousPercent = baseline?.goals?.[goal.id]?.percent;
+        if (Number.isFinite(previousPercent) && currentPercent > previousPercent) {
+          const goalTarget = companionGoalTarget(goal.id) || savingsTarget;
+          add(true, `${goal.name} moved from ${Math.round(previousPercent)}% to ${currentPercent}% since your last visit ✨`, goalTarget, { prop: 'savings', compare: true });
+        }
       }
 
       const completed = activeGoals.filter((goal) => Number(goal.target || 0) > 0 && Number(goal.current || 0) >= Number(goal.target || 0));
-      add(completed.length > 0, `You’ve completed ${completed.length} savings goal${completed.length === 1 ? '' : 's'} here. That’s real progress ♡`);
+      add(completed.length > 0, `You’ve completed ${completed.length} savings goal${completed.length === 1 ? '' : 's'} here. That’s real progress ♡`, completed.length === 1 ? companionGoalTarget(completed[0].id) || savingsTarget : savingsTarget, { prop: 'flower' });
     }
 
     if (view === 'more') {
-      add(state.accounts.length > 1, `You’re keeping ${state.accounts.length} wallets organized in Pocket.`);
+      const settingsTarget = companionVisibleTarget(['.settings-card']);
+      const allowanceTarget = companionVisibleTarget(['.allowance-settings-card']) || settingsTarget;
+      add(state.accounts.length > 1, `You’re keeping ${state.accounts.length} wallets organized in Pocket.`, settingsTarget, { prop: 'pouch' });
       const latestAllowance = state.transactions
         .filter((tx) => tx.type === 'income')
         .sort((a, b) => Date.parse(b.createdAt || b.date || '') - Date.parse(a.createdAt || a.date || ''))[0];
@@ -2645,18 +2769,24 @@
         const account = state.accounts.find((item) => item.id === latestAllowance.accountId);
         add(true, privacy
           ? 'Your latest allowance record is safely tucked into your history.'
-          : `Your latest allowance was ${currency(latestAllowance.amount, true)}${account ? ` into ${account.name}` : ''}.`);
+          : `Your latest allowance was ${currency(latestAllowance.amount, true)}${account ? ` into ${account.name}` : ''}.`, allowanceTarget, { prop: 'pouch' });
       }
-      add(state.transactions.length > 0, `Pocket is currently keeping ${state.transactions.length} transaction${state.transactions.length === 1 ? '' : 's'} in your local history.`);
+      add(state.transactions.length > 0, `Pocket is currently keeping ${state.transactions.length} transaction${state.transactions.length === 1 ? '' : 's'} in your local history.`, settingsTarget, { prop: 'activity' });
     }
 
-    if (!candidates.length) return '';
-    const fresh = candidates.filter((line) => !companionRecentDataLines.includes(line));
+    if (!candidates.length) return null;
+    const fresh = candidates.filter((item) => !companionRecentDataLines.includes(item.text));
     const pool = fresh.length ? fresh : candidates;
-    const chosen = pool[Math.floor(Math.random() * pool.length)];
-    companionRecentDataLines.push(chosen);
-    while (companionRecentDataLines.length > 3) companionRecentDataLines.shift();
+    const comparisonPool = pool.filter((item) => item.compare);
+    const chosenPool = comparisonPool.length && Math.random() < .46 ? comparisonPool : pool;
+    const chosen = chosenPool[Math.floor(Math.random() * chosenPool.length)];
+    companionRecentDataLines.push(chosen.text);
+    while (companionRecentDataLines.length > 4) companionRecentDataLines.shift();
     return chosen;
+  }
+
+  function companionRealDataLine(view = currentView) {
+    return companionRealDataObservation(view)?.text || '';
   }
 
   function walletExpenseSummaryForTransactions(expenses) {
@@ -2677,9 +2807,11 @@
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  function companionPickAffirmation() {
-    const realDataLine = companionRealDataLine(currentView);
-    if (realDataLine && Math.random() < COMPANION_REAL_DATA_SPEECH.scheduledChance) return realDataLine;
+  function companionPickAffirmation(options = {}) {
+    if (options.allowRealData !== false) {
+      const observation = companionRealDataObservation(currentView);
+      if (observation && Math.random() < companionDataSpeechSettings().scheduledChance) return observation.text;
+    }
     const memoryLine = companionMemoryLine();
     if (memoryLine && Math.random() < .46) return memoryLine;
     const hour = new Date().getHours();
@@ -2691,10 +2823,16 @@
   }
 
   function companionPickScheduledMessage() {
+    const observation = companionRealDataObservation(currentView);
+    if (observation && Math.random() < companionDataSpeechSettings().scheduledChance) {
+      return { heartfelt: false, text: observation.text, realData: true, observation };
+    }
     const heartfelt = Math.random() < .36;
     return {
       heartfelt,
-      text: heartfelt ? companionPickHeartCompliment() : companionPickAffirmation()
+      realData: false,
+      observation: null,
+      text: heartfelt ? companionPickHeartCompliment() : companionPickAffirmation({ allowRealData: false })
     };
   }
 
@@ -2833,12 +2971,38 @@
   function scheduleCompanionAffirmation(delay) {
     window.clearTimeout(companionAffirmationTimer);
     if (!companionIsAvailable() || companionSpeechMode() !== 'normal') return;
-    if (!Number.isFinite(delay)) delay = COMPANION_REAL_DATA_SPEECH.scheduledMin + Math.random() * COMPANION_REAL_DATA_SPEECH.scheduledJitter;
+    const speechSettings = companionDataSpeechSettings();
+    if (!Number.isFinite(delay)) delay = speechSettings.scheduledMin + Math.random() * speechSettings.scheduledJitter;
     companionAffirmationTimer = window.setTimeout(() => {
       if (!companionIsAvailable()) return;
-      if (!document.querySelector('dialog[open]') && Date.now() - companionLastMessageAt > COMPANION_REAL_DATA_SPEECH.messageCooldown) {
+      const currentSettings = companionDataSpeechSettings();
+      if (!document.querySelector('dialog[open]') && Date.now() - companionLastMessageAt > currentSettings.messageCooldown) {
         companionQueueAction('affirmation', async () => {
           const message = companionPickScheduledMessage();
+          if (message.realData && message.observation?.target && companionVisibleElement(message.observation.target)) {
+            await companionVisitElement(message.observation.target, {
+              silent: true,
+              mood: 'curious',
+              reactMood: 'proud',
+              action: 'tapping',
+              duration: 1050,
+              focusDuration: 6500,
+              avoidPerch: true,
+              keepFocus: true,
+              keepProp: true,
+              prop: message.observation.prop || companionPropForElement(message.observation.target)
+            });
+            companionLookAtElement(message.observation.target);
+            companionSetProp(message.observation.prop || companionPropForElement(message.observation.target));
+            companionSetPhase('react');
+            companionSetMood('proud');
+            companionSay(message.text, 6200);
+            await companionPose('listening', 1450);
+            await companionWait(520);
+            companionClearFocus();
+            companionSetProp('');
+            return true;
+          }
           companionSetPhase('react');
           companionSetMood(message.heartfelt ? (Math.random() < .48 ? 'proud' : 'gentle') : 'gentle');
           companionSetProp(message.heartfelt ? 'flower' : (Math.random() < .26 ? 'flower' : ''));
@@ -2919,7 +3083,8 @@
     }
     companionScheduleBlink();
     scheduleCompanionAction(options.fast ? 3300 : undefined);
-    scheduleCompanionAffirmation(options.fast ? 15000 : undefined);
+    const fastSpeechDelay = options.fast ? Math.max(7000, Math.round(companionDataSpeechSettings().scheduledMin * .72)) : undefined;
+    scheduleCompanionAffirmation(fastSpeechDelay);
     resetCompanionIdleTimer();
     if (options.welcome) {
       companionQueueAction('welcome', async () => {
@@ -3041,12 +3206,44 @@
     window.setTimeout(() => {
       if (!companionIsAvailable() || document.querySelector('dialog[open]')) return;
       companionQueueAction(`view-${view}`, async () => {
-        const visited = await companionVisitContextElement({ view, silent: true, mood: 'curious', duration: 1050 });
-        if (visited && Date.now() - companionLastMessageAt > 12500 && Math.random() < COMPANION_REAL_DATA_SPEECH.viewSpeechChance) {
-          const realDataLine = Math.random() < COMPANION_REAL_DATA_SPEECH.viewDataChance ? companionRealDataLine(view) : '';
+        const speechSettings = companionDataSpeechSettings();
+        const useData = Math.random() < speechSettings.viewDataChance;
+        const observation = useData ? companionRealDataObservation(view) : null;
+        let visited = false;
+        if (observation?.target && companionVisibleElement(observation.target)) {
+          visited = await companionVisitElement(observation.target, {
+            silent: true,
+            mood: 'curious',
+            reactMood: 'proud',
+            duration: 980,
+            action: 'tapping',
+            focusDuration: 6100,
+            avoidPerch: true,
+            keepFocus: true,
+            keepProp: true,
+            prop: observation.prop || companionPropForElement(observation.target)
+          });
+        } else {
+          visited = await companionVisitContextElement({ view, silent: true, mood: 'curious', duration: 1050 });
+        }
+        if (visited && Date.now() - companionLastMessageAt > speechSettings.messageCooldown && Math.random() < speechSettings.viewSpeechChance) {
           const lines = COMPANION_VIEW_LINES[view] || [];
-          const line = realDataLine || (lines.length ? lines[Math.floor(Math.random() * lines.length)] : '');
-          if (line) companionSay(line, realDataLine ? 5900 : 4600);
+          const line = observation?.text || (lines.length ? lines[Math.floor(Math.random() * lines.length)] : '');
+          if (line) {
+            if (observation?.target) {
+              companionLookAtElement(observation.target);
+              companionSetProp(observation.prop || companionPropForElement(observation.target));
+            }
+            companionSay(line, observation ? 6200 : 4600);
+            if (observation?.target) {
+              await companionPose('listening', 1150);
+              companionClearFocus();
+              companionSetProp('');
+            }
+          }
+        } else if (observation?.target) {
+          companionClearFocus();
+          companionSetProp('');
         }
         return visited;
       }, { spontaneous: true });
@@ -4331,7 +4528,7 @@
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
       'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
-      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
+      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
@@ -4583,6 +4780,7 @@
     els.secretCompanionMovement.addEventListener('change',()=>{secretConfig.companionMovement=els.secretCompanionMovement.value;saveSecretConfig();clearCompanionTimers();syncCompanion({fast:true});});
     els.companionNameInput.addEventListener('change',()=>{ const profile=companionProfileState(); profile.name=els.companionNameInput.value.trim().slice(0,14)||'Bunny'; profile.lastInteractionAt=Date.now(); saveSecretConfig(); renderCompanionRoom(); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`${profile.name} likes the new name ♡`; });
     els.companionPersonality.addEventListener('change',()=>{ const profile=companionProfileState(); profile.personality=['gentle','playful','curious'].includes(els.companionPersonality.value)?els.companionPersonality.value:'gentle'; profile.mood=companionMoodFromState(); profile.lastInteractionAt=Date.now(); saveSecretConfig(); renderCompanionRoom(); clearCompanionTimers(); syncCompanion({fast:true}); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`${profile.name} feels a little more ${profile.personality} now ✨`; });
+    els.companionDataSpeech.addEventListener('change',()=>{ secretConfig.companionDataSpeech=['quiet','balanced','chatty','very-chatty'].includes(els.companionDataSpeech.value)?els.companionDataSpeech.value:'chatty'; saveSecretConfig(); renderCompanionRoom(); clearCompanionTimers(); syncCompanion({fast:true}); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`Real-data talk set to ${els.companionDataSpeech.options[els.companionDataSpeech.selectedIndex].text.toLowerCase()} ♡`; });
     els.companionBunny.addEventListener('pointerdown', companionPointerDown);
     els.companionBunny.addEventListener('pointermove', companionPointerMove);
     els.companionBunny.addEventListener('pointerup', (event)=>companionPointerEnd(event,false));
@@ -4673,7 +4871,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.1.3');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.2.0');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

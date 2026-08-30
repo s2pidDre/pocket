@@ -5735,3 +5735,48 @@ body,
   0%,100% { transform: translateY(0); }
   50% { transform: translateY(-.6px); }
 }
+
+
+/* Pocket v3.2.0 — Companion awareness controls */
+.companion-awareness-section {
+  display: grid;
+  gap: 12px;
+}
+.companion-data-speech-field {
+  min-width: 0;
+}
+.companion-data-speech-field select {
+  width: 100%;
+  min-height: 44px;
+}
+.companion-field-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.companion-awareness-note {
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--surface-2) 78%, var(--surface));
+}
+.companion-awareness-note strong {
+  font-size: 11px;
+  color: var(--text);
+}
+.companion-awareness-note span {
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 1.45;
+}
+:root[data-theme="light"] .companion-awareness-note {
+  border-color: #e8c5d5;
+  background: rgba(255, 248, 251, .86);
+}
+@media (max-width: 560px) {
+  .companion-awareness-note { padding: 10px 11px; }
+}

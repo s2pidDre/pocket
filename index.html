@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.1.1">
+  <link rel="stylesheet" href="css/style.css?v=3.2.0">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -272,7 +272,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.1.3</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.2.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -722,6 +722,16 @@
           </div>
         </section>
 
+        <section class="companion-studio-section companion-awareness-section">
+          <div class="companion-studio-heading"><div><p class="eyebrow">Awareness</p><h3>Real Pocket talk</h3></div><small>Uses local data only</small></div>
+          <label class="field-group companion-data-speech-field" for="companionDataSpeech">
+            <span class="field-label">Data speech level</span>
+            <select id="companionDataSpeech"><option value="quiet">Quiet</option><option value="balanced">Balanced</option><option value="chatty">Chatty</option><option value="very-chatty">Very Chatty</option></select>
+            <small class="companion-field-note">Controls how often your companion comments on real balances, spending, savings progress, and comparisons.</small>
+          </label>
+          <div class="companion-awareness-note"><strong>Card-aware comments</strong><span>When possible, the bunny walks to and points at the exact wallet, goal, or summary card it is talking about.</span></div>
+        </section>
+
         <section class="companion-studio-section">
           <div class="companion-studio-heading"><div><p class="eyebrow">Accessories</p><h3>Choose a little look</h3></div><small>Saved on this device</small></div>
           <div class="companion-accessory-grid" id="companionAccessoryGrid" role="group" aria-label="Companion accessories">
@@ -908,6 +918,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.1.3" defer></script>
+  <script src="js/app.js?v=3.2.0" defer></script>
 </body>
 </html>
