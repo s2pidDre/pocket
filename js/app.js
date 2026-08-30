@@ -3,7 +3,7 @@
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
   const SCHEMA_VERSION = 1;
-  const APP_VERSION = '3.1.2';
+  const APP_VERSION = '3.1.3';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -108,6 +108,8 @@
   const companionEffectNodes = new Set();
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
+  const COMPANION_REAL_DATA_SPEECH = { scheduledChance: .66, viewSpeechChance: .68, viewDataChance: .82, scheduledMin: 22000, scheduledJitter: 18000, messageCooldown: 11000 };
+  const companionRecentDataLines = [];
   const companionMemory = {
     savings: 0,
     expenses: 0,
@@ -2649,7 +2651,12 @@
     }
 
     if (!candidates.length) return '';
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    const fresh = candidates.filter((line) => !companionRecentDataLines.includes(line));
+    const pool = fresh.length ? fresh : candidates;
+    const chosen = pool[Math.floor(Math.random() * pool.length)];
+    companionRecentDataLines.push(chosen);
+    while (companionRecentDataLines.length > 3) companionRecentDataLines.shift();
+    return chosen;
   }
 
   function walletExpenseSummaryForTransactions(expenses) {
@@ -2672,9 +2679,9 @@
 
   function companionPickAffirmation() {
     const realDataLine = companionRealDataLine(currentView);
-    if (realDataLine && Math.random() < .30) return realDataLine;
+    if (realDataLine && Math.random() < COMPANION_REAL_DATA_SPEECH.scheduledChance) return realDataLine;
     const memoryLine = companionMemoryLine();
-    if (memoryLine && Math.random() < .58) return memoryLine;
+    if (memoryLine && Math.random() < .46) return memoryLine;
     const hour = new Date().getHours();
     if (hour >= 21 && Math.random() < .35) return 'You did enough for today. Your goals can rest with you ♡';
     if (hour < 10 && Math.random() < .35) return 'Good morning ♡ One gentle choice at a time.';
@@ -2826,10 +2833,10 @@
   function scheduleCompanionAffirmation(delay) {
     window.clearTimeout(companionAffirmationTimer);
     if (!companionIsAvailable() || companionSpeechMode() !== 'normal') return;
-    if (!Number.isFinite(delay)) delay = 36000 + Math.random() * 30000;
+    if (!Number.isFinite(delay)) delay = COMPANION_REAL_DATA_SPEECH.scheduledMin + Math.random() * COMPANION_REAL_DATA_SPEECH.scheduledJitter;
     companionAffirmationTimer = window.setTimeout(() => {
       if (!companionIsAvailable()) return;
-      if (!document.querySelector('dialog[open]') && Date.now() - companionLastMessageAt > 17000) {
+      if (!document.querySelector('dialog[open]') && Date.now() - companionLastMessageAt > COMPANION_REAL_DATA_SPEECH.messageCooldown) {
         companionQueueAction('affirmation', async () => {
           const message = companionPickScheduledMessage();
           companionSetPhase('react');
@@ -3035,11 +3042,11 @@
       if (!companionIsAvailable() || document.querySelector('dialog[open]')) return;
       companionQueueAction(`view-${view}`, async () => {
         const visited = await companionVisitContextElement({ view, silent: true, mood: 'curious', duration: 1050 });
-        if (visited && Date.now() - companionLastMessageAt > 26000 && Math.random() < .34) {
-          const realDataLine = Math.random() < .42 ? companionRealDataLine(view) : '';
+        if (visited && Date.now() - companionLastMessageAt > 12500 && Math.random() < COMPANION_REAL_DATA_SPEECH.viewSpeechChance) {
+          const realDataLine = Math.random() < COMPANION_REAL_DATA_SPEECH.viewDataChance ? companionRealDataLine(view) : '';
           const lines = COMPANION_VIEW_LINES[view] || [];
           const line = realDataLine || (lines.length ? lines[Math.floor(Math.random() * lines.length)] : '');
-          if (line) companionSay(line, realDataLine ? 5600 : 4600);
+          if (line) companionSay(line, realDataLine ? 5900 : 4600);
         }
         return visited;
       }, { spontaneous: true });
@@ -4666,7 +4673,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.1.2');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.1.3');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

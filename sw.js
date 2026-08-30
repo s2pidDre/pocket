@@ -1,9 +1,9 @@
-const CACHE_NAME = 'pocket-student-v3.1.2';
+const CACHE_NAME = 'pocket-student-v3.1.3';
 const APP_ASSETS = [
   './',
   './index.html',
   './css/style.css?v=3.1.1',
-  './js/app.js?v=3.1.2',
+  './js/app.js?v=3.1.3',
   './manifest.json',
   './assets/icon.svg',
   './assets/logo.png',
