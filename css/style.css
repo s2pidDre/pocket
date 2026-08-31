@@ -7080,3 +7080,63 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
     font-size: 9px;
   }
 }
+
+
+/* Pocket v3.5.10 — swipeable Savings goal pages, no navigation buttons. */
+#view-savings .goals-carousel {
+  touch-action: pan-y !important;
+  cursor: grab;
+  transform: translate3d(var(--goal-swipe-x, 0px), 0, 0);
+  opacity: calc(1 - var(--goal-swipe-fade, 0));
+  transition: transform .18s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
+  will-change: transform;
+}
+#view-savings .goals-carousel.is-swiping {
+  cursor: grabbing;
+  transition: none !important;
+}
+#view-savings .goals-carousel.is-swipe-resetting {
+  transition: transform .18s cubic-bezier(.2,.8,.2,1), opacity .18s ease !important;
+}
+#view-savings .goals-carousel.swipe-enter-next { animation: savings-goal-enter-next .2s cubic-bezier(.2,.8,.2,1); }
+#view-savings .goals-carousel.swipe-enter-prev { animation: savings-goal-enter-prev .2s cubic-bezier(.2,.8,.2,1); }
+@keyframes savings-goal-enter-next { from { transform: translate3d(28px,0,0); opacity:.72; } to { transform:translate3d(0,0,0); opacity:1; } }
+@keyframes savings-goal-enter-prev { from { transform: translate3d(-28px,0,0); opacity:.72; } to { transform:translate3d(0,0,0); opacity:1; } }
+
+.savings-goal-pager {
+  min-height: 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  pointer-events: none;
+  padding: 1px 0 0 !important;
+}
+.savings-goal-pager.is-hidden { display: none !important; }
+.savings-goal-dots { display:flex; align-items:center; justify-content:center; gap:5px; }
+.savings-goal-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-3) 34%, transparent);
+  transition: width .18s ease, background .18s ease, transform .18s ease;
+}
+.savings-goal-dots i.is-active {
+  width: 15px;
+  background: var(--primary);
+}
+.savings-goal-page-label {
+  min-width: auto !important;
+  font-size: 8px !important;
+  color: var(--text-3) !important;
+  font-weight: 760 !important;
+  opacity: .78;
+}
+@media (hover:hover) and (pointer:fine) {
+  #view-savings .goals-carousel[data-goal-count]:not([data-goal-count="0"]):not([data-goal-count="1"]) { cursor: grab; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #view-savings .goals-carousel,
+  #view-savings .goals-carousel.swipe-enter-next,
+  #view-savings .goals-carousel.swipe-enter-prev { animation:none !important; transition:none !important; }
+}

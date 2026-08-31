@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.9">
+  <link rel="stylesheet" href="css/style.css?v=3.5.10">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -219,10 +219,9 @@
           </div>
           <div class="savings-goals-stage">
             <div class="goals-carousel" id="goalsGrid" aria-label="Savings goals"></div>
-            <div class="savings-goal-pager is-hidden" id="savingsGoalPager" aria-label="Savings goal pages">
-              <button class="icon-button" id="savingsGoalPrev" type="button" data-action="savings-goal-prev" aria-label="Previous savings goals"><svg><use href="#i-chevron"/></svg></button>
-              <span id="savingsGoalPageLabel">1 of 1</span>
-              <button class="icon-button" id="savingsGoalNext" type="button" data-action="savings-goal-next" aria-label="Next savings goals"><svg><use href="#i-chevron"/></svg></button>
+            <div class="savings-goal-pager is-hidden" id="savingsGoalPager" aria-label="Savings goal page indicator">
+              <span class="savings-goal-dots" id="savingsGoalDots" aria-hidden="true"></span>
+              <span id="savingsGoalPageLabel" class="savings-goal-page-label">1 of 1</span>
             </div>
           </div>
           <article class="card savings-recent-panel" id="savingsRecentPanel" aria-label="Recent savings activity">
@@ -317,7 +316,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.9</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.10</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -1137,6 +1136,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.9" defer></script>
+  <script src="js/app.js?v=3.5.10" defer></script>
 </body>
 </html>

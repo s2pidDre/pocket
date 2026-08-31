@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.9';
+  const APP_VERSION = '3.5.10';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -112,6 +112,7 @@
   let savingsMode = 'total';
   let savingsWalletIndex = 0;
   let savingsGoalPage = 0;
+  let savingsGoalSwipe = null;
   let allowanceHistoryPage = 0;
   let globalHistoryPage = 0;
   let activityDate = localDateKey();
@@ -2737,8 +2738,94 @@
     const goals = state.goals.filter((goal) => goalIsActive(goal));
     const pageSize = savingsGoalsPerPage();
     const pages = Math.max(1, Math.ceil(goals.length / pageSize));
-    savingsGoalPage = Math.max(0, Math.min(pages - 1, savingsGoalPage + delta));
+    const nextPage = Math.max(0, Math.min(pages - 1, savingsGoalPage + delta));
+    if (nextPage === savingsGoalPage) return false;
+    savingsGoalPage = nextPage;
     renderSavings();
+    if (els.goalsGrid) {
+      els.goalsGrid.classList.add(delta > 0 ? 'swipe-enter-next' : 'swipe-enter-prev');
+      window.setTimeout(() => els.goalsGrid?.classList.remove('swipe-enter-next', 'swipe-enter-prev'), 220);
+    }
+    return true;
+  }
+
+  function savingsGoalSwipeAvailable() {
+    const goals = state.goals.filter((goal) => goalIsActive(goal));
+    return goals.length > savingsGoalsPerPage();
+  }
+
+  function resetSavingsGoalSwipe({ animate = true } = {}) {
+    if (!els.goalsGrid) return;
+    if (animate) els.goalsGrid.classList.add('is-swipe-resetting');
+    els.goalsGrid.classList.remove('is-swiping');
+    els.goalsGrid.style.removeProperty('--goal-swipe-x');
+    els.goalsGrid.style.removeProperty('--goal-swipe-fade');
+    window.setTimeout(() => els.goalsGrid?.classList.remove('is-swipe-resetting'), animate ? 180 : 0);
+    savingsGoalSwipe = null;
+  }
+
+  function beginSavingsGoalSwipe(event) {
+    if (!els.goalsGrid || !savingsGoalSwipeAvailable()) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (event.target.closest('button, a, input, select, textarea, label')) return;
+    savingsGoalSwipe = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastTime: performance.now(),
+      velocityX: 0,
+      axis: ''
+    };
+    els.goalsGrid.classList.add('is-swiping');
+    try { els.goalsGrid.setPointerCapture(event.pointerId); } catch (error) { /* optional */ }
+  }
+
+  function moveSavingsGoalSwipe(event) {
+    if (!savingsGoalSwipe || savingsGoalSwipe.pointerId !== event.pointerId || !els.goalsGrid) return;
+    const dx = event.clientX - savingsGoalSwipe.startX;
+    const dy = event.clientY - savingsGoalSwipe.startY;
+    if (!savingsGoalSwipe.axis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      savingsGoalSwipe.axis = Math.abs(dx) > Math.abs(dy) * 1.15 ? 'x' : 'y';
+    }
+    if (savingsGoalSwipe.axis !== 'x') return;
+    event.preventDefault();
+    const now = performance.now();
+    const elapsed = Math.max(1, now - savingsGoalSwipe.lastTime);
+    savingsGoalSwipe.velocityX = (event.clientX - savingsGoalSwipe.lastX) / elapsed;
+    savingsGoalSwipe.lastX = event.clientX;
+    savingsGoalSwipe.lastTime = now;
+    const goals = state.goals.filter((goal) => goalIsActive(goal));
+    const pages = Math.max(1, Math.ceil(goals.length / savingsGoalsPerPage()));
+    const pullingPastStart = savingsGoalPage === 0 && dx > 0;
+    const pullingPastEnd = savingsGoalPage === pages - 1 && dx < 0;
+    const resistance = pullingPastStart || pullingPastEnd ? 0.18 : 0.42;
+    const offset = Math.max(-72, Math.min(72, dx * resistance));
+    els.goalsGrid.style.setProperty('--goal-swipe-x', `${offset}px`);
+    els.goalsGrid.style.setProperty('--goal-swipe-fade', String(Math.min(.14, Math.abs(offset) / 500)));
+  }
+
+  function endSavingsGoalSwipe(event) {
+    if (!savingsGoalSwipe || savingsGoalSwipe.pointerId !== event.pointerId) return;
+    const dx = event.clientX - savingsGoalSwipe.startX;
+    const horizontal = savingsGoalSwipe.axis === 'x';
+    const fast = Math.abs(savingsGoalSwipe.velocityX) > 0.45;
+    const far = Math.abs(dx) >= 48;
+    const direction = dx < 0 ? 1 : -1;
+    if (horizontal && (far || fast)) {
+      const grid = els.goalsGrid;
+      grid?.classList.remove('is-swiping');
+      grid?.style.removeProperty('--goal-swipe-x');
+      grid?.style.removeProperty('--goal-swipe-fade');
+      savingsGoalSwipe = null;
+      const changed = changeSavingsGoalPage(direction);
+      if (!changed && grid) {
+        grid.classList.add('is-swipe-resetting');
+        window.setTimeout(() => grid.classList.remove('is-swipe-resetting'), 180);
+      }
+    } else {
+      resetSavingsGoalSwipe();
+    }
   }
 
   function recentSavingsActivityItems() {
@@ -2857,9 +2944,12 @@
     if (els.savingsGoalPager) {
       const showPager = visibleGoals.length > goalPageSize;
       els.savingsGoalPager.classList.toggle('is-hidden', !showPager);
-      els.savingsGoalPrev.disabled = savingsGoalPage <= 0;
-      els.savingsGoalNext.disabled = savingsGoalPage >= goalPages - 1;
       els.savingsGoalPageLabel.textContent = `${Math.min(savingsGoalPage + 1, goalPages)} of ${goalPages}`;
+      if (els.savingsGoalDots) {
+        els.savingsGoalDots.innerHTML = goalPages <= 8
+          ? Array.from({ length: goalPages }, (_, index) => `<i class="${index === savingsGoalPage ? 'is-active' : ''}"></i>`).join('')
+          : '';
+      }
     }
     els.manageGoalsButton.disabled = visibleGoals.length === 0;
     els.manageGoalsButton.textContent = manageGoalsMode ? 'Done' : 'Manage goals';
@@ -7180,8 +7270,6 @@
     if (action === 'allowance-history-next') { allowanceHistoryPage += 1; renderAllowanceHistory(); }
     if (action === 'global-history-prev') { globalHistoryPage = Math.max(0, globalHistoryPage - 1); renderGlobalHistory(); }
     if (action === 'global-history-next') { globalHistoryPage += 1; renderGlobalHistory(); }
-    if (action === 'savings-goal-prev') changeSavingsGoalPage(-1);
-    if (action === 'savings-goal-next') changeSavingsGoalPage(1);
     if (action === 'open-goal-history') openGoalHistory(button.dataset.goalId);
     if (action === 'open-archived-goals') { renderSavings(); if (!els.archivedGoalsButton?.classList.contains('is-hidden')) openDialog(els.archivedGoalsDialog); }
     if (action === 'revert-goal-target') revertGoalTargetEvent(button.dataset.id);
@@ -7253,7 +7341,7 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'savingsRecentPanel', 'savingsRecentActivity', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'savingsGoalPager', 'savingsGoalPrev', 'savingsGoalNext', 'savingsGoalPageLabel', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
+      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'savingsRecentPanel', 'savingsRecentActivity', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'savingsGoalPager', 'savingsGoalDots', 'savingsGoalPageLabel', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
       'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'allowanceHistoryPager', 'allowanceHistoryPrev', 'allowanceHistoryNext', 'allowanceHistoryPageLabel', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
@@ -7361,6 +7449,11 @@
     });
     els.walletCarouselPrev.addEventListener('click', () => scrollToWalletMode(walletModeIndex - 1));
     els.walletCarouselNext.addEventListener('click', () => scrollToWalletMode(walletModeIndex + 1));
+    els.goalsGrid.addEventListener('pointerdown', beginSavingsGoalSwipe);
+    els.goalsGrid.addEventListener('pointermove', moveSavingsGoalSwipe);
+    els.goalsGrid.addEventListener('pointerup', endSavingsGoalSwipe);
+    els.goalsGrid.addEventListener('pointercancel', () => resetSavingsGoalSwipe());
+    els.goalsGrid.addEventListener('lostpointercapture', () => { if (savingsGoalSwipe) resetSavingsGoalSwipe(); });
     els.walletModeIndicators.addEventListener('click', (event) => {
       const button = event.target.closest('[data-wallet-mode-index]');
       if (!button) return;
@@ -7680,7 +7773,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.9');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.10');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
