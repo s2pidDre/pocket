@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.4.0">
+  <link rel="stylesheet" href="css/style.css?v=3.5.0">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -175,7 +175,7 @@
           <article class="card section-card activity-card" id="activityDayCard">
             <div class="section-heading activity-history-heading">
               <div><p class="eyebrow">Day history</p><h2 id="activityHistoryTitle">Today’s transactions</h2></div>
-              <span class="muted" id="activityCount">0 entries</span>
+              <div class="activity-heading-tools"><span class="muted" id="activityCount">0 entries</span><button class="text-button history-search-button" type="button" data-action="open-global-history"><svg><use href="#i-search"/></svg><span>Search all</span></button></div>
             </div>
             <div class="transaction-list full activity-day-transactions" id="allTransactions"></div>
             <div class="activity-swipe-hint" id="activitySwipeHint">Swipe left or right to change day</div>
@@ -216,6 +216,10 @@
             </div>
           </div>
           <div class="goals-carousel" id="goalsGrid" aria-label="Savings goals"></div>
+          <section class="archived-goals-section is-hidden" id="archivedGoalsSection" aria-label="Archived savings goals">
+            <div class="section-heading compact"><div><p class="eyebrow">History</p><h2>Archived & withdrawn goals</h2></div><span class="muted" id="archivedGoalsCount">0 goals</span></div>
+            <div class="archived-goals-list" id="archivedGoalsList"></div>
+          </section>
         </section>
 
         <section class="view" id="view-more" data-view-panel="more" aria-labelledby="viewTitle">
@@ -227,6 +231,11 @@
                 <span><strong>Privacy mode</strong><small id="privacyLabel">Off · amounts visible</small></span>
                 <span class="switch" id="privacySwitch" aria-hidden="true"></span>
               </button>
+              <label class="setting-row setting-row-select" for="textSizeSetting">
+                <span class="round-icon neutral-soft"><svg><use href="#i-edit"/></svg></span>
+                <span><strong>Text size</strong><small>Accessible sizing without enabling page zoom.</small></span>
+                <select id="textSizeSetting" aria-label="Pocket text size"><option value="compact">Compact</option><option value="default">Default</option><option value="large">Large</option></select>
+              </label>
               <button class="setting-row secret-pocket-entry" id="secretPocketSettingButton" type="button" data-action="open-secret-pocket" hidden>
                 <span class="round-icon secret-soft"><svg><use href="#i-sparkle"/></svg></span>
                 <span><strong>Secret Pocket</strong><small id="secretPocketSummary">Light world & companion</small></span>
@@ -256,11 +265,25 @@
               <div class="wallet-list" id="walletsList"></div>
             </article>
 
+            <article class="card settings-card category-settings-card">
+              <div class="section-heading compact"><div><p class="eyebrow">Money</p><h2>Categories</h2></div></div>
+              <button class="setting-row" type="button" data-action="open-category-manager">
+                <span class="round-icon neutral-soft"><svg><use href="#i-filter"/></svg></span>
+                <span><strong>Expense categories</strong><small id="categorySettingsSummary">Add, rename, reorder, or archive categories.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+              <button class="setting-row" type="button" data-action="open-global-history">
+                <span class="round-icon neutral-soft"><svg><use href="#i-search"/></svg></span>
+                <span><strong>Search all history</strong><small>Find transactions across dates, wallets, categories, goals, notes, and amounts.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+            </article>
+
             <article class="card settings-card">
               <div class="section-heading compact"><div><p class="eyebrow">Your data</p><h2>Backup and restore</h2></div></div>
               <button class="setting-row" type="button" data-action="export-data">
                 <span class="round-icon neutral-soft"><svg><use href="#i-download"/></svg></span>
-                <span><strong>Export backup</strong><small id="exportBackupSummary">Download tracker, Secret Pocket, and companion data.</small></span>
+                <span><strong>Export backup</strong><small id="exportBackupSummary">Download tracker, Secret Pocket preferences, and companion data. Your secret PIN verifier is excluded.</small></span>
                 <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
               <button class="setting-row" type="button" data-action="import-data">
@@ -299,7 +322,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.4.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -535,7 +558,12 @@
       </div>
       <div class="dialog-body">
         <div class="field-group"><label class="field-label" for="walletManageName">Wallet name</label><input class="text-input" id="walletManageName" type="text" maxlength="30" autocomplete="off" required></div>
-        <div class="field-group"><label class="field-label" for="walletManageBalance">Actual available balance</label><div class="amount-field"><span>₱</span><input id="walletManageBalance" type="number" min="0" step="0.01" required></div><p class="helper-text">If this differs from Pocket, an auditable reconciliation entry will be added instead of rewriting history.</p></div>
+        <div class="field-group"><label class="field-label" for="walletManageBalance">Actual available balance <span>optional</span></label><div class="amount-field"><span>₱</span><input id="walletManageBalance" type="number" min="0" step="0.01" placeholder="Enter actual balance to reconcile"></div><p class="helper-text">Leave this blank to rename only. If entered and different from Pocket, an auditable reconciliation entry will be added instead of rewriting history.</p></div>
+        <div class="wallet-reconcile-meta" id="walletReconcileMeta">
+          <div class="field-group"><label class="field-label" for="walletReconcileDate">Effective date</label><input class="text-input" id="walletReconcileDate" type="date" required></div>
+          <div class="field-group"><label class="field-label" for="walletReconcileReason">Reason</label><select id="walletReconcileReason"><option value="Cash count correction">Cash count correction</option><option value="Bank fee">Bank fee</option><option value="Interest">Interest</option><option value="Missing expense">Missing expense</option><option value="Missing income">Missing income</option><option value="Refund">Refund</option><option value="Other">Other</option></select></div>
+          <div class="field-group wallet-reconcile-note"><label class="field-label" for="walletReconcileNote">Details <span>optional</span></label><input class="text-input" id="walletReconcileNote" type="text" maxlength="100" placeholder="What caused the difference?" autocomplete="off"></div>
+        </div>
       </div>
       <div class="dialog-footer wallet-manage-footer">
         <button class="button-danger wallet-archive-button" id="walletArchiveButton" type="button" data-action="archive-wallet">Archive</button>
@@ -731,6 +759,7 @@
           <button class="secret-control-row" id="secretCompanionToggle" type="button" data-action="toggle-secret-companion" role="switch" aria-checked="true"><span><strong>Pocket companion</strong><small id="secretCompanionLabel">On · bunny is active</small></span><span class="switch is-on" id="secretCompanionSwitch" aria-hidden="true"></span></button>
           <label class="secret-select-row" for="secretCompanionSpeech"><span><strong>Companion speech</strong><small>Quiet keeps only important reactions.</small></span><select id="secretCompanionSpeech"><option value="normal">Normal</option><option value="quiet">Quiet</option><option value="off">Off</option></select></label>
           <label class="secret-select-row" for="secretCompanionMovement"><span><strong>Companion movement</strong><small>Calm reduces roaming and ambient animation frequency.</small></span><select id="secretCompanionMovement"><option value="normal">Normal</option><option value="calm">Calm</option></select></label>
+          <label class="secret-select-row" for="secretCompanionPerformance"><span><strong>Performance</strong><small>Auto saves battery when Pocket is idle or hidden.</small></span><select id="secretCompanionPerformance"><option value="auto">Auto</option><option value="full">Full animation</option><option value="battery">Battery saver</option></select></label>
           <button class="secret-action-row companion-studio-entry" type="button" data-action="open-companion-room"><span><strong>Companion Studio</strong><small id="companionStudioSummary">Visit the room, build your bond, and choose accessories.</small></span><svg class="chevron"><use href="#i-chevron"/></svg></button>
           <button class="secret-action-row" type="button" data-action="reset-companion-position"><span><strong>Reset companion position</strong><small>Return the bunny to its default safe corner.</small></span><svg class="chevron"><use href="#i-chevron"/></svg></button>
         </section>
@@ -819,6 +848,77 @@
         <div class="field-group"><label class="field-label" for="confirmSecretPin">Confirm PIN</label><input class="text-input secret-pin-field" id="confirmSecretPin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="••••" required autocomplete="new-password"><p class="helper-text theme-password-error" id="changeSecretPinError" role="alert" aria-live="polite"></p></div>
       </div>
       <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-primary" type="submit" value="default">Save PIN</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="globalHistoryDialog" class="app-dialog global-history-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header"><div><p class="eyebrow">Ledger</p><h2>Search all history</h2><p class="dialog-subtitle">Search every Pocket record without changing the ledger.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-body global-history-body">
+        <div class="global-history-search"><span><svg><use href="#i-search"/></svg></span><input id="globalHistorySearch" class="text-input" type="search" placeholder="Search note, wallet, category, goal, amount…" autocomplete="off"></div>
+        <div class="global-history-filters">
+          <label><span>Type</span><select id="globalHistoryType"><option value="all">All types</option><option value="expense">Expenses</option><option value="income">Income</option><option value="savings">Savings</option><option value="transfer">Transfers</option><option value="reconciliation">Reconciliation</option><option value="correction">Corrections</option></select></label>
+          <label><span>Wallet</span><select id="globalHistoryWallet"><option value="all">All wallets</option></select></label>
+          <label><span>Category</span><select id="globalHistoryCategory"><option value="all">All categories</option></select></label>
+          <label><span>Goal</span><select id="globalHistoryGoal"><option value="all">All goals</option></select></label>
+          <label><span>From</span><input id="globalHistoryFrom" type="date"></label>
+          <label><span>To</span><input id="globalHistoryTo" type="date"></label>
+          <label><span>Min amount</span><input id="globalHistoryMin" type="number" min="0" step="0.01" placeholder="0"></label>
+          <label><span>Max amount</span><input id="globalHistoryMax" type="number" min="0" step="0.01" placeholder="Any"></label>
+        </div>
+        <div class="global-history-meta"><strong id="globalHistoryCount">0 records</strong><button class="text-button" id="globalHistoryClear" type="button">Clear filters</button></div>
+        <div class="transaction-list full global-history-results" id="globalHistoryResults"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="categoryManagerDialog" class="app-dialog compact-dialog category-manager-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header"><div><p class="eyebrow">Categories</p><h2>Expense categories</h2><p class="dialog-subtitle">Customize future expense entry without changing old transaction history.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-body category-manager-body">
+        <form id="categoryManagerForm" class="category-create-form" autocomplete="off">
+          <input id="categoryEditId" type="hidden">
+          <label class="field-group"><span class="field-label">Category name</span><input id="categoryName" class="text-input" type="text" maxlength="30" placeholder="Entertainment" required></label>
+          <label class="field-group"><span class="field-label">Icon</span><select id="categoryIcon"><option value="i-food">Food</option><option value="i-transport">Transport</option><option value="i-school">School</option><option value="i-phone">Phone</option><option value="i-user">Personal</option><option value="i-savings">Savings</option><option value="i-target">Target</option><option value="i-sparkle">Sparkle</option><option value="i-more">Other</option></select></label>
+          <button class="button-primary" id="categorySaveButton" type="submit">Add category</button>
+        </form>
+        <div class="category-manager-list" id="categoryManagerList"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="walletDetailDialog" class="app-dialog wallet-detail-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header"><div><p class="eyebrow">Wallet</p><h2 id="walletDetailTitle">Wallet details</h2><p class="dialog-subtitle">Balances and history for this wallet.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-body wallet-detail-body">
+        <div class="wallet-detail-summary" id="walletDetailSummary"></div>
+        <div class="section-heading compact"><div><p class="eyebrow">History</p><h3>Recent wallet activity</h3></div><button class="text-button" type="button" data-action="wallet-detail-search">Search all</button></div>
+        <div class="transaction-list full" id="walletDetailTransactions"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dataHealthDialog" class="app-dialog compact-dialog data-health-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header"><div><p class="eyebrow">Reliability</p><h2>Data health</h2><p class="dialog-subtitle">Pocket verifies the relationships that keep your ledger trustworthy.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-body">
+        <div class="data-health-hero" id="dataHealthHero"></div>
+        <div class="data-health-checks" id="dataHealthDetailsList"></div>
+      </div>
+      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Done</button><button class="button-primary" type="button" data-action="run-data-health-detail">Run again</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="reconciliationCorrectionDialog" class="app-dialog compact-dialog reconciliation-correction-dialog">
+    <form id="reconciliationCorrectionForm" method="dialog" class="dialog-panel" autocomplete="off">
+      <div class="dialog-header"><div><p class="eyebrow">Correction</p><h2>Correct reconciliation</h2><p class="dialog-subtitle">Replace the old adjustment while keeping the original audit trail.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-body">
+        <div class="field-group"><label class="field-label" for="reconciliationCorrectionAmount">Correct adjustment</label><div class="amount-field"><span>₱</span><input id="reconciliationCorrectionAmount" type="number" step="0.01" required></div><p class="helper-text">Use a positive value to add to the wallet or a negative value to reduce it.</p></div>
+        <div class="field-group"><label class="field-label" for="reconciliationCorrectionDate">Effective date</label><input id="reconciliationCorrectionDate" class="text-input" type="date" required></div>
+        <div class="field-group"><label class="field-label" for="reconciliationCorrectionReason">Reason</label><select id="reconciliationCorrectionReason"><option value="Cash count correction">Cash count correction</option><option value="Bank fee">Bank fee</option><option value="Interest">Interest</option><option value="Missing expense">Missing expense</option><option value="Missing income">Missing income</option><option value="Refund">Refund</option><option value="Other">Other</option></select></div>
+        <div class="field-group"><label class="field-label" for="reconciliationCorrectionNote">Details <span>optional</span></label><input id="reconciliationCorrectionNote" class="text-input" type="text" maxlength="100"></div>
+      </div>
+      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-primary" type="submit">Save correction</button></div>
     </form>
   </dialog>
 
@@ -977,6 +1077,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.4.0" defer></script>
+  <script src="js/app.js?v=3.5.0" defer></script>
 </body>
 </html>

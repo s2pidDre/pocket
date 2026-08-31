@@ -11,8 +11,8 @@
   const DB_TRACKER_KEY = 'tracker';
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
-  const SCHEMA_VERSION = 3;
-  const APP_VERSION = '3.4.0';
+  const SCHEMA_VERSION = 4;
+  const APP_VERSION = '3.5.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -53,6 +53,17 @@
     Reconciliation: { icon: 'i-wallet', tone: 'neutral-soft', className: 'activity-cat-reconciliation' }
   };
 
+  const DEFAULT_EXPENSE_CATEGORIES = [
+    { id: 'cat-food', name: 'Food', icon: 'i-food', tone: 'cat-food-soft', order: 0, archivedAt: null },
+    { id: 'cat-transport', name: 'Transport', icon: 'i-transport', tone: 'cat-transport-soft', order: 1, archivedAt: null },
+    { id: 'cat-school', name: 'School', icon: 'i-school', tone: 'cat-school-soft', order: 2, archivedAt: null },
+    { id: 'cat-load', name: 'Load', icon: 'i-phone', tone: 'cat-load-soft', order: 3, archivedAt: null },
+    { id: 'cat-personal', name: 'Personal', icon: 'i-user', tone: 'cat-personal-soft', order: 4, archivedAt: null },
+    { id: 'cat-other', name: 'Other', icon: 'i-more', tone: 'cat-other-soft', order: 5, archivedAt: null }
+  ];
+  const CATEGORY_ICONS = new Set(['i-food','i-transport','i-school','i-phone','i-user','i-savings','i-target','i-sparkle','i-more']);
+  const CATEGORY_TONES = ['cat-food-soft','cat-transport-soft','cat-school-soft','cat-load-soft','cat-personal-soft','cat-other-soft'];
+
   const els = {};
   let state;
   let storageDb = null;
@@ -72,7 +83,7 @@
   let backupReminderShown = false;
   let storageChannel = null;
   const STORAGE_TAB_ID = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  let uiPreferences = { theme: 'dark', lastExportAt: 0, lastBackupReminderAt: 0 };
+  let uiPreferences = { theme: 'dark', textSize: 'default', lastExportAt: 0, lastBackupReminderAt: 0 };
   let toastTimer = 0;
     let pendingConfirm = null;
   let currentView = 'home';
@@ -85,6 +96,13 @@
   let currentTransferEditId = null;
   let currentCorrectionSourceId = null;
   let currentWalletManageId = null;
+  let currentWalletDetailId = null;
+  let currentGoalTransferEditId = null;
+  let currentGoalTransferCorrectionId = null;
+  let currentReconciliationCorrectionId = null;
+  let companionLastUserActivityAt = Date.now();
+  let secretFailedAttempts = 0;
+  let secretLockoutUntil = 0;
   let walletModeIndex = 0;
   let walletCarouselFrame = 0;
   let walletCarouselResizeObserver = null;
@@ -286,13 +304,13 @@
   }
 
   function defaultSecretConfig() {
-    return { pinSalt: '', pinHash: '', remember: false, companionEnabled: true, companionSpeech: 'normal', companionMovement: 'normal', companionDataSpeech: 'chatty', discovered: false, firstRevealSeen: false, companionProfile: defaultCompanionProfile() };
+    return { pinSalt: '', pinHash: '', pinScheme: '', remember: false, companionEnabled: true, companionSpeech: 'normal', companionMovement: 'normal', companionPerformance: 'auto', companionDataSpeech: 'chatty', discovered: false, firstRevealSeen: false, companionProfile: defaultCompanionProfile() };
   }
 
   function normalizeSecretConfig(input) {
     const parsed = input && typeof input === 'object' ? input : {};
     const base = defaultSecretConfig();
-    return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', companionDataSpeech: ['quiet','balanced','chatty','very-chatty'].includes(parsed.companionDataSpeech) ? parsed.companionDataSpeech : 'chatty', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
+    return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', pinScheme: ['pbkdf2-sha256','legacy'].includes(parsed.pinScheme) ? parsed.pinScheme : (parsed.pinHash ? 'legacy' : ''), remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', companionPerformance: ['auto','full','battery'].includes(parsed.companionPerformance) ? parsed.companionPerformance : 'auto', companionDataSpeech: ['quiet','balanced','chatty','very-chatty'].includes(parsed.companionDataSpeech) ? parsed.companionDataSpeech : 'chatty', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
   }
 
   class PocketStorageConflictError extends Error {
@@ -317,12 +335,13 @@
         stored,
         value: {
           theme: raw?.theme === 'light' ? 'light' : 'dark',
+          textSize: ['compact','default','large'].includes(raw?.textSize) ? raw.textSize : 'default',
           lastExportAt: Math.max(0, Number(raw?.lastExportAt || 0)),
           lastBackupReminderAt: Math.max(0, Number(raw?.lastBackupReminderAt || 0))
         }
       };
     } catch (error) {
-      return { stored: false, value: { theme: 'dark', lastExportAt: 0, lastBackupReminderAt: 0 } };
+      return { stored: false, value: { theme: 'dark', textSize: 'default', lastExportAt: 0, lastBackupReminderAt: 0 } };
     }
   }
 
@@ -330,6 +349,7 @@
     try {
       localStorage.setItem(UI_PREFS_KEY, JSON.stringify({
         theme: uiPreferences.theme === 'light' ? 'light' : 'dark',
+        textSize: ['compact','default','large'].includes(uiPreferences.textSize) ? uiPreferences.textSize : 'default',
         lastExportAt: Math.max(0, Number(uiPreferences.lastExportAt || 0)),
         lastBackupReminderAt: Math.max(0, Number(uiPreferences.lastBackupReminderAt || 0))
       }));
@@ -663,6 +683,7 @@
   function saveState() {
     if (!state) return Promise.resolve(false);
     persistCurrentTheme();
+    syncGoalMilestones();
     const fullSnapshot = cloneStorageValue(state);
     const health = evaluateDataHealth(fullSnapshot);
     storageHealth = health;
@@ -949,12 +970,64 @@
     try { const bytes=new Uint8Array(16); crypto.getRandomValues(bytes); return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''); }
     catch (error) { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
   }
-  async function hashSecretPin(pin, salt) {
+  function hexToBytes(hex) {
+    const clean = String(hex || '').replace(/[^0-9a-f]/gi, '');
+    const bytes = new Uint8Array(Math.ceil(clean.length / 2));
+    for (let index = 0; index < bytes.length; index += 1) bytes[index] = parseInt(clean.slice(index * 2, index * 2 + 2).padEnd(2, '0'), 16) || 0;
+    return bytes;
+  }
+  function bytesToHex(bytes) { return Array.from(bytes || [], (value) => value.toString(16).padStart(2, '0')).join(''); }
+  async function legacyHashSecretPin(pin, salt) {
     const input=`${salt}:${pin}:PocketSecret`; const seeds=[2166136261,2246822507,3266489909,668265263];
     return seeds.map((seed,lane)=>{ let hash=seed>>>0; for(let round=0;round<2048;round+=1){ for(let i=0;i<input.length;i+=1){ hash ^= input.charCodeAt(i)+lane+round; hash=Math.imul(hash,16777619); hash ^= hash>>>13; } } return (hash>>>0).toString(16).padStart(8,'0'); }).join('');
   }
-  async function verifySecretPin(pin) { secretConfig ||= loadSecretConfig(); if(!secretConfig.pinHash || !secretConfig.pinSalt) return pin===DEFAULT_SECRET_PIN; return (await hashSecretPin(pin,secretConfig.pinSalt))===secretConfig.pinHash; }
-  async function storeSecretPin(pin) { secretConfig ||= loadSecretConfig(); secretConfig.pinSalt=secretRandomSalt(); secretConfig.pinHash=await hashSecretPin(pin,secretConfig.pinSalt); secretConfig.discovered=true; saveSecretConfig(); }
+  async function hashSecretPin(pin, salt) {
+    if (!globalThis.crypto?.subtle) return legacyHashSecretPin(pin, salt);
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', encoder.encode(String(pin)), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: hexToBytes(salt), iterations: 120000, hash: 'SHA-256' }, key, 256);
+    return bytesToHex(new Uint8Array(bits));
+  }
+  async function verifySecretPin(pin) {
+    secretConfig ||= loadSecretConfig();
+    if (!secretConfig.pinHash || !secretConfig.pinSalt) return pin===DEFAULT_SECRET_PIN;
+    if (secretConfig.pinScheme === 'pbkdf2-sha256') return (await hashSecretPin(pin,secretConfig.pinSalt))===secretConfig.pinHash;
+    const legacy = await legacyHashSecretPin(pin, secretConfig.pinSalt);
+    if (legacy !== secretConfig.pinHash) return false;
+    await storeSecretPin(pin);
+    return true;
+  }
+  async function storeSecretPin(pin) {
+    secretConfig ||= loadSecretConfig();
+    secretConfig.pinSalt=secretRandomSalt();
+    secretConfig.pinHash=await hashSecretPin(pin,secretConfig.pinSalt);
+    secretConfig.pinScheme=globalThis.crypto?.subtle ? 'pbkdf2-sha256' : 'legacy';
+    secretConfig.discovered=true;
+    await saveSecretConfig();
+  }
+  function secretAttemptDelay(attempts) {
+    if (attempts >= 7) return 30000;
+    if (attempts >= 5) return 15000;
+    if (attempts >= 3) return 5000;
+    return 0;
+  }
+
+  function loadSecretThrottleState() {
+    try {
+      const raw = JSON.parse(sessionStorage.getItem('pocket-secret-throttle-v1') || 'null');
+      if (!raw || typeof raw !== 'object') return;
+      secretFailedAttempts = Math.max(secretFailedAttempts, Math.max(0, Number(raw.attempts || 0)));
+      secretLockoutUntil = Math.max(secretLockoutUntil, Math.max(0, Number(raw.lockoutUntil || 0)));
+    } catch (error) { /* Session throttling is best-effort. */ }
+  }
+
+  function saveSecretThrottleState() {
+    try {
+      if (!secretFailedAttempts && !secretLockoutUntil) sessionStorage.removeItem('pocket-secret-throttle-v1');
+      else sessionStorage.setItem('pocket-secret-throttle-v1', JSON.stringify({ attempts: secretFailedAttempts, lockoutUntil: secretLockoutUntil }));
+    } catch (error) { /* Session throttling is best-effort. */ }
+  }
+
   function companionSpeechMode() { return secretConfig?.companionSpeech || 'normal'; }
   function companionMovementMode() { return secretConfig?.companionMovement || 'normal'; }
   function companionDataSpeechLevel() { return ['quiet','balanced','chatty','very-chatty'].includes(secretConfig?.companionDataSpeech) ? secretConfig.companionDataSpeech : 'chatty'; }
@@ -1029,7 +1102,7 @@
   function captureCompanionDataSnapshot() {
     if (!state) return normalizeCompanionDataSnapshot(null);
     const goals = {};
-    state.goals.filter((goal) => !goal.removedAt).forEach((goal) => {
+    state.goals.filter((goal) => !goalIsWithdrawn(goal)).forEach((goal) => {
       const target = Math.max(0, Number(goal.target || 0));
       const current = goalCurrent(goal);
       goals[goal.id] = { current, target, percent: target > 0 ? Math.min(100, Math.round(current / target * 100)) : 0 };
@@ -1236,20 +1309,39 @@
     }
   }
 
+  function companionPerformanceMode() {
+    return ['auto','full','battery'].includes(secretConfig?.companionPerformance) ? secretConfig.companionPerformance : 'auto';
+  }
+
+  function companionPerformanceReduced() {
+    const mode = companionPerformanceMode();
+    if (mode === 'full') return false;
+    if (mode === 'battery') return true;
+    return document.visibilityState !== 'visible' || Date.now() - companionLastUserActivityAt > 45000;
+  }
+
+  function syncCompanionPerformanceClass() {
+    document.body.classList.toggle('companion-low-power', companionIsAvailable() && companionPerformanceReduced());
+  }
+
   function scheduleSecretLightAmbient() {
     window.clearTimeout(secretLightAmbientTimer);
     if (!secretPocketLightActive() || document.querySelector('dialog[open]')) return;
-    const delay = companionReducedMotion ? 9200 : 5200 + Math.random() * 3600;
+    const reduced = companionPerformanceReduced();
+    const delay = companionReducedMotion ? 12000 : reduced ? 15000 + Math.random() * 9000 : 6500 + Math.random() * 4500;
     secretLightAmbientTimer = window.setTimeout(() => {
       if (!secretPocketLightActive()) return;
+      syncCompanionPerformanceClass();
       const optionsByView = {
         home: ['heart', 'soft'],
         activity: ['sparkle', 'soft'],
-        savings: ['confetti', 'heart'],
+        savings: ['soft', 'heart'],
         more: ['sparkle', 'soft']
       };
       const list = optionsByView[currentView] || ['soft'];
-      emitSecretLightFx(list[Math.floor(Math.random() * list.length)], { count: companionReducedMotion ? 2 : 4, area: 'edges', duration: companionReducedMotion ? 850 : 2400 });
+      if (companionPerformanceMode() !== 'battery' || !reduced) {
+        emitSecretLightFx(list[Math.floor(Math.random() * list.length)], { count: companionReducedMotion ? 1 : reduced ? 2 : 3, area: 'edges', duration: companionReducedMotion ? 850 : reduced ? 1800 : 2300 });
+      }
       scheduleSecretLightAmbient();
     }, delay);
   }
@@ -1397,6 +1489,7 @@
         if (tx.fromAccountId === accountId) return amount;
         if (tx.toAccountId === accountId) return -amount;
       }
+      if (tx.originalType === 'reconciliation' && tx.accountId === accountId) return toCents(tx.amount || 0);
     }
     return 0;
   }
@@ -1454,6 +1547,74 @@
   function goalCurrent(goal, candidate = state) {
     return fromCents(goalCurrentCents(goal, candidate));
   }
+
+  function goalIsWithdrawn(goal) { return Boolean(goal?.withdrawnAt || goal?.removedAt); }
+  function goalIsArchived(goal) { return Boolean(goal?.archivedAt) && !goalIsWithdrawn(goal); }
+  function goalIsActive(goal) { return Boolean(goal) && !goalIsWithdrawn(goal) && !goalIsArchived(goal); }
+  function rawGoalCurrentCents(goal, candidate = state) {
+    if (!goal) return 0;
+    return toCents(goal.openingSaved || 0) + goalLedgerBalanceCents(goal.id, candidate);
+  }
+  function goalIsComplete(goal, candidate = state) { return rawGoalCurrentCents(goal, candidate) >= toCents(goal?.target || 0); }
+
+  function goalBalanceProblem(candidate) {
+    return (candidate?.goals || []).find((goal) => !goalIsWithdrawn(goal) && rawGoalCurrentCents(goal, candidate) < 0) || null;
+  }
+
+  function validateCandidateGoals(candidate, message = 'That change would make a savings goal negative.') {
+    const problem = goalBalanceProblem(candidate);
+    if (!problem) return true;
+    showToast(`${problem.name || 'A savings goal'} cannot support that change.`);
+    return false;
+  }
+
+  function syncGoalMilestones() {
+    if (!state?.goals) return;
+    state.goalEvents ||= [];
+    const now = new Date().toISOString();
+    const thresholds = [25, 50, 75, 90];
+    state.goals.forEach((goal) => {
+      if (goalIsWithdrawn(goal)) return;
+      goal.milestones = Array.isArray(goal.milestones) ? goal.milestones : [];
+      const target = Math.max(1, toCents(goal.target || 0));
+      const current = Math.max(0, rawGoalCurrentCents(goal, state));
+      const percent = Math.floor((current / target) * 100);
+      thresholds.forEach((threshold) => {
+        if (percent >= threshold && !goal.milestones.includes(threshold)) {
+          goal.milestones.push(threshold);
+          state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'milestone', date: localDateKey(), toValue: `${threshold}%`, note: `Reached ${threshold}%`, createdAt: now }));
+        }
+      });
+      const complete = current >= target;
+      if (complete && !goal.completedAt) {
+        goal.completedAt = now;
+        state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'completed', date: localDateKey(), note: 'Goal completed', createdAt: now }));
+      } else if (!complete && goal.completedAt && !goal.archivedAt) {
+        goal.completedAt = undefined;
+        state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'reopened', date: localDateKey(), note: 'Goal reopened after target or balance changed', createdAt: now }));
+      }
+    });
+  }
+
+  function goalTransferTimestampMs(item) {
+    const parsed = Date.parse(item?.createdAt || '');
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+  function canModifyGoalTransfer(item) { return Boolean(item) && !item.correctedByGroupId && (Date.now() - goalTransferTimestampMs(item)) < 24 * 60 * 60 * 1000; }
+  function canCorrectGoalTransfer(item) { return Boolean(item) && !item.isReversal && !item.correctedByGroupId && !canModifyGoalTransfer(item); }
+  function goalTransferCorrectionMembers(item, candidate = state) {
+    if (!item?.correctionGroupId) return [item];
+    return (candidate.goalTransfers || []).filter((entry) => entry.correctionGroupId === item.correctionGroupId);
+  }
+
+  function effectiveGoalTransfers(candidate = state) {
+    return (candidate?.goalTransfers || []).filter((item) => !item.isReversal && !item.correctedByGroupId);
+  }
+
+  function goalTransferReversalFor(original, groupId) {
+    return { id: uid('goal-transfer'), fromGoalId: original.toGoalId, toGoalId: original.fromGoalId, amount: original.amount, allocations: cloneStateSnapshot(original.allocations || []), date: original.date || localDateKey(), createdAt: new Date().toISOString(), correctionGroupId: groupId, correctsGoalTransferId: original.id, isReversal: true };
+  }
+
 
   function resetCompanionDataBaseline() {
     secretConfig ||= loadSecretConfig();
@@ -1537,10 +1698,75 @@
       accounts: [
         { id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0, isPrimary: true, archivedAt: null }
       ],
+      categories: defaultExpenseCategories(),
       goals: [],
+      goalEvents: [],
       goalTransfers: [],
       transactions: []
     };
+  }
+
+  function defaultExpenseCategories() {
+    return DEFAULT_EXPENSE_CATEGORIES.map((item) => ({ ...item }));
+  }
+
+  function normalizeCategories(categories) {
+    const source = Array.isArray(categories) && categories.length ? categories : defaultExpenseCategories();
+    const usedIds = new Set();
+    const normalized = source.filter((item) => item && typeof item === 'object').map((item, index) => {
+      let id = typeof item.id === 'string' && item.id ? item.id : `cat-${String(item.name || 'category').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || index}`;
+      while (usedIds.has(id)) id = `${id}-${index}`;
+      usedIds.add(id);
+      const fallback = DEFAULT_EXPENSE_CATEGORIES.find((entry) => entry.name.toLowerCase() === String(item.name || '').trim().toLowerCase());
+      return {
+        id,
+        name: String(item.name || fallback?.name || `Category ${index + 1}`).trim().slice(0, 30) || `Category ${index + 1}`,
+        icon: CATEGORY_ICONS.has(item.icon) ? item.icon : (fallback?.icon || 'i-more'),
+        tone: typeof item.tone === 'string' && item.tone ? item.tone : (fallback?.tone || CATEGORY_TONES[index % CATEGORY_TONES.length]),
+        order: Number.isFinite(Number(item.order)) ? Number(item.order) : index,
+        archivedAt: typeof item.archivedAt === 'string' && item.archivedAt ? item.archivedAt : null
+      };
+    });
+    if (!normalized.some((item) => !item.archivedAt)) {
+      const fallback = DEFAULT_EXPENSE_CATEGORIES.find((item) => item.id === 'cat-other');
+      normalized.push({ ...fallback, order: normalized.length });
+    }
+    return normalized.sort((a,b) => a.order - b.order).map((item,index) => ({ ...item, order:index }));
+  }
+
+  function expenseCategories(candidate = state, includeArchived = false) {
+    const list = candidate?.categories || [];
+    return list.filter((item) => includeArchived || !item.archivedAt).sort((a,b) => a.order - b.order);
+  }
+
+  function categoryRecord(id, name = '', candidate = state) {
+    const categories = candidate?.categories || [];
+    return categories.find((item) => item.id === id) || categories.find((item) => item.name.toLowerCase() === String(name || '').toLowerCase()) || null;
+  }
+
+  function categoryForTransaction(tx, candidate = state) {
+    const record = categoryRecord(tx?.categoryId, tx?.category, candidate);
+    return record || { id: tx?.categoryId || '', name: tx?.category || 'Other', icon: categoryMeta[tx?.category || 'Other']?.icon || 'i-more', tone: categoryMeta[tx?.category || 'Other']?.tone || 'cat-other-soft' };
+  }
+
+  function normalizeGoalEvent(item) {
+    if (!item || typeof item !== 'object' || !item.goalId || !item.type) return null;
+    const createdAt = Number.isFinite(Date.parse(item.createdAt || '')) ? item.createdAt : new Date().toISOString();
+    return {
+      id: typeof item.id === 'string' && item.id ? item.id : uid('goal-event'),
+      goalId: String(item.goalId),
+      type: String(item.type).slice(0, 40),
+      date: validDateKey(item.date) ? item.date : localDateKey(new Date(createdAt)),
+      fromValue: item.fromValue === undefined ? undefined : String(item.fromValue).slice(0, 80),
+      toValue: item.toValue === undefined ? undefined : String(item.toValue).slice(0, 80),
+      note: typeof item.note === 'string' ? item.note.slice(0, 120) : '',
+      createdAt
+    };
+  }
+
+  function addGoalEvent(goalId, type, details = {}) {
+    state.goalEvents ||= [];
+    state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId, type, date: details.date || localDateKey(), fromValue: details.fromValue, toValue: details.toValue, note: details.note || '', createdAt: new Date().toISOString() }));
   }
 
   function normalizeAccounts(accounts) {
@@ -1565,34 +1791,42 @@
     return normalized;
   }
 
-  function normalizeTransaction(tx) {
+  function normalizeTransaction(tx, categories = null) {
     if (!tx || typeof tx !== 'object') return null;
     const knownTypes = new Set(['income', 'expense', 'saving', 'saving_return', 'transfer', 'reconciliation', 'correction_reversal']);
     if (!knownTypes.has(tx.type)) return null;
+    const originalType = ['income', 'expense', 'transfer', 'saving', 'reconciliation'].includes(tx.originalType) ? tx.originalType : undefined;
+    const signedAllowed = tx.type === 'reconciliation' || (tx.type === 'correction_reversal' && originalType === 'reconciliation');
     const rawAmount = moneyRound(tx.amount || 0);
-    const amount = tx.type === 'reconciliation' ? rawAmount : Math.abs(rawAmount);
-    if (tx.type !== 'reconciliation' && amount <= 0) return null;
-    if (tx.type === 'reconciliation' && toCents(amount) === 0) return null;
+    const amount = signedAllowed ? rawAmount : Math.abs(rawAmount);
+    if (!signedAllowed && amount <= 0) return null;
+    if (signedAllowed && toCents(amount) === 0) return null;
     const date = validDateKey(tx.date) ? tx.date : localDateKey(Number.isFinite(Date.parse(tx.createdAt || '')) ? new Date(tx.createdAt) : new Date());
+    let categoryId = typeof tx.categoryId === 'string' ? tx.categoryId : '';
+    const categoryName = typeof tx.category === 'string' ? tx.category.slice(0, 40) : '';
+    if (tx.type === 'expense' && !categoryId && Array.isArray(categories)) {
+      categoryId = categories.find((item) => item.name.toLowerCase() === categoryName.toLowerCase())?.id || '';
+    }
     return {
       ...tx,
       id: typeof tx.id === 'string' && tx.id ? tx.id : uid('tx'),
-      type: tx.type,
-      amount,
-      category: typeof tx.category === 'string' ? tx.category.slice(0, 40) : '',
+      type: tx.type, amount,
+      category: categoryName, categoryId,
       accountId: typeof tx.accountId === 'string' ? tx.accountId : '',
       fromAccountId: typeof tx.fromAccountId === 'string' ? tx.fromAccountId : '',
       toAccountId: typeof tx.toAccountId === 'string' ? tx.toAccountId : '',
       goalId: typeof tx.goalId === 'string' ? tx.goalId : '',
-      date,
-      note: typeof tx.note === 'string' ? tx.note.slice(0, 120) : '',
+      date, note: typeof tx.note === 'string' ? tx.note.slice(0, 120) : '',
+      reconciliationReason: typeof tx.reconciliationReason === 'string' ? tx.reconciliationReason.slice(0, 50) : '',
+      reconciliationNote: typeof tx.reconciliationNote === 'string' ? tx.reconciliationNote.slice(0, 100) : '',
       createdAt: Number.isFinite(Date.parse(tx.createdAt || '')) ? tx.createdAt : `${date}T12:00:00`,
       updatedAt: Number.isFinite(Date.parse(tx.updatedAt || '')) ? tx.updatedAt : undefined,
-      originalType: ['income', 'expense', 'transfer', 'saving'].includes(tx.originalType) ? tx.originalType : undefined,
+      originalType,
       correctionGroupId: typeof tx.correctionGroupId === 'string' ? tx.correctionGroupId : undefined,
       correctsTransactionId: typeof tx.correctsTransactionId === 'string' ? tx.correctsTransactionId : undefined,
       correctedByGroupId: typeof tx.correctedByGroupId === 'string' ? tx.correctedByGroupId : undefined,
-      allowanceId: typeof tx.allowanceId === 'string' ? tx.allowanceId : undefined
+      allowanceId: typeof tx.allowanceId === 'string' ? tx.allowanceId : undefined,
+      goalLifecycleGroupId: typeof tx.goalLifecycleGroupId === 'string' ? tx.goalLifecycleGroupId : undefined
     };
   }
 
@@ -1605,14 +1839,14 @@
       ? item.allocations.map((allocation) => ({ accountId: String(allocation?.accountId || ''), amount: Math.max(0, moneyRound(allocation?.amount || 0)) })).filter((allocation) => allocation.accountId && allocation.amount > 0)
       : [];
     return {
-      ...item,
-      id: typeof item.id === 'string' && item.id ? item.id : uid('goal-transfer'),
-      fromGoalId: String(item.fromGoalId),
-      toGoalId: String(item.toGoalId),
-      amount,
-      allocations,
-      date: validDateKey(item.date) ? item.date : localDateKey(new Date(createdAt)),
-      createdAt
+      ...item, id: typeof item.id === 'string' && item.id ? item.id : uid('goal-transfer'),
+      fromGoalId: String(item.fromGoalId), toGoalId: String(item.toGoalId), amount, allocations,
+      date: validDateKey(item.date) ? item.date : localDateKey(new Date(createdAt)), createdAt,
+      updatedAt: Number.isFinite(Date.parse(item.updatedAt || '')) ? item.updatedAt : undefined,
+      correctionGroupId: typeof item.correctionGroupId === 'string' ? item.correctionGroupId : undefined,
+      correctsGoalTransferId: typeof item.correctsGoalTransferId === 'string' ? item.correctsGoalTransferId : undefined,
+      correctedByGroupId: typeof item.correctedByGroupId === 'string' ? item.correctedByGroupId : undefined,
+      isReversal: Boolean(item.isReversal)
     };
   }
 
@@ -1626,15 +1860,16 @@
       const migratedOpening = goal.openingSaved !== undefined
         ? Math.max(0, moneyRound(goal.openingSaved || 0))
         : Math.max(0, fromCents(toCents(legacyCurrent) - goalLedgerBalanceCents(id, tempState)));
+      const withdrawnAt = Number.isFinite(Date.parse(goal.withdrawnAt || goal.removedAt || '')) ? (goal.withdrawnAt || goal.removedAt) : undefined;
       return {
-        id,
-        name: String(goal.name || 'Savings goal').trim().slice(0, 40) || 'Savings goal',
-        target,
-        openingSaved: migratedOpening,
+        id, name: String(goal.name || 'Savings goal').trim().slice(0, 40) || 'Savings goal', target, openingSaved: migratedOpening,
         createdAt: validDateKey(goal.createdAt) ? goal.createdAt : (Number.isFinite(Date.parse(goal.createdAt || '')) ? localDateKey(new Date(goal.createdAt)) : localDateKey()),
         updatedAt: Number.isFinite(Date.parse(goal.updatedAt || '')) ? goal.updatedAt : undefined,
-        removedAt: Number.isFinite(Date.parse(goal.removedAt || '')) ? goal.removedAt : undefined,
-        returnedToWallets: Boolean(goal.returnedToWallets)
+        completedAt: Number.isFinite(Date.parse(goal.completedAt || '')) ? goal.completedAt : undefined,
+        archivedAt: Number.isFinite(Date.parse(goal.archivedAt || '')) ? goal.archivedAt : undefined,
+        withdrawnAt, removedAt: withdrawnAt, returnedToWallets: Boolean(goal.returnedToWallets),
+        withdrawalGroupId: typeof goal.withdrawalGroupId === 'string' ? goal.withdrawalGroupId : undefined,
+        milestones: Array.isArray(goal.milestones) ? [...new Set(goal.milestones.map(Number).filter((value) => [25,50,75,90].includes(value)))] : []
       };
     });
   }
@@ -1659,22 +1894,32 @@
     return next;
   }
 
+  function migrateSchema3To4(candidate) {
+    const next = cloneStorageValue(candidate && typeof candidate === 'object' ? candidate : {});
+    next.version = 4;
+    next.categories = normalizeCategories(next.categories);
+    next.goalEvents = Array.isArray(next.goalEvents) ? next.goalEvents : [];
+    next.goals = (next.goals || []).map((goal) => ({ ...goal, withdrawnAt: goal.withdrawnAt || goal.removedAt || undefined }));
+    next.transactions = (next.transactions || []).map((tx) => {
+      if (tx.type !== 'expense' || tx.categoryId) return tx;
+      const cat = next.categories.find((item) => item.name.toLowerCase() === String(tx.category || '').toLowerCase());
+      return { ...tx, categoryId: cat?.id || 'cat-other' };
+    });
+    return next;
+  }
+
   function normalizeState(candidate) {
     if (!candidate || typeof candidate !== 'object') return seedState();
     const accounts = normalizeAccounts(candidate.accounts);
-    const transactions = (Array.isArray(candidate.transactions) ? candidate.transactions : []).map(normalizeTransaction).filter(Boolean);
+    const categories = normalizeCategories(candidate.categories);
+    const transactions = (Array.isArray(candidate.transactions) ? candidate.transactions : []).map((tx) => normalizeTransaction(tx, categories)).filter(Boolean);
     const goalTransfers = (Array.isArray(candidate.goalTransfers) ? candidate.goalTransfers : []).map(normalizeGoalTransfer).filter(Boolean);
     const goals = normalizeGoals(candidate.goals, transactions, goalTransfers);
+    const goalEvents = (Array.isArray(candidate.goalEvents) ? candidate.goalEvents : []).map(normalizeGoalEvent).filter(Boolean);
     return {
       version: SCHEMA_VERSION,
-      settings: {
-        theme: candidate.settings?.theme === 'light' ? 'light' : 'dark',
-        privacy: Boolean(candidate.settings?.privacy)
-      },
-      accounts,
-      goals,
-      goalTransfers,
-      transactions
+      settings: { theme: candidate.settings?.theme === 'light' ? 'light' : 'dark', privacy: Boolean(candidate.settings?.privacy) },
+      accounts, categories, goals, goalEvents, goalTransfers, transactions
     };
   }
 
@@ -1686,6 +1931,7 @@
     while (version < SCHEMA_VERSION) {
       if (version === 1) working = migrateSchema1To2(working);
       else if (version === 2) working = migrateSchema2To3(working);
+      else if (version === 3) working = migrateSchema3To4(working);
       else throw new Error(`No migration path exists from Pocket schema ${version}.`);
       version = Number(working.version || version + 1);
     }
@@ -1935,7 +2181,7 @@
   }
 
   function totalSavings() {
-    return fromCents(state.goals.filter((goal) => !goal.removedAt).reduce((total, goal) => total + goalCurrentCents(goal), 0));
+    return fromCents(state.goals.filter((goal) => !goalIsWithdrawn(goal)).reduce((total, goal) => total + goalCurrentCents(goal), 0));
   }
 
   function transactionsForDate(dateKey) {
@@ -1960,9 +2206,9 @@
 
   function canCorrectTransaction(tx) {
     if (!tx || canModifyTransaction(tx) || tx.correctedByGroupId) return false;
-    if (['expense', 'income', 'transfer'].includes(tx.type)) return true;
+    if (['expense', 'income', 'transfer', 'reconciliation'].includes(tx.type)) return true;
     if (tx.type !== 'saving' || !tx.goalId) return false;
-    const goal = state.goals.find((item) => item.id === tx.goalId && !item.removedAt);
+    const goal = state.goals.find((item) => item.id === tx.goalId && goalIsActive(item));
     if (!goal) return false;
     return !state.goalTransfers.some((item) => item.fromGoalId === tx.goalId || item.toGoalId === tx.goalId);
   }
@@ -1976,10 +2222,12 @@
     }
     if (tx.type === 'goal_transfer') {
       const destination = state.goals.find((goal) => goal.id === tx.toGoalId)?.name || 'goal';
+      if (tx.isReversal) return 'Savings transfer correction reversal';
+      if (tx.correctsGoalTransferId) return `Corrected savings transfer to ${destination}`;
       return `Savings transfer to ${destination}`;
     }
     if (tx.type === 'correction_reversal') return `Correction reversal · ${tx.originalType || 'transaction'}`;
-    if (tx.type === 'reconciliation') return tx.note || 'Wallet balance reconciliation';
+    if (tx.type === 'reconciliation') return tx.reconciliationReason || tx.note || 'Wallet balance reconciliation';
     if (tx.type === 'income') return tx.note || 'Allowance received';
     if (tx.type === 'saving') return tx.note || 'Moved to savings';
     if (tx.type === 'saving_return') return tx.note || 'Savings returned';
@@ -2007,7 +2255,7 @@
       return withTiming(`${from} → ${to}`);
     }
     if (tx.type === 'correction_reversal') return withTiming(`Audit reversal of ${tx.originalType || 'transaction'}`);
-    if (tx.type === 'reconciliation') return withTiming(`Balance adjustment · ${account}`);
+    if (tx.type === 'reconciliation') return withTiming(`${tx.reconciliationReason || 'Balance adjustment'} · ${account}${tx.reconciliationNote ? ` · ${tx.reconciliationNote}` : ''}`);
     if (tx.type === 'saving') return withTiming(`Saved from ${account}`);
     if (tx.type === 'saving_return') return withTiming(`Returned to ${account}`);
     if (tx.type === 'transfer') {
@@ -2020,7 +2268,15 @@
   }
 
   function renderTransactionActions(tx) {
-    if (tx.type === 'goal_transfer' || tx.type === 'saving_return' || tx.type === 'correction_reversal' || tx.type === 'reconciliation') {
+    if (tx.type === 'goal_transfer') {
+      const source = state.goalTransfers.find((item) => item.id === (tx.sourceGoalTransferId || tx.id.replace(/^activity-/, '')));
+      if (!source || source.isReversal) return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Audit record">${icon('i-lock')}</span></div>`;
+      if (source.correctedByGroupId) return `<div class="transaction-actions is-locked"><span class="status-pill neutral">Corrected</span></div>`;
+      if (canModifyGoalTransfer(source)) return `<div class="transaction-actions"><div class="transaction-actions-row"><button class="transaction-action" type="button" data-action="edit-goal-transfer" data-id="${escapeHtml(source.id)}">${icon('i-edit')} Edit</button><button class="transaction-action undo" type="button" data-action="undo-goal-transfer" data-id="${escapeHtml(source.id)}">${icon('i-refresh')} Undo</button></div></div>`;
+      if (canCorrectGoalTransfer(source)) return `<div class="transaction-actions"><button class="transaction-action" type="button" data-action="correct-goal-transfer" data-id="${escapeHtml(source.id)}">${icon('i-edit')} Correct</button></div>`;
+      return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Locked">${icon('i-lock')}</span></div>`;
+    }
+    if (tx.type === 'saving_return' || tx.type === 'correction_reversal') {
       return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Audit record">${icon('i-lock')}</span></div>`;
     }
     if (tx.correctedByGroupId) {
@@ -2051,14 +2307,15 @@
 
     return transactions.map((tx) => {
       let categoryKey = tx.type === 'income' ? 'Allowance' : tx.type === 'saving_return' ? 'Savings return' : tx.type === 'saving' || tx.type === 'goal_transfer' ? 'Savings' : tx.type === 'transfer' ? 'Transfer' : tx.type === 'reconciliation' ? 'Reconciliation' : tx.type === 'correction_reversal' ? 'Correction' : (tx.category || 'Other');
-      const meta = categoryMeta[categoryKey] || categoryMeta.Other;
+      const expenseMeta = tx.type === 'expense' ? categoryForTransaction(tx) : null;
+      const meta = expenseMeta ? { icon: expenseMeta.icon || 'i-more', tone: expenseMeta.tone || 'cat-other-soft' } : (categoryMeta[categoryKey] || categoryMeta.Other);
       let shownAmount = Math.abs(transactionAmount(tx));
       let sign = '';
       if (tx.type === 'expense') sign = '−';
       else if (tx.type === 'income' || tx.type === 'saving_return') sign = '+';
       else if (tx.type === 'reconciliation') sign = Number(tx.amount || 0) >= 0 ? '+' : '−';
       else if (tx.type === 'correction_reversal') sign = tx.originalType === 'income' ? '−' : ['expense', 'saving'].includes(tx.originalType) ? '+' : '↺ ';
-      const amountLabel = `${sign}${currency(shownAmount)}`;
+      const amountLabel = state.settings.privacy ? '₱••••' : `${sign}${currency(shownAmount)}`;
       const amountKind = tx.type === 'goal_transfer' ? 'goal transfer' : tx.type === 'correction_reversal' ? 'audit' : tx.type === 'reconciliation' ? 'adjustment' : tx.type === 'saving_return' ? 'returned' : tx.type === 'saving' ? 'saved' : tx.type;
       const actionMarkup = full ? renderTransactionActions(tx) : '';
       const actionClass = actionMarkup ? ' has-actions' : '';
@@ -2116,7 +2373,10 @@
     if (key === 'school') return 'expense-cat-school';
     if (key === 'load') return 'expense-cat-load';
     if (key === 'personal') return 'expense-cat-personal';
-    return 'expense-cat-other';
+    if (key === 'other') return 'expense-cat-other';
+    const record = categoryRecord('', category);
+    const palette = ['expense-cat-food','expense-cat-transport','expense-cat-school','expense-cat-load','expense-cat-personal','expense-cat-other'];
+    return record ? palette[Math.max(0, Number(record.order || 0)) % palette.length] : 'expense-cat-other';
   }
 
   function expenseCategoryBreakdown(summary) {
@@ -2304,15 +2564,7 @@
       .map((tx) => ({ ...tx }));
     const goalTransfers = state.goalTransfers
       .filter((item) => (item.date || localDateKey(new Date(item.createdAt || Date.now()))) === dateKey)
-      .map((item) => ({
-        id: `activity-${item.id}`,
-        type: 'goal_transfer',
-        amount: item.amount,
-        fromGoalId: item.fromGoalId,
-        toGoalId: item.toGoalId,
-        date: item.date || dateKey,
-        createdAt: item.createdAt
-      }));
+      .map((item) => ({ ...item, id: `activity-${item.id}`, sourceGoalTransferId: item.id, type: 'goal_transfer', date: item.date || dateKey }));
     return [...transactions, ...goalTransfers].sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
   }
 
@@ -2322,7 +2574,7 @@
     if (type === 'expense') return tx.type === 'expense';
     if (type === 'transfer') return tx.type === 'transfer';
     if (type === 'savings') return ['saving', 'saving_return', 'goal_transfer'].includes(tx.type);
-    if (type === 'correction') return ['correction_reversal', 'reconciliation'].includes(tx.type) || Boolean(tx.correctsTransactionId) || Boolean(tx.correctedByGroupId);
+    if (type === 'correction') return ['correction_reversal', 'reconciliation'].includes(tx.type) || Boolean(tx.correctsTransactionId) || Boolean(tx.correctedByGroupId) || (tx.type === 'goal_transfer' && (tx.isReversal || tx.correctsGoalTransferId));
     return tx.type === type;
   }
 
@@ -2349,8 +2601,8 @@
     els.activityHistoryTitle.textContent = activityDate === today ? 'Today’s transactions' : `${activityDayName(activityDate)} transactions`;
     els.activityNextDay.disabled = activityDate >= today;
 
-    els.monthSpent.textContent = currency(sumTransactions('expense', activityDate, activityDate));
-    els.monthTransferred.textContent = currency(sumTransactions('transfer', activityDate, activityDate));
+    els.monthSpent.textContent = privateCurrency(sumTransactions('expense', activityDate, activityDate));
+    els.monthTransferred.textContent = privateCurrency(sumTransactions('transfer', activityDate, activityDate));
     const filtered = filteredActivity();
     els.activityCount.textContent = `${filtered.length} entr${filtered.length === 1 ? 'y' : 'ies'}`;
     els.allTransactions.innerHTML = renderTransactionRows(filtered, true, {
@@ -2376,14 +2628,13 @@
     els.savingsWalletTabs.innerHTML = accounts.map((account, index) => `<button type="button" data-savings-wallet-index="${index}" class="${index === savingsWalletIndex ? 'is-active' : ''}">${escapeHtml(account.name)}</button>`).join('');
 
     els.savingsViewTitle.textContent = isWalletMode ? `${selectedAccount.name} savings` : 'All savings';
-    els.savingsViewSubtitle.textContent = isWalletMode
-      ? `Only money saved from ${selectedAccount.name} is shown.`
-      : 'Everything you have set aside across all wallets.';
+    els.savingsViewSubtitle.textContent = isWalletMode ? `Only money saved from ${selectedAccount.name} is shown.` : 'Everything you have set aside across all wallets.';
     els.savingsBalanceLabel.textContent = isWalletMode ? `Saved from ${selectedAccount.name}` : 'Total savings';
-    els.totalSavings.textContent = currency(shownBalance);
+    els.totalSavings.textContent = privateCurrency(shownBalance);
     replayAnimation(els.totalSavings, 'amount-pop');
 
-    const visibleGoals = state.goals.filter((goal) => !goal.removedAt);
+    const visibleGoals = state.goals.filter((goal) => goalIsActive(goal));
+    const archivedGoals = state.goals.filter((goal) => goalIsArchived(goal) || goalIsWithdrawn(goal));
     const goalLayout = visibleGoals.length <= 1 ? 'single' : visibleGoals.length === 2 ? 'pair' : 'multi';
     els.goalsGrid.dataset.goalLayout = goalLayout;
     els.goalsGrid.dataset.goalCount = String(visibleGoals.length);
@@ -2397,43 +2648,45 @@
       els.manageGoalsButton.textContent = 'Manage goals';
       els.goalsGrid.classList.remove('is-managing');
       document.getElementById('view-savings')?.classList.remove('is-managing-goals');
-      els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and choose which wallet the money comes from.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
+      els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No active savings goals</strong><span>Create a new goal or restore one from the archive below.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = visibleGoals.map((goal) => {
         const totalCurrent = goalCurrent(goal);
         const target = Math.max(Number(goal.target || 1), 1);
         const percent = Math.min(100, totalCurrent / target * 100);
+        const complete = goalIsComplete(goal);
         const walletCurrent = isWalletMode ? goalWalletSavings(goal, selectedAccount.id) : totalCurrent;
         const amountCopy = isWalletMode
-          ? `${currency(walletCurrent, true)} from ${selectedAccount.name}`
-          : `${currency(totalCurrent, true)} of ${currency(target, true)}`;
+          ? `${privateCurrency(walletCurrent)} from ${selectedAccount.name}`
+          : `${privateCurrency(totalCurrent)} of ${privateCurrency(target)}`;
         const secondaryCopy = isWalletMode
-          ? `${currency(totalCurrent, true)} total · ${Math.round(percent)}% of goal`
-          : `${Math.round(percent)}% complete`;
+          ? `${privateCurrency(totalCurrent)} total · ${Math.round(percent)}% of goal`
+          : complete ? 'Completed · ready to archive when you want' : `${Math.round(percent)}% complete`;
         const accountAttribute = isWalletMode ? ` data-account-id="${escapeHtml(selectedAccount.id)}"` : '';
         const remaining = Math.max(0, target - totalCurrent);
         const manageButtons = manageGoalsMode
           ? `<div class="goal-manage-actions">
               <button type="button" data-action="edit-goal" data-goal-id="${escapeHtml(goal.id)}">${icon('i-edit')}<span>Edit</span></button>
               <button type="button" data-action="transfer-goal" data-goal-id="${escapeHtml(goal.id)}">${icon('i-transfer')}<span>Transfer</span></button>
-              <button class="goal-remove" type="button" data-action="remove-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Remove ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}<span>Remove</span></button>
-            </div>`
-          : '';
+              <button type="button" data-action="archive-goal" data-goal-id="${escapeHtml(goal.id)}">${icon('i-download')}<span>Archive</span></button>
+              <button class="goal-remove" type="button" data-action="withdraw-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Withdraw ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}<span>Withdraw</span></button>
+            </div>` : '';
         const primarySaved = isWalletMode ? walletCurrent : totalCurrent;
         const primarySavedLabel = isWalletMode ? `From ${selectedAccount.name}` : 'Saved';
         return `
-          <article class="card goal-card" data-goal-id="${escapeHtml(goal.id)}">
+          <article class="card goal-card${complete ? ' is-complete' : ''}" data-goal-id="${escapeHtml(goal.id)}">
             <div class="goal-card-head">
-              <div><p class="eyebrow">Savings goal</p><h3>${escapeHtml(goal.name)}</h3><p class="goal-amount money-value">${escapeHtml(amountCopy)}</p></div>
+              <div><p class="eyebrow">${complete ? 'Completed goal' : 'Savings goal'}</p><h3>${escapeHtml(goal.name)}</h3><p class="goal-amount money-value">${escapeHtml(amountCopy)}</p></div>
               <div class="goal-card-actions">
+                ${complete ? '<span class="status-pill success">Completed</span>' : ''}
                 <button class="goal-history-button" type="button" data-action="open-goal-history" data-goal-id="${escapeHtml(goal.id)}" aria-label="View history for ${escapeHtml(goal.name)}">${icon('i-activity')}<span>History</span></button>
                 <span class="round-icon green-soft">${icon('i-target')}</span>
               </div>
             </div>
             <div class="goal-card-metrics" aria-label="Goal progress details">
-              <div><small>${escapeHtml(primarySavedLabel)}</small><strong class="money-value">${currency(primarySaved, true)}</strong></div>
-              <div><small>Remaining</small><strong class="money-value">${currency(remaining, true)}</strong></div>
-              <div><small>Target</small><strong class="money-value">${currency(target, true)}</strong></div>
+              <div><small>${escapeHtml(primarySavedLabel)}</small><strong class="money-value">${privateCurrency(primarySaved)}</strong></div>
+              <div><small>Remaining</small><strong class="money-value">${privateCurrency(remaining)}</strong></div>
+              <div><small>Target</small><strong class="money-value">${privateCurrency(target)}</strong></div>
             </div>
             <div class="goal-progress-block">
               <div class="goal-progress-copy"><span>${escapeHtml(secondaryCopy)}</span><strong>${Math.round(percent)}%</strong></div>
@@ -2442,6 +2695,24 @@
             ${manageButtons}
             <div class="goal-footer"><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${accountAttribute}>Add savings</button></div>
           </article>`;
+      }).join('');
+    }
+
+    if (els.archivedGoalsSection && els.archivedGoalsList && els.archivedGoalsCount) {
+      els.archivedGoalsSection.classList.toggle('is-hidden', archivedGoals.length === 0);
+      const withdrawnCount = archivedGoals.filter((goal) => goalIsWithdrawn(goal)).length;
+      els.archivedGoalsCount.textContent = `${archivedGoals.length} goal${archivedGoals.length === 1 ? '' : 's'}${withdrawnCount ? ` · ${withdrawnCount} withdrawn` : ''}`;
+      els.archivedGoalsList.innerHTML = archivedGoals.map((goal) => {
+        const withdrawn = goalIsWithdrawn(goal);
+        const saved = withdrawn ? 0 : goalCurrent(goal);
+        const status = withdrawn ? 'withdrawn · savings returned' : goalIsComplete(goal) ? 'completed · archived' : `${Math.round(Math.min(100, saved / Math.max(goal.target, .01) * 100))}% · archived`;
+        const restoreAction = withdrawn ? 'restore-withdrawn-goal' : 'restore-goal';
+        const restoreLabel = withdrawn ? 'Restore goal' : 'Restore';
+        return `<article class="archived-goal-row${withdrawn ? ' is-withdrawn' : ''}">
+          <span class="round-icon neutral-soft">${icon(withdrawn ? 'i-refresh' : 'i-target')}</span>
+          <div><strong>${escapeHtml(goal.name)}</strong><small>${withdrawn ? '' : `<span class="money-value">${privateCurrency(saved)}</span> saved · `}${escapeHtml(status)}</small></div>
+          <div class="archived-goal-actions"><button type="button" data-action="open-goal-history" data-goal-id="${escapeHtml(goal.id)}">History</button><button type="button" data-action="${restoreAction}" data-goal-id="${escapeHtml(goal.id)}">${restoreLabel}</button>${withdrawn ? '' : `<button class="danger-link" type="button" data-action="withdraw-goal" data-goal-id="${escapeHtml(goal.id)}">Withdraw</button>`}</div>
+        </article>`;
       }).join('');
     }
     if (currentGoalHistoryId && els.goalHistoryDialog?.open) renderGoalHistory();
@@ -2454,7 +2725,8 @@
     const transfers = state.goalTransfers
       .filter((item) => item.fromGoalId === goalId || item.toGoalId === goalId)
       .map((item) => ({ kind: 'goal_transfer', createdAt: item.createdAt || '', transfer: item }));
-    return [...transactions, ...transfers].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const events = (state.goalEvents || []).filter((item) => item.goalId === goalId).map((item) => ({ kind: 'goal_event', createdAt: item.createdAt || `${item.date || ''}T12:00:00`, event: item }));
+    return [...transactions, ...transfers, ...events].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   }
 
   function goalTransferHistoryRow(entry, goal) {
@@ -2467,15 +2739,21 @@
     const transferDate = transfer.date && validDateKey(transfer.date) ? DATE_LABEL.format(fromDateKey(transfer.date)) : (Number.isFinite(parsed) ? DATE_LABEL.format(new Date(parsed)) : '');
     const transferTime = Number.isFinite(parsed) ? TIME_LABEL.format(new Date(parsed)) : '';
     const timing = [transferDate, transferTime].filter(Boolean).join(' · ');
-    const amount = `${incoming ? '+' : '−'}${currency(transfer.amount, true)}`;
+    const amount = state.settings.privacy ? '₱••••' : `${incoming ? '+' : '−'}${currency(transfer.amount)}`;
+    let status = `<span class="inline-lock" aria-label="Transfer record">${icon('i-lock')}</span>`;
+    if (transfer.correctedByGroupId) status = '<span class="status-pill neutral">Corrected</span>';
+    else if (transfer.isReversal) status = '<span class="status-pill neutral">Audit reversal</span>';
+    else if (canModifyGoalTransfer(transfer)) status = `<div class="allowance-history-actions"><button class="compact-history-action" type="button" data-action="edit-goal-transfer" data-id="${escapeHtml(transfer.id)}">${icon('i-edit')}<span>Edit</span></button><button class="compact-history-action undo" type="button" data-action="undo-goal-transfer" data-id="${escapeHtml(transfer.id)}">${icon('i-refresh')}<span>Undo</span></button></div>`;
+    else if (canCorrectGoalTransfer(transfer)) status = `<button class="compact-history-action correction" type="button" data-action="correct-goal-transfer" data-id="${escapeHtml(transfer.id)}">${icon('i-edit')}<span>Correct</span></button>`;
+    const title = transfer.isReversal ? 'Transfer correction reversal' : transfer.correctsGoalTransferId ? (incoming ? 'Corrected transfer in' : 'Corrected transfer out') : incoming ? 'Transferred in' : 'Transferred out';
     return `
-      <div class="goal-history-row goal-transfer-history-row">
+      <div class="goal-history-row goal-transfer-history-row${transfer.correctedByGroupId ? ' is-corrected' : ''}">
         <span class="round-icon accent-soft">${icon('i-transfer')}</span>
         <div class="goal-history-copy">
-          <strong>${incoming ? 'Transferred in' : 'Transferred out'}</strong>
+          <strong>${title}</strong>
           <small>${escapeHtml(incoming ? `From ${otherName}` : `To ${otherName}`)}${timing ? ` · ${escapeHtml(timing)}` : ''}</small>
         </div>
-        <div class="goal-history-amount"><strong class="money-value">${amount}</strong><span class="inline-lock" aria-label="Transfer record">${icon('i-lock')}</span></div>
+        <div class="goal-history-amount"><strong class="money-value">${amount}</strong>${status}</div>
       </div>`;
   }
 
@@ -2486,7 +2764,7 @@
     const time = transactionTimeLabel(tx);
     const date = tx.date ? DATE_LABEL.format(fromDateKey(tx.date)) : '';
     const timing = [account, date, time].filter(Boolean).join(' · ');
-    const amount = `${isReturn ? '−' : '+'}${currency(tx.amount, true)}`;
+    const amount = state.settings.privacy ? '₱••••' : `${isReturn ? '−' : '+'}${currency(tx.amount)}`;
     const allocationChanged = state.goalTransfers.some((item) => item.fromGoalId === goal.id || item.toGoalId === goal.id);
     const canUndo = !isReturn && !tx.correctedByGroupId && canModifyTransaction(tx) && !allocationChanged;
     let status = `<span class="inline-lock" aria-label="Locked">${icon('i-lock')}</span>`;
@@ -2505,6 +2783,20 @@
       </div>`;
   }
 
+  function goalEventHistoryRow(entry) {
+    const event = entry.event;
+    const labels = { created: 'Goal created', renamed: 'Goal renamed', target_changed: 'Target changed', milestone: event.note || 'Milestone reached', completed: 'Goal completed', reopened: 'Goal reopened', archived: 'Goal archived', restored: 'Goal restored', withdrawn: 'Goal withdrawn', restored_after_withdrawal: 'Goal restored after withdrawal' };
+    let detail = event.note || '';
+    if (event.type === 'target_changed' && event.fromValue !== undefined && event.toValue !== undefined) detail = state.settings.privacy ? 'Target amount changed' : `${currency(Number(event.fromValue || 0))} → ${currency(Number(event.toValue || 0))}`;
+    if (event.type === 'renamed' && event.fromValue !== undefined && event.toValue !== undefined) detail = `${event.fromValue} → ${event.toValue}`;
+    if (event.type === 'created' && event.toValue !== undefined) detail = state.settings.privacy ? 'Goal created with a target amount' : `Target ${currency(Number(event.toValue || 0))}`;
+    const date = event.date ? DATE_LABEL.format(fromDateKey(event.date)) : '';
+    const goal = state.goals.find((item) => item.id === event.goalId);
+    const canRevertTarget = event.type === 'target_changed' && goal && !goalIsWithdrawn(goal) && event.fromValue !== undefined && event.toValue !== undefined && toCents(goal.target) === toCents(event.toValue);
+    const status = canRevertTarget ? `<button class="compact-history-action correction" type="button" data-action="revert-goal-target" data-id="${escapeHtml(event.id)}">${icon('i-refresh')}<span>Revert</span></button>` : '<span class="status-pill neutral">History</span>';
+    return `<div class="goal-history-row goal-event-history-row"><span class="round-icon neutral-soft">${icon(event.type === 'milestone' || event.type === 'completed' ? 'i-sparkle' : event.type === 'archived' ? 'i-download' : 'i-target')}</span><div class="goal-history-copy"><strong>${escapeHtml(labels[event.type] || 'Goal updated')}</strong><small>${escapeHtml([detail,date].filter(Boolean).join(' · '))}</small></div><div class="goal-history-amount">${status}</div></div>`;
+  }
+
   function renderGoalHistory() {
     if (!els.goalHistoryList) return;
     const goal = state.goals.find((item) => item.id === currentGoalHistoryId);
@@ -2515,10 +2807,10 @@
     }
     const entries = goalHistoryEntries(goal.id);
     els.goalHistoryTitle.textContent = goal.name;
-    els.goalHistorySubtitle.textContent = 'Savings added, returned, or moved for this goal.';
+    els.goalHistorySubtitle.textContent = 'Savings, transfers, milestones, target changes, and lifecycle events for this goal.';
     els.goalHistoryCount.textContent = `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
     els.goalHistoryList.innerHTML = entries.length
-      ? entries.map((entry) => entry.kind === 'goal_transfer' ? goalTransferHistoryRow(entry, goal) : goalTransactionHistoryRow(entry, goal)).join('')
+      ? entries.map((entry) => entry.kind === 'goal_transfer' ? goalTransferHistoryRow(entry, goal) : entry.kind === 'goal_event' ? goalEventHistoryRow(entry) : goalTransactionHistoryRow(entry, goal)).join('')
       : `<div class="empty-state"><span class="round-icon purple-soft">${icon('i-savings')}</span><strong>No history yet</strong><span>Savings activity for this goal will appear here.</span></div>`;
   }
 
@@ -2554,7 +2846,7 @@
         <div class="allowance-history-row${tx.correctedByGroupId ? ' is-corrected' : ''}">
           <span class="round-icon green-soft">${icon('i-arrow-down')}</span>
           <div class="allowance-history-copy"><strong>${title}</strong><small>${escapeHtml(timing)}</small>${modifiable ? actions : ''}</div>
-          <div class="allowance-history-amount"><strong class="money-value">+${currency(tx.amount, true)}</strong>${modifiable ? '' : actions}</div>
+          <div class="allowance-history-amount"><strong class="money-value">${state.settings.privacy ? '₱••••' : `+${currency(tx.amount)}`}</strong>${modifiable ? '' : actions}</div>
         </div>`;
     }).join('');
   }
@@ -2574,7 +2866,7 @@
   }
 
   function openGoalHistory(goalId) {
-    const goal = state.goals.find((item) => item.id === goalId && !item.removedAt);
+    const goal = state.goals.find((item) => item.id === goalId);
     if (!goal) return;
     currentGoalHistoryId = goal.id;
     renderGoalHistory();
@@ -2607,14 +2899,221 @@
       const used = state.transactions.some((tx) => tx.accountId === account.id || tx.fromAccountId === account.id || tx.toAccountId === account.id);
       let actions = '';
       if (account.archivedAt) {
-        actions = `<div class="wallet-row-actions"><span class="status-pill neutral">Archived</span><button class="wallet-manage" type="button" data-action="restore-wallet" data-id="${escapeHtml(account.id)}">Restore</button></div>`;
+        actions = `<div class="wallet-row-actions"><span class="status-pill neutral">Archived</span><button class="wallet-manage" type="button" data-action="wallet-detail" data-id="${escapeHtml(account.id)}">Details</button><button class="wallet-manage" type="button" data-action="restore-wallet" data-id="${escapeHtml(account.id)}">Restore</button></div>`;
       } else {
         const remove = !account.isPrimary && !used ? `<button class="wallet-remove" type="button" data-action="remove-wallet" data-id="${escapeHtml(account.id)}">Remove</button>` : '';
-        actions = `<div class="wallet-row-actions"><button class="wallet-manage" type="button" data-action="manage-wallet" data-id="${escapeHtml(account.id)}">Manage</button>${remove}</div>`;
+        actions = `<div class="wallet-row-actions"><button class="wallet-manage" type="button" data-action="wallet-detail" data-id="${escapeHtml(account.id)}">Details</button><button class="wallet-manage" type="button" data-action="manage-wallet" data-id="${escapeHtml(account.id)}">Manage</button>${remove}</div>`;
       }
       const archiveCopy = account.archivedAt ? 'Archived · ' : '';
       return `<div class="wallet-row${account.archivedAt ? ' is-archived' : ''}"><span class="round-icon ${account.isPrimary ? 'accent-soft' : 'neutral-soft'}">${icon(account.isPrimary ? 'i-wallet' : 'i-phone')}</span><div><strong>${escapeHtml(account.name)}</strong><small>${archiveCopy}<span class="money-value">${escapeHtml(balance)}</span> available · <span class="money-value">${escapeHtml(savings)}</span> saved</small></div>${actions}</div>`;
     }).join('');
+  }
+
+  function allLedgerEntries() {
+    const transactions = (state.transactions || []).map((tx) => ({ ...tx }));
+    const goalTransfers = (state.goalTransfers || []).map((item) => ({
+      ...item,
+      id: `history-${item.id}`,
+      sourceGoalTransferId: item.id,
+      type: 'goal_transfer',
+      date: item.date || localDateKey(new Date(item.createdAt || Date.now()))
+    }));
+    return [...transactions, ...goalTransfers].sort((a, b) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')));
+  }
+
+  function ledgerEntryWalletIds(entry) {
+    const ids = new Set();
+    if (entry.accountId) ids.add(entry.accountId);
+    if (entry.fromAccountId) ids.add(entry.fromAccountId);
+    if (entry.toAccountId) ids.add(entry.toAccountId);
+    if (entry.type === 'goal_transfer') (entry.allocations || []).forEach((item) => { if (item.accountId) ids.add(item.accountId); });
+    return ids;
+  }
+
+  function ledgerEntryGoalIds(entry) {
+    const ids = new Set();
+    if (entry.goalId) ids.add(entry.goalId);
+    if (entry.fromGoalId) ids.add(entry.fromGoalId);
+    if (entry.toGoalId) ids.add(entry.toGoalId);
+    return ids;
+  }
+
+  function globalHistoryTypeMatches(entry, type) {
+    if (type === 'all') return true;
+    if (type === 'expense') return entry.type === 'expense';
+    if (type === 'income') return entry.type === 'income';
+    if (type === 'savings') return ['saving', 'saving_return', 'goal_transfer'].includes(entry.type);
+    if (type === 'transfer') return entry.type === 'transfer';
+    if (type === 'reconciliation') return entry.type === 'reconciliation' || (entry.type === 'correction_reversal' && entry.originalType === 'reconciliation');
+    if (type === 'correction') return entry.type === 'correction_reversal' || Boolean(entry.correctsTransactionId) || Boolean(entry.correctedByGroupId) || (entry.type === 'goal_transfer' && (entry.isReversal || entry.correctsGoalTransferId || entry.correctedByGroupId));
+    return entry.type === type;
+  }
+
+  function populateGlobalHistoryFilters(preset = {}) {
+    if (!els.globalHistoryWallet) return;
+    const walletValue = preset.walletId ?? els.globalHistoryWallet.value ?? 'all';
+    const categoryValue = preset.categoryId ?? els.globalHistoryCategory.value ?? 'all';
+    const goalValue = preset.goalId ?? els.globalHistoryGoal.value ?? 'all';
+    els.globalHistoryWallet.innerHTML = `<option value="all">All wallets</option>${(state.accounts || []).map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}${account.archivedAt ? ' · Archived' : ''}</option>`).join('')}`;
+    els.globalHistoryCategory.innerHTML = `<option value="all">All categories</option>${expenseCategories(state, true).map((category) => `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}${category.archivedAt ? ' · Archived' : ''}</option>`).join('')}`;
+    els.globalHistoryGoal.innerHTML = `<option value="all">All goals</option>${(state.goals || []).map((goal) => `<option value="${escapeHtml(goal.id)}">${escapeHtml(goal.name)}${goalIsWithdrawn(goal) ? ' · Withdrawn' : goalIsArchived(goal) ? ' · Archived' : ''}</option>`).join('')}`;
+    if ([...els.globalHistoryWallet.options].some((option) => option.value === walletValue)) els.globalHistoryWallet.value = walletValue;
+    if ([...els.globalHistoryCategory.options].some((option) => option.value === categoryValue)) els.globalHistoryCategory.value = categoryValue;
+    if ([...els.globalHistoryGoal.options].some((option) => option.value === goalValue)) els.globalHistoryGoal.value = goalValue;
+  }
+
+  function globalHistorySearchText(entry) {
+    const wallets = [...ledgerEntryWalletIds(entry)].map((id) => state.accounts.find((account) => account.id === id)?.name || '').join(' ');
+    const goals = [...ledgerEntryGoalIds(entry)].map((id) => state.goals.find((goal) => goal.id === id)?.name || '').join(' ');
+    const category = entry.type === 'expense' ? categoryForTransaction(entry)?.name || entry.category || '' : entry.category || '';
+    const amountText = String(Math.abs(Number(entry.amount || 0)));
+    return [transactionTitle(entry), transactionSubtitle(entry, true), entry.note, entry.reconciliationReason, entry.reconciliationNote, wallets, goals, category, amountText].filter(Boolean).join(' ').toLowerCase();
+  }
+
+  function renderGlobalHistory() {
+    if (!els.globalHistoryResults) return;
+    let entries = allLedgerEntries();
+    const query = String(els.globalHistorySearch.value || '').trim().toLowerCase();
+    const type = els.globalHistoryType.value || 'all';
+    const walletId = els.globalHistoryWallet.value || 'all';
+    const categoryId = els.globalHistoryCategory.value || 'all';
+    const goalId = els.globalHistoryGoal.value || 'all';
+    const from = validDateKey(els.globalHistoryFrom.value) ? els.globalHistoryFrom.value : '';
+    const to = validDateKey(els.globalHistoryTo.value) ? els.globalHistoryTo.value : '';
+    const minCents = els.globalHistoryMin.value === '' ? null : Math.max(0, toCents(els.globalHistoryMin.value));
+    const maxCents = els.globalHistoryMax.value === '' ? null : Math.max(0, toCents(els.globalHistoryMax.value));
+
+    entries = entries.filter((entry) => {
+      if (!globalHistoryTypeMatches(entry, type)) return false;
+      if (walletId !== 'all' && !ledgerEntryWalletIds(entry).has(walletId)) return false;
+      if (categoryId !== 'all') {
+        if (entry.type !== 'expense' || categoryForTransaction(entry)?.id !== categoryId) return false;
+      }
+      if (goalId !== 'all' && !ledgerEntryGoalIds(entry).has(goalId)) return false;
+      const date = entry.date || localDateKey(new Date(entry.createdAt || Date.now()));
+      if (from && date < from) return false;
+      if (to && date > to) return false;
+      const cents = Math.abs(toCents(entry.amount || 0));
+      if (minCents !== null && cents < minCents) return false;
+      if (maxCents !== null && cents > maxCents) return false;
+      if (query && !globalHistorySearchText(entry).includes(query)) return false;
+      return true;
+    });
+    els.globalHistoryCount.textContent = `${entries.length} record${entries.length === 1 ? '' : 's'}`;
+    els.globalHistoryResults.innerHTML = renderTransactionRows(entries.slice(0, 500), true, {
+      includeDate: true,
+      emptyTitle: 'No matching history',
+      emptyCopy: 'Try clearing a filter or using a different search.'
+    });
+    if (entries.length > 500) els.globalHistoryCount.textContent += ' · showing newest 500';
+  }
+
+  function clearGlobalHistoryFilters() {
+    els.globalHistorySearch.value = '';
+    els.globalHistoryType.value = 'all';
+    els.globalHistoryWallet.value = 'all';
+    els.globalHistoryCategory.value = 'all';
+    els.globalHistoryGoal.value = 'all';
+    els.globalHistoryFrom.value = '';
+    els.globalHistoryTo.value = '';
+    els.globalHistoryMin.value = '';
+    els.globalHistoryMax.value = '';
+    renderGlobalHistory();
+  }
+
+  function openGlobalHistory(preset = {}) {
+    const today = localDateKey();
+    els.globalHistoryFrom.max = today;
+    els.globalHistoryTo.max = today;
+    populateGlobalHistoryFilters(preset);
+    if (preset.reset !== false) {
+      els.globalHistorySearch.value = preset.query || '';
+      els.globalHistoryType.value = preset.type || 'all';
+      els.globalHistoryFrom.value = preset.from || '';
+      els.globalHistoryTo.value = preset.to || '';
+      els.globalHistoryMin.value = preset.min || '';
+      els.globalHistoryMax.value = preset.max || '';
+      if (preset.walletId && [...els.globalHistoryWallet.options].some((o) => o.value === preset.walletId)) els.globalHistoryWallet.value = preset.walletId;
+      if (preset.categoryId && [...els.globalHistoryCategory.options].some((o) => o.value === preset.categoryId)) els.globalHistoryCategory.value = preset.categoryId;
+      if (preset.goalId && [...els.globalHistoryGoal.options].some((o) => o.value === preset.goalId)) els.globalHistoryGoal.value = preset.goalId;
+    }
+    renderGlobalHistory();
+    openDialog(els.globalHistoryDialog);
+    requestAnimationFrame(() => els.globalHistorySearch?.focus({ preventScroll: true }));
+  }
+
+  function walletDetailMonthStats(accountId) {
+    const range = monthRange();
+    const effective = effectiveTransactions().filter((tx) => tx.date >= range.start && tx.date <= range.end);
+    const income = fromCents(effective.filter((tx) => tx.type === 'income' && tx.accountId === accountId).reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
+    const expenses = fromCents(effective.filter((tx) => tx.type === 'expense' && tx.accountId === accountId).reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
+    const saved = fromCents(effective.filter((tx) => ['saving','saving_return'].includes(tx.type) && tx.accountId === accountId).reduce((sum, tx) => sum + (tx.type === 'saving' ? toCents(tx.amount || 0) : -toCents(tx.amount || 0)), 0));
+    return { income, expenses, saved };
+  }
+
+  function renderWalletDetail(accountId) {
+    const account = state.accounts.find((item) => item.id === accountId);
+    if (!account || !els.walletDetailTitle) return false;
+    const stats = walletDetailMonthStats(account.id);
+    els.walletDetailTitle.textContent = account.name;
+    els.walletDetailSummary.innerHTML = `
+      <div><small>Available</small><strong class="money-value">${privateCurrency(accountBalance(account.id))}</strong></div>
+      <div><small>In savings</small><strong class="money-value">${privateCurrency(walletSavingsBalance(account.id))}</strong></div>
+      <div><small>This month income</small><strong class="money-value">${privateCurrency(stats.income)}</strong></div>
+      <div><small>This month spent</small><strong class="money-value">${privateCurrency(stats.expenses)}</strong></div>
+      <div><small>This month saved</small><strong class="money-value">${privateCurrency(stats.saved)}</strong></div>
+      <div><small>Status</small><strong>${account.archivedAt ? 'Archived' : account.isPrimary ? 'Main wallet' : 'Active'}</strong></div>`;
+    const entries = allLedgerEntries().filter((entry) => ledgerEntryWalletIds(entry).has(account.id)).slice(0, 30);
+    els.walletDetailTransactions.innerHTML = renderTransactionRows(entries, true, { includeDate: true, emptyTitle: 'No wallet activity yet', emptyCopy: 'Transactions linked to this wallet will appear here.' });
+    return true;
+  }
+
+  function openWalletDetail(accountId) {
+    if (!renderWalletDetail(accountId)) return;
+    currentWalletDetailId = accountId;
+    openDialog(els.walletDetailDialog);
+  }
+
+  function dataHealthDetailChecks() {
+    const checks = [];
+    const effective = effectiveTransactions();
+    const negativeWallets = (state.accounts || []).filter((account) => accountBalanceCentsForState(state, account.id) < 0);
+    const negativeGoals = (state.goals || []).filter((goal) => rawGoalCurrentCents(goal, state) < 0);
+    const duplicateTx = new Set((state.transactions || []).map((tx) => tx.id)).size !== (state.transactions || []).length;
+    const incompleteCorrections = (state.transactions || []).filter((tx) => tx.correctedByGroupId).filter((source) => {
+      const members = (state.transactions || []).filter((tx) => tx.correctionGroupId === source.correctedByGroupId);
+      return members.length !== 2 || !members.some((tx) => tx.type === 'correction_reversal' && tx.correctsTransactionId === source.id) || !members.some((tx) => tx.type !== 'correction_reversal' && tx.correctsTransactionId === source.id);
+    });
+    const archivedMoney = (state.accounts || []).filter((account) => account.archivedAt && (accountBalanceCentsForState(state, account.id) !== 0 || walletSavingsCentsForState(state, account.id) !== 0));
+    const invalidGoalTransfers = (state.goalTransfers || []).filter((transfer) => !state.goals.some((goal) => goal.id === transfer.fromGoalId) || !state.goals.some((goal) => goal.id === transfer.toGoalId) || transfer.fromGoalId === transfer.toGoalId);
+    const categoryIds = (state.categories || []).map((category) => category.id);
+    const duplicateCategories = new Set(categoryIds).size !== categoryIds.length;
+
+    checks.push({ ok: !negativeWallets.length, title: 'Wallet balances', copy: negativeWallets.length ? `${negativeWallets.length} wallet${negativeWallets.length === 1 ? '' : 's'} would be negative.` : `${state.accounts.length} wallet${state.accounts.length === 1 ? '' : 's'} reconcile without negative balances.` });
+    checks.push({ ok: !negativeGoals.length, title: 'Savings ledger', copy: negativeGoals.length ? `${negativeGoals.length} goal${negativeGoals.length === 1 ? '' : 's'} has an invalid negative ledger.` : `${state.goals.length} savings goal${state.goals.length === 1 ? '' : 's'} reconcile to the ledger.` });
+    checks.push({ ok: !duplicateTx, title: 'Ledger IDs', copy: duplicateTx ? 'Duplicate transaction IDs were detected.' : `${state.transactions.length} transaction record${state.transactions.length === 1 ? '' : 's'} have unique IDs.` });
+    checks.push({ ok: !incompleteCorrections.length, title: 'Correction audit trails', copy: incompleteCorrections.length ? `${incompleteCorrections.length} correction trail${incompleteCorrections.length === 1 ? '' : 's'} is incomplete.` : 'Originals, reversals, and replacements are paired correctly.' });
+    checks.push({ ok: !invalidGoalTransfers.length, title: 'Goal transfers', copy: invalidGoalTransfers.length ? `${invalidGoalTransfers.length} savings transfer${invalidGoalTransfers.length === 1 ? '' : 's'} references an invalid goal.` : `${state.goalTransfers.length} goal transfer record${state.goalTransfers.length === 1 ? '' : 's'} references valid goals.` });
+    checks.push({ ok: !archivedMoney.length, title: 'Archived wallets', copy: archivedMoney.length ? `${archivedMoney.length} archived wallet${archivedMoney.length === 1 ? '' : 's'} still contains money.` : 'Archived wallets do not hide available money or attributed savings.' });
+    checks.push({ ok: !duplicateCategories, title: 'Categories', copy: duplicateCategories ? 'Duplicate category IDs were detected.' : `${expenseCategories(state, false).length} active expense categor${expenseCategories(state, false).length === 1 ? 'y' : 'ies'} available.` });
+    checks.push({ ok: storageHealth.healthy, title: 'Full integrity validator', copy: storageHealth.healthy ? `Schema ${SCHEMA_VERSION} passed the complete integrity validator.` : storageHealth.message });
+    return checks;
+  }
+
+  function renderDataHealthDetails() {
+    if (!els.dataHealthHero) return;
+    const checks = dataHealthDetailChecks();
+    const failed = checks.filter((check) => !check.ok);
+    els.dataHealthHero.innerHTML = failed.length
+      ? `<span class="round-icon red-soft">${icon('i-bell')}</span><div><strong>${failed.length} issue${failed.length === 1 ? '' : 's'} need attention</strong><small>Pocket will continue blocking unsafe ledger writes. A recovery point may be safer than manual edits.</small></div>`
+      : `<span class="round-icon green-soft">${icon('i-check')}</span><div><strong>Data Health: Healthy</strong><small>Your wallets, ledger, savings, corrections, categories, and archive rules are internally consistent.</small></div>`;
+    els.dataHealthDetailsList.innerHTML = checks.map((check) => `<div class="data-health-check ${check.ok ? 'is-ok' : 'is-warning'}"><span>${icon(check.ok ? 'i-check' : 'i-bell')}</span><div><strong>${escapeHtml(check.title)}</strong><small>${escapeHtml(check.copy)}</small></div></div>`).join('');
+  }
+
+  function openDataHealthDetails() {
+    runDataHealthCheck({ announce: false });
+    renderDataHealthDetails();
+    openDialog(els.dataHealthDialog);
   }
 
   function companionIsAvailable() {
@@ -3003,7 +3502,7 @@
   }
 
   function companionPointerWatch(event) {
-    if (!companionIsAvailable() || companionPointerState || event.pointerType === 'touch') return;
+    if (!companionIsAvailable() || companionPointerState || event.pointerType === 'touch' || companionPerformanceReduced()) return;
     if (companionPointerLookFrame) return;
     companionPointerLookFrame = requestAnimationFrame(() => {
       companionPointerLookFrame = 0;
@@ -3684,7 +4183,7 @@
     const today = localDateKey();
     const yesterday = addDays(today, -1);
     const month = monthRange();
-    const activeGoals = state.goals.filter((goal) => !goal.removedAt);
+    const activeGoals = state.goals.filter((goal) => goalIsActive(goal));
     const dataTransactions = effectiveTransactions();
     const todayExpenses = dataTransactions.filter((tx) => tx.type === 'expense' && tx.date === today);
     const yesterdayExpenses = dataTransactions.filter((tx) => tx.type === 'expense' && tx.date === yesterday);
@@ -3979,10 +4478,13 @@
     const calm = companionMovementMode() === 'calm';
     const personality = companionPersonality();
     const energy = companionProfileState().energy;
+    const performanceReduced = companionPerformanceReduced();
     if (!Number.isFinite(delay)) {
       const base = calm ? 19000 + Math.random() * 16000 : 8200 + Math.random() * 8800;
       delay = energy < 35 ? base * 1.7 : personality === 'playful' ? base * .82 : base;
     } else if (calm) delay = Math.max(12000, delay * 1.55);
+    if (companionPerformanceMode() === 'battery') delay *= 2.35;
+    else if (performanceReduced) delay *= 1.75;
     companionActionTimer = window.setTimeout(() => {
       if (!companionIsAvailable()) return;
       if (document.visibilityState !== 'visible' || document.querySelector('dialog[open]')) {
@@ -4024,6 +4526,8 @@
     if (!companionIsAvailable() || companionSpeechMode() !== 'normal') return;
     const speechSettings = companionDataSpeechSettings();
     if (!Number.isFinite(delay)) delay = speechSettings.scheduledMin + Math.random() * speechSettings.scheduledJitter;
+    if (companionPerformanceMode() === 'battery') delay *= 1.35;
+    else if (companionPerformanceReduced()) delay *= 1.18;
     companionAffirmationTimer = window.setTimeout(() => {
       if (!companionIsAvailable()) return;
       const currentSettings = companionDataSpeechSettings();
@@ -4108,6 +4612,7 @@
   function syncCompanion(options = {}) {
     if (!els.pocketCompanion) return;
     const active = companionIsAvailable();
+    syncCompanionPerformanceClass();
     els.pocketCompanion.classList.toggle('is-visible', active);
     els.pocketCompanion.dataset.context = currentView;
     companionMemory.lastView = currentView;
@@ -4335,6 +4840,12 @@
     els.privacyLabel.textContent = state.settings.privacy ? 'On · amounts hidden' : 'Off · amounts visible';
     els.privacySwitch.classList.toggle('is-on', state.settings.privacy);
     els.privacySettingButton.setAttribute('aria-checked', state.settings.privacy ? 'true' : 'false');
+    if (els.textSizeSetting) els.textSizeSetting.value = ['compact','default','large'].includes(uiPreferences.textSize) ? uiPreferences.textSize : 'default';
+    if (els.categorySettingsSummary) {
+      const activeCategoryCount = expenseCategories(state, false).length;
+      const archivedCategoryCount = expenseCategories(state, true).filter((category) => category.archivedAt).length;
+      els.categorySettingsSummary.textContent = `${activeCategoryCount} active categor${activeCategoryCount === 1 ? 'y' : 'ies'}${archivedCategoryCount ? ` · ${archivedCategoryCount} archived` : ''}. Add, rename, reorder, or archive.`;
+    }
     els.allowanceRecordSummary.textContent = 'Enter the amount, received date, and destination wallet. No routine or schedule required.';
     renderSecretPocketSettings();
     renderAllowanceHistory();
@@ -4369,6 +4880,7 @@
 
   function renderAll() {
     document.documentElement.dataset.theme = state.settings.theme;
+    document.documentElement.dataset.textSize = ['compact','default','large'].includes(uiPreferences.textSize) ? uiPreferences.textSize : 'default';
     if (els.themeColorMeta) els.themeColorMeta.setAttribute('content', state.settings.theme === 'light' ? '#f1b5cc' : '#0d0e10');
     renderHeader();
     renderPrivacy();
@@ -4377,6 +4889,14 @@
     renderSettings();
     populateAccounts();
     renderSavings();
+    if (els.globalHistoryDialog?.open) {
+      populateGlobalHistoryFilters({ reset: false });
+      renderGlobalHistory();
+    }
+    if (els.walletDetailDialog?.open && currentWalletDetailId) {
+      renderWalletDetail(currentWalletDetailId);
+    }
+    if (els.dataHealthDialog?.open) renderDataHealthDetails();
     syncCompanion();
     syncSecretLightWorld();
   }
@@ -4522,7 +5042,7 @@
 
     els.expenseNextButton.disabled = !isValid || isOver;
     els.expenseSaveButton.disabled = !isValid || isOver;
-    els.expenseSaveButton.textContent = isValid ? `${currentCorrectionSourceId ? 'Correct' : currentExpenseEditId ? 'Update' : 'Save'} ${currency(amount)}` : (currentCorrectionSourceId ? 'Save correction' : currentExpenseEditId ? 'Update expense' : 'Save expense');
+    els.expenseSaveButton.textContent = isValid ? `${currentCorrectionSourceId ? 'Correct' : currentExpenseEditId ? 'Update' : 'Save'} ${state.settings.privacy ? '₱••••' : currency(amount)}` : (currentCorrectionSourceId ? 'Save correction' : currentExpenseEditId ? 'Update expense' : 'Save expense');
   }
 
   function showExpenseStep(step) {
@@ -4559,7 +5079,7 @@
 
   function maybeRemindExternalBackup() {
     if (backupReminderShown || !state) return;
-    const meaningful = state.transactions.length >= 10 || state.goals.some((goal) => !goal.removedAt) || state.accounts.length > 1;
+    const meaningful = state.transactions.length >= 10 || state.goals.some((goal) => !goalIsWithdrawn(goal)) || state.accounts.length > 1;
     if (!meaningful) return;
     const now = Date.now();
     const lastExport = Math.max(0, Number(uiPreferences.lastExportAt || 0));
@@ -4653,15 +5173,32 @@
     if(firstReveal) window.setTimeout(()=>{ if(!companionIsAvailable()) return; companionSay('You found me ♡',5600,{essential:true}); companionQueueAction('secret-reveal',async()=>{ companionSetMood('happy'); await companionPose('waving',1500); return true; },{priority:true}); },520);
   }
   async function unlockLightTheme() {
+    loadSecretThrottleState();
+    const now = Date.now();
+    if (now < secretLockoutUntil) {
+      const seconds = Math.max(1, Math.ceil((secretLockoutUntil - now) / 1000));
+      els.themePasswordError.textContent = `Too many attempts. Try again in ${seconds}s.`;
+      setSecretPinEntry('');
+      return;
+    }
     const pin=els.themePassword.value;
-    if(pin.length!==4 || !(await verifySecretPin(pin))){ els.themePasswordError.textContent='That code did not unlock Secret Pocket.'; els.themePassword.classList.add('is-invalid'); els.themePassword.setAttribute('aria-invalid','true'); setSecretPinEntry(''); return; }
+    if(pin.length!==4 || !(await verifySecretPin(pin))){
+      secretFailedAttempts += 1;
+      const delay = secretAttemptDelay(secretFailedAttempts);
+      if (delay) secretLockoutUntil = Date.now() + delay;
+      saveSecretThrottleState();
+      els.themePasswordError.textContent=delay ? `That code did not unlock Secret Pocket. Wait ${Math.ceil(delay/1000)}s before trying again.` : 'That code did not unlock Secret Pocket.';
+      els.themePassword.classList.add('is-invalid'); els.themePassword.setAttribute('aria-invalid','true');
+      els.themePassword.value=''; renderSecretPinDots(); return;
+    }
+    secretFailedAttempts = 0; secretLockoutUntil = 0; saveSecretThrottleState();
     const firstReveal=!secretConfig.firstRevealSeen; secretConfig.discovered=true; secretConfig.firstRevealSeen=true; setSecretPocketUnlocked(true,els.secretRememberUnlock.checked); saveSecretConfig(); state.settings.theme='light'; persistCurrentTheme(); closeDialog(els.themeUnlockDialog); renderAll(); playSecretReveal(firstReveal); showToast(firstReveal?'Secret Pocket unlocked ♡':'Secret Pocket unlocked.');
   }
   function renderSecretPocketSettings() {
     if(!els.secretPocketDialog) return; const unlocked=isSecretPocketUnlocked(); const lightMode=state.settings.theme==='light';
     els.secretThemeDark.classList.toggle('is-active',!lightMode); els.secretThemeLight.classList.toggle('is-active',lightMode); els.secretThemeDark.setAttribute('aria-pressed',lightMode?'false':'true'); els.secretThemeLight.setAttribute('aria-pressed',lightMode?'true':'false');
     els.secretCompanionSwitch.classList.toggle('is-on',secretConfig?.companionEnabled!==false); els.secretCompanionToggle.setAttribute('aria-checked',secretConfig?.companionEnabled!==false?'true':'false'); els.secretCompanionLabel.textContent=secretConfig?.companionEnabled!==false?'On · bunny is active':'Off · light theme stays available';
-    els.secretCompanionSpeech.value=secretConfig?.companionSpeech||'normal'; els.secretCompanionMovement.value=secretConfig?.companionMovement||'normal'; els.secretCompanionSpeech.disabled=secretConfig?.companionEnabled===false; els.secretCompanionMovement.disabled=secretConfig?.companionEnabled===false;
+    els.secretCompanionSpeech.value=secretConfig?.companionSpeech||'normal'; els.secretCompanionMovement.value=secretConfig?.companionMovement||'normal'; if(els.secretCompanionPerformance) els.secretCompanionPerformance.value=secretConfig?.companionPerformance||'auto'; els.secretCompanionSpeech.disabled=secretConfig?.companionEnabled===false; els.secretCompanionMovement.disabled=secretConfig?.companionEnabled===false; if(els.secretCompanionPerformance) els.secretCompanionPerformance.disabled=secretConfig?.companionEnabled===false;
     if (els.secretWorldHeroTitle && els.secretWorldHeroSubtitle) {
       const companionOn = secretConfig?.companionEnabled !== false;
       els.secretWorldHeroTitle.textContent = lightMode ? 'Light Pocket is glowing ♡' : 'Secret Pocket is waiting ♡';
@@ -4691,7 +5228,7 @@
   function openChangeSecretPin() { els.changeSecretPinForm.reset(); els.changeSecretPinError.textContent=''; openDialog(els.changeSecretPinDialog); requestAnimationFrame(()=>els.newSecretPin.focus({preventScroll:true})); }
   async function changeSecretPin() { const pin=els.newSecretPin.value.replace(/\D/g,'').slice(0,4); const confirmPin=els.confirmSecretPin.value.replace(/\D/g,'').slice(0,4); if(pin.length!==4){ els.changeSecretPinError.textContent='Enter exactly four digits.'; return; } if(pin!==confirmPin){ els.changeSecretPinError.textContent='The two PINs do not match.'; return; } await storeSecretPin(pin); closeDialog(els.changeSecretPinDialog); showToast('Secret PIN changed.'); }
   function lockSecretPocket() { setSecretPocketUnlocked(false,false); state.settings.theme='dark'; persistCurrentTheme(); closeDialog(els.secretPocketDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket locked.'); }
-  function resetSecretPocketAccess() { const companionProfile=companionProfileState(); secretConfig=defaultSecretConfig(); secretConfig.companionProfile=companionProfile; saveSecretConfig(); try{sessionStorage.removeItem(SECRET_SESSION_KEY);localStorage.removeItem(SECRET_TRUST_KEY);}catch(error){} state.settings.theme='dark'; persistCurrentTheme(); closeDialog(els.secretPocketDialog); closeDialog(els.companionRoomDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket access reset to the default code.'); }
+  function resetSecretPocketAccess() { const companionProfile=companionProfileState(); secretConfig=defaultSecretConfig(); secretConfig.companionProfile=companionProfile; secretFailedAttempts=0; secretLockoutUntil=0; saveSecretThrottleState(); saveSecretConfig(); try{sessionStorage.removeItem(SECRET_SESSION_KEY);localStorage.removeItem(SECRET_TRUST_KEY);}catch(error){} state.settings.theme='dark'; persistCurrentTheme(); closeDialog(els.secretPocketDialog); closeDialog(els.companionRoomDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket access reset to the default code.'); }
   function openSecretPocketRecovery() { confirmAction('Reset Secret Pocket access?','This resets only the secret PIN and hidden appearance preferences. Wallets, transactions, savings, and allowance history are not changed.','Reset access',resetSecretPocketAccess); }
   function handleSecretVersionTap() { if(secretResetTriggered){secretResetTriggered=false;return;} if(secretConfig?.discovered){ if(isSecretPocketUnlocked()) openSecretPocketSettings(); else openThemeUnlock(); return; } secretTapCount+=1; window.clearTimeout(secretTapTimer); secretTapTimer=window.setTimeout(()=>{secretTapCount=0;},SECRET_TRIGGER_WINDOW); if(secretTapCount>=SECRET_TRIGGER_TAPS){window.clearTimeout(secretTapTimer);secretTapCount=0;openThemeUnlock();} }
   function startSecretRecoveryHold() { secretResetTriggered=false; window.clearTimeout(secretResetTimer); secretResetTimer=window.setTimeout(()=>{secretResetTriggered=true;openSecretPocketRecovery();},SECRET_RESET_HOLD); }
@@ -4706,16 +5243,112 @@
     return ids.some((id) => state.accounts.find((account) => account.id === id)?.archivedAt);
   }
 
+  function renderExpenseCategoryPicker(selected = '') {
+    const picker = document.getElementById('categoryPicker');
+    if (!picker) return;
+    const all = expenseCategories(state, true);
+    let selectedRecord = categoryRecord(selected, selected);
+    let list = expenseCategories();
+    if (selectedRecord?.archivedAt && !list.some((item) => item.id === selectedRecord.id)) list = [...list, selectedRecord];
+    if (!list.length) list = defaultExpenseCategories();
+    const selectedId = selectedRecord?.id || list[0]?.id || '';
+    picker.innerHTML = `<legend>Category</legend>${list.map((category, index) => `<label${category.archivedAt ? ' class="is-archived"' : ''}><input type="radio" name="expenseCategory" value="${escapeHtml(category.id)}"${category.id === selectedId || (!selected && index === 0) ? ' checked' : ''}><span>${icon(category.icon || 'i-more')}${escapeHtml(category.name)}${category.archivedAt ? ' · archived' : ''}</span></label>`).join('')}`;
+  }
+
+  function renderCategoryManager() {
+    if (!els.categoryManagerList) return;
+    const categories = expenseCategories(state, true);
+    const activeCount = categories.filter((item) => !item.archivedAt).length;
+    if (els.categorySettingsSummary) els.categorySettingsSummary.textContent = `${activeCount} active categor${activeCount === 1 ? 'y' : 'ies'} · customize expense entry.`;
+    els.categoryManagerList.innerHTML = categories.map((category, index) => `
+      <div class="category-manager-row${category.archivedAt ? ' is-archived' : ''}">
+        <span class="round-icon ${escapeHtml(category.tone || 'neutral-soft')}">${icon(category.icon || 'i-more')}</span>
+        <div><strong>${escapeHtml(category.name)}</strong><small>${category.archivedAt ? 'Archived · old transactions stay intact' : 'Active for new expenses'}</small></div>
+        <div class="category-manager-actions">
+          ${!category.archivedAt ? `<button type="button" data-action="move-category-up" data-id="${escapeHtml(category.id)}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-action="move-category-down" data-id="${escapeHtml(category.id)}" ${index === categories.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-action="edit-category" data-id="${escapeHtml(category.id)}">Edit</button><button type="button" data-action="archive-category" data-id="${escapeHtml(category.id)}">Archive</button>` : `<button type="button" data-action="restore-category" data-id="${escapeHtml(category.id)}">Restore</button>`}
+        </div>
+      </div>`).join('');
+  }
+
+  function openCategoryManager() {
+    els.categoryManagerForm.reset();
+    els.categoryEditId.value = '';
+    els.categorySaveButton.textContent = 'Add category';
+    renderCategoryManager();
+    openDialog(els.categoryManagerDialog);
+  }
+
+  function saveCategoryManagerForm() {
+    const name = els.categoryName.value.trim().slice(0, 30);
+    const iconId = CATEGORY_ICONS.has(els.categoryIcon.value) ? els.categoryIcon.value : 'i-more';
+    if (!name) return;
+    const editId = els.categoryEditId.value;
+    const duplicate = state.categories.find((item) => item.id !== editId && item.name.toLowerCase() === name.toLowerCase());
+    if (duplicate) return showToast('That category name already exists.');
+    if (editId) {
+      const category = state.categories.find((item) => item.id === editId);
+      if (!category) return;
+      category.name = name;
+      category.icon = iconId;
+      showToast('Category updated. Existing transactions keep their original category label.');
+    } else {
+      state.categories.push({ id: uid('category'), name, icon: iconId, tone: CATEGORY_TONES[state.categories.length % CATEGORY_TONES.length], order: state.categories.length, archivedAt: null });
+      showToast(`${name} added.`);
+    }
+    state.categories = normalizeCategories(state.categories);
+    saveState();
+    els.categoryManagerForm.reset();
+    els.categoryEditId.value = '';
+    els.categorySaveButton.textContent = 'Add category';
+    renderCategoryManager();
+    renderSettings();
+  }
+
+  function editCategory(id) {
+    const category = state.categories.find((item) => item.id === id);
+    if (!category) return;
+    els.categoryEditId.value = category.id;
+    els.categoryName.value = category.name;
+    els.categoryIcon.value = CATEGORY_ICONS.has(category.icon) ? category.icon : 'i-more';
+    els.categorySaveButton.textContent = 'Save category';
+    els.categoryName.focus({ preventScroll: true });
+  }
+
+  function archiveCategory(id) {
+    const category = state.categories.find((item) => item.id === id && !item.archivedAt);
+    if (!category) return;
+    if (expenseCategories().length <= 1) return showToast('Keep at least one active expense category.');
+    category.archivedAt = new Date().toISOString();
+    saveState(); renderCategoryManager(); renderSettings();
+    showToast(`${category.name} archived. Old transactions remain unchanged.`);
+  }
+
+  function restoreCategory(id) {
+    const category = state.categories.find((item) => item.id === id && item.archivedAt);
+    if (!category) return;
+    category.archivedAt = null;
+    saveState(); renderCategoryManager(); renderSettings();
+    showToast(`${category.name} restored.`);
+  }
+
+  function moveCategory(id, direction) {
+    const ordered = expenseCategories(state, true);
+    const index = ordered.findIndex((item) => item.id === id);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+    [ordered[index], ordered[targetIndex]] = [ordered[targetIndex], ordered[index]];
+    ordered.forEach((item, order) => { const target = state.categories.find((category) => category.id === item.id); if (target) target.order = order; });
+    state.categories = normalizeCategories(state.categories);
+    saveState(); renderCategoryManager();
+  }
+
   function openExpense(prefill = {}) {
     currentExpenseEditId = prefill.id || null;
     currentCorrectionSourceId = prefill.correctionOf || null;
     els.expenseForm.reset();
     els.expenseDialogTitle.textContent = currentCorrectionSourceId ? 'Correct expense' : currentExpenseEditId ? 'Edit expense' : 'Add expense';
     els.expenseAmount.value = prefill.amount || '';
-    if (prefill.category) {
-      const radio = els.expenseForm.querySelector(`input[name="expenseCategory"][value="${CSS.escape(prefill.category)}"]`);
-      if (radio) radio.checked = true;
-    }
+    renderExpenseCategoryPicker(prefill.categoryId || prefill.category || '');
     els.expenseNote.value = prefill.note || '';
     els.expenseDate.max = localDateKey();
     els.expenseDate.value = prefill.date || localDateKey();
@@ -4753,7 +5386,7 @@
       id: uid('tx'),
       type: 'correction_reversal',
       originalType: original.type,
-      amount: Math.abs(transactionAmount(original)),
+      amount: original.type === 'reconciliation' ? moneyRound(-Number(original.amount || 0)) : Math.abs(transactionAmount(original)),
       category: 'Correction',
       accountId: original.accountId || '',
       goalId: original.goalId || '',
@@ -4761,6 +5394,8 @@
       toAccountId: original.toAccountId || '',
       date: original.date || localDateKey(),
       note: `Audit reversal of ${transactionTitle(original)}`,
+      reconciliationReason: original.reconciliationReason || '',
+      reconciliationNote: original.reconciliationNote || '',
       correctionGroupId: groupId,
       correctsTransactionId: original.id,
       createdAt: new Date().toISOString()
@@ -4873,7 +5508,7 @@
         <div><small class="eyebrow">Pocket receipt</small><strong>${escapeHtml(tx.category || 'Expense')}</strong></div>
         <span class="receipt-stamp">${savedLabel}</span>
       </div>
-      <div class="receipt-amount money-value">${currency(tx.amount)}</div>
+      <div class="receipt-amount money-value">${privateCurrency(tx.amount)}</div>
       <div class="receipt-divider"></div>
       <div class="receipt-lines">
         <div class="receipt-line"><span>Paid from</span><strong>${escapeHtml(account)}</strong></div>
@@ -4886,7 +5521,9 @@
   function addExpense() {
     const amount = moneyRound(els.expenseAmount.value);
     if (amount <= 0) return;
-    const category = els.expenseForm.elements.expenseCategory.value;
+    const categoryId = els.expenseForm.elements.expenseCategory.value;
+    const categoryRecordValue = categoryRecord(categoryId) || expenseCategories()[0];
+    const category = categoryRecordValue?.name || 'Other';
     const accountId = els.expenseAccount.value || activeAccounts()[0]?.id;
     const date = els.expenseDate.value || localDateKey();
     const note = els.expenseNote.value.trim();
@@ -4902,20 +5539,20 @@
     let savedTransaction;
     let edited = false;
     if (currentCorrectionSourceId) {
-      savedTransaction = createCorrectionPair(currentCorrectionSourceId, { amount, category, accountId, date, note });
+      savedTransaction = createCorrectionPair(currentCorrectionSourceId, { amount, category, categoryId, accountId, date, note });
       if (!savedTransaction) return;
     } else if (currentExpenseEditId) {
       const tx = state.transactions.find((item) => item.id === currentExpenseEditId && item.type === 'expense');
       if (!tx || !canModifyTransaction(tx)) return showToast('This transaction is locked. Use Correct instead.');
       const candidate = cloneStateSnapshot(state);
       const next = candidate.transactions.find((item) => item.id === currentExpenseEditId);
-      Object.assign(next, { amount, category, accountId, date, note, updatedAt: new Date().toISOString() });
+      Object.assign(next, { amount, category, categoryId, accountId, date, note, updatedAt: new Date().toISOString() });
       if (!validateCandidateBalances(candidate, 'That expense edit would make a wallet balance negative.')) return;
       state = candidate;
       savedTransaction = state.transactions.find((item) => item.id === currentExpenseEditId);
       edited = true;
     } else {
-      savedTransaction = { id: uid('tx'), type: 'expense', amount, category, accountId, date, note, createdAt: new Date().toISOString() };
+      savedTransaction = { id: uid('tx'), type: 'expense', amount, category, categoryId, accountId, date, note, createdAt: new Date().toISOString() };
       state.transactions.push(savedTransaction);
     }
 
@@ -4986,7 +5623,7 @@
     else if (valid) els.transferAmountHint.textContent = state.settings.privacy ? `Money will move from ${from?.name || 'source'} to ${to?.name || 'destination'}.` : `${currency(available - amount)} will remain in ${from?.name || 'the source wallet'}.`;
     else els.transferAmountHint.textContent = `Move money from ${from?.name || 'one wallet'} to ${to?.name || 'another wallet'}.`;
     els.transferSaveButton.disabled = !valid || over;
-    els.transferSaveButton.textContent = valid ? `${currentCorrectionSourceId ? 'Correct' : currentTransferEditId ? 'Update' : 'Transfer'} ${currency(amount)}` : (currentCorrectionSourceId ? 'Save correction' : currentTransferEditId ? 'Update transfer' : 'Transfer');
+    els.transferSaveButton.textContent = valid ? `${currentCorrectionSourceId ? 'Correct' : currentTransferEditId ? 'Update' : 'Transfer'} ${state.settings.privacy ? '₱••••' : currency(amount)}` : (currentCorrectionSourceId ? 'Save correction' : currentTransferEditId ? 'Update transfer' : 'Transfer');
   }
 
   function openTransfer(prefill = {}) {
@@ -5081,7 +5718,7 @@
   }
 
   function openGoalEditor(goalId) {
-    const goal = state.goals.find((item) => item.id === goalId && !item.removedAt);
+    const goal = state.goals.find((item) => item.id === goalId && !goalIsWithdrawn(item));
     if (!goal) return;
     els.goalForm.reset();
     populateAccounts();
@@ -5093,10 +5730,29 @@
     openDialog(els.goalDialog);
   }
 
+  function revertGoalTargetEvent(eventId) {
+    const event = (state.goalEvents || []).find((item) => item.id === eventId && item.type === 'target_changed');
+    const goal = event ? state.goals.find((item) => item.id === event.goalId && !goalIsWithdrawn(item)) : null;
+    if (!event || !goal || event.fromValue === undefined || event.toValue === undefined) return;
+    if (toCents(goal.target) !== toCents(event.toValue)) return showToast('This target changed again later, so that older history entry cannot be reverted directly.');
+    const previous = moneyRound(goal.target);
+    const restored = Math.max(.01, moneyRound(event.fromValue));
+    confirmAction('Revert this goal target?', state.settings.privacy ? 'Pocket will restore the previous target and keep both changes in goal history.' : `Restore the target from ${currency(previous)} to ${currency(restored)}? Both changes will remain in history.`, 'Revert target', () => {
+      goal.target = restored;
+      goal.updatedAt = new Date().toISOString();
+      addGoalEvent(goal.id, 'target_changed', { fromValue: String(previous), toValue: String(restored), note: 'Target change reverted' });
+      saveState(); renderAll(); renderGoalHistory(); showToast('Goal target restored.');
+    });
+  }
+
   function applyGoalEdit(goal, name, target) {
+    const previousName = goal.name;
+    const previousTarget = moneyRound(goal.target || 0);
     goal.name = name;
     goal.target = moneyRound(target);
     goal.updatedAt = new Date().toISOString();
+    if (previousName !== name) addGoalEvent(goal.id, 'renamed', { fromValue: previousName, toValue: name, note: `Renamed from ${previousName} to ${name}` });
+    if (toCents(previousTarget) !== toCents(target)) addGoalEvent(goal.id, 'target_changed', { fromValue: String(previousTarget), toValue: String(moneyRound(target)), note: 'Target amount changed' });
 
     saveState();
     renderAll();
@@ -5109,7 +5765,7 @@
     const target = moneyRound(els.goalTarget.value);
     if (!name || target <= 0) return;
     if (currentGoalEditId) {
-      const goal = state.goals.find((item) => item.id === currentGoalEditId && !item.removedAt);
+      const goal = state.goals.find((item) => item.id === currentGoalEditId && goalIsActive(item));
       if (!goal) return;
       const saved = goalCurrent(goal);
       closeDialog(els.goalDialog);
@@ -5134,8 +5790,9 @@
       showToast(state.settings.privacy ? `${walletName} does not have enough available money.` : `You only have ${currency(Math.max(0, available))} available in ${walletName}.`);
       return;
     }
-    const goal = { id: uid('goal'), name, target, openingSaved: 0, createdAt: localDateKey() };
+    const goal = { id: uid('goal'), name, target, openingSaved: 0, createdAt: localDateKey(), milestones: [] };
     state.goals.push(goal);
+    addGoalEvent(goal.id, 'created', { toValue: String(target), note: 'Savings goal created', date: saveDate });
     if (startingAmount > 0) state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: saveDate, note: name, goalId: goal.id, createdAt: new Date().toISOString() });
 
     saveState();
@@ -5147,33 +5804,73 @@
     showToast(`“${name}” goal created.`);
   }
 
-  function removeGoal(goalId) {
-    const goal = state.goals.find((item) => item.id === goalId && !item.removedAt);
+  function archiveGoal(goalId) {
+    const goal = state.goals.find((item) => item.id === goalId && goalIsActive(item));
+    if (!goal) return;
+    confirmAction(`Archive “${goal.name}”?`, 'The goal and its savings stay in Pocket, but it moves out of your active goal carousel. You can restore it anytime.', 'Archive goal', () => {
+      goal.archivedAt = new Date().toISOString();
+      addGoalEvent(goal.id, 'archived', { note: 'Goal archived' });
+      manageGoalsMode = false;
+      saveState(); renderAll(); showToast(`“${goal.name}” archived.`, 'Restore', () => restoreArchivedGoal(goal.id));
+    });
+  }
+
+  function restoreArchivedGoal(goalId) {
+    const goal = state.goals.find((item) => item.id === goalId && goalIsArchived(item));
+    if (!goal) return;
+    goal.archivedAt = undefined;
+    addGoalEvent(goal.id, 'restored', { note: 'Goal restored from archive' });
+    saveState(); renderAll(); showToast(`“${goal.name}” restored to active goals.`);
+  }
+
+  function withdrawGoal(goalId) {
+    const goal = state.goals.find((item) => item.id === goalId && !goalIsWithdrawn(item));
     if (!goal) return;
     const saved = goalCurrent(goal);
     const breakdown = goalWalletBreakdown(goal);
-    const returnCopy = breakdown.map(({ account, amount }) => `${currency(amount)} → ${account.name}`).join(' · ');
-    const message = saved > 0
-      ? state.settings.privacy
-        ? 'All money in this goal will return to the wallets it originally came from before the goal is removed.'
-        : `${currency(saved)} will return to its original wallet${breakdown.length === 1 ? '' : 's'}: ${returnCopy}.`
-      : 'This goal has no saved money. Only the goal will be removed.';
-
-    confirmAction(`Delete “${goal.name}”?`, message, 'Return money & delete', () => {
+    const returnCopy = breakdown.map(({ account, amount }) => `${privateCurrency(amount)} → ${account.name}`).join(' · ');
+    const message = saved > 0 ? `This withdraws the goal and returns ${state.settings.privacy ? 'its saved money' : privateCurrency(saved)} to the wallet${breakdown.length === 1 ? '' : 's'} it came from${returnCopy ? ` (${returnCopy})` : ''}. The goal remains in audit history and can be restored if those returned funds are still available.` : 'This goal has no saved money. It will leave the active/archive lists but remain in audit history.';
+    confirmAction(`Withdraw “${goal.name}”?`, message, 'Withdraw goal', () => {
       const now = Date.now();
+      const groupId = uid('goal-withdraw');
       breakdown.forEach(({ account, amount }, index) => {
         if (toCents(amount) <= 0) return;
-        state.transactions.push({ id: uid('tx'), type: 'saving_return', amount: moneyRound(amount), category: 'Savings return', accountId: account.id, goalId: goal.id, date: localDateKey(), note: `Returned from ${goal.name}`, createdAt: new Date(now + index).toISOString() });
+        state.transactions.push({ id: uid('tx'), type: 'saving_return', amount: moneyRound(amount), category: 'Savings return', accountId: account.id, goalId: goal.id, date: localDateKey(), note: `Withdrawn from ${goal.name}`, goalLifecycleGroupId: groupId, createdAt: new Date(now + index).toISOString() });
       });
-      goal.removedAt = new Date().toISOString();
+      goal.withdrawnAt = new Date().toISOString();
+      goal.removedAt = goal.withdrawnAt;
+      goal.withdrawalGroupId = groupId;
       goal.returnedToWallets = true;
-      if (!state.goals.some((item) => !item.removedAt)) manageGoalsMode = false;
-
-      saveState();
-      renderAll();
-      showToast(saved > 0 ? 'Goal deleted and savings returned to the original wallet.' : 'Savings goal deleted.');
+      goal.archivedAt = undefined;
+      addGoalEvent(goal.id, 'withdrawn', { note: saved > 0 ? 'Goal withdrawn and savings returned to wallets' : 'Goal withdrawn' });
+      if (!state.goals.some((item) => goalIsActive(item))) manageGoalsMode = false;
+      saveState(); renderAll();
+      showToast(saved > 0 ? 'Goal withdrawn and savings returned.' : 'Goal withdrawn.', 'Restore', () => restoreWithdrawnGoal(goal.id));
     });
   }
+
+  function restoreWithdrawnGoal(goalId) {
+    const goal = state.goals.find((item) => item.id === goalId && goalIsWithdrawn(item));
+    if (!goal) return;
+    const candidate = cloneStateSnapshot(state);
+    const candidateGoal = candidate.goals.find((item) => item.id === goal.id);
+    const returns = candidate.transactions.filter((tx) => tx.type === 'saving_return' && tx.goalId === goal.id && tx.goalLifecycleGroupId && tx.goalLifecycleGroupId === candidateGoal.withdrawalGroupId);
+    const now = Date.now();
+    returns.forEach((tx, index) => {
+      candidate.transactions.push({ id: uid('tx'), type: 'saving', amount: tx.amount, category: 'Savings', accountId: tx.accountId, goalId: goal.id, date: localDateKey(), note: `Restored to ${goal.name}`, goalLifecycleGroupId: candidateGoal.withdrawalGroupId, createdAt: new Date(now + index).toISOString() });
+    });
+    candidateGoal.withdrawnAt = undefined;
+    candidateGoal.removedAt = undefined;
+    candidateGoal.returnedToWallets = false;
+    candidateGoal.archivedAt = undefined;
+    if (!validateCandidateBalances(candidate, 'This goal cannot be restored because some returned wallet money has already been used.')) return;
+    if (!validateCandidateGoals(candidate, 'This goal cannot be restored safely.')) return;
+    state = candidate;
+    addGoalEvent(goal.id, 'restored_after_withdrawal', { note: 'Withdrawn goal restored and savings moved back from wallets' });
+    saveState(); renderAll(); setView('savings'); showToast(`“${goal.name}” restored with its available returned savings.`);
+  }
+
+  function removeGoal(goalId) { withdrawGoal(goalId); }
 
   function allocateGoalTransferByWallet(goal, amount) {
     const pools = goalWalletBreakdown(goal).map(({ account, amount: walletAmount }) => ({ accountId: account.id, cents: Math.max(0, toCents(walletAmount)) })).filter((item) => item.cents > 0);
@@ -5201,19 +5898,57 @@
     return allocations.filter((item) => item.cents > 0).map((item) => ({ accountId: item.accountId, amount: fromCents(item.cents) }));
   }
 
+  function allocateGoalTransferForEdit(goal, amount, original = null) {
+    if (!original || original.fromGoalId !== goal?.id) return allocateGoalTransferByWallet(goal, amount);
+    const pools = new Map(goalWalletBreakdown(goal).map(({ account, amount: walletAmount }) => [account.id, Math.max(0, toCents(walletAmount))]));
+    (original.allocations || []).forEach((item) => pools.set(item.accountId, (pools.get(item.accountId) || 0) + Math.max(0, toCents(item.amount || 0))));
+    const available = [...pools.entries()].filter(([, cents]) => cents > 0).map(([accountId, cents]) => ({ accountId, cents }));
+    const totalCents = available.reduce((sum, item) => sum + item.cents, 0);
+    const requestedCents = Math.max(0, toCents(amount));
+    if (!requestedCents || requestedCents > totalCents) return [];
+    let remaining = requestedCents;
+    const allocations = available.map((pool, index) => {
+      if (index === available.length - 1) {
+        const cents = Math.min(pool.cents, remaining); remaining -= cents; return { accountId: pool.accountId, cents };
+      }
+      const proportional = Math.floor(requestedCents * (pool.cents / totalCents));
+      const cents = Math.min(pool.cents, proportional, remaining); remaining -= cents; return { accountId: pool.accountId, cents };
+    });
+    while (remaining > 0) {
+      let moved = false;
+      for (const allocation of allocations) {
+        if (remaining <= 0) break;
+        const pool = available.find((item) => item.accountId === allocation.accountId);
+        if (!pool || allocation.cents >= pool.cents) continue;
+        allocation.cents += 1; remaining -= 1; moved = true;
+      }
+      if (!moved) break;
+    }
+    return allocations.filter((item) => item.cents > 0).map((item) => ({ accountId: item.accountId, amount: fromCents(item.cents) }));
+  }
+
+  function currentGoalTransferSourceRecord() {
+    const id = currentGoalTransferEditId || currentGoalTransferCorrectionId;
+    return id ? state.goalTransfers.find((item) => item.id === id) : null;
+  }
+
   function updateGoalTransferEntry() {
-    const source = state.goals.find((item) => item.id === els.goalTransferFromGoalId.value && !item.removedAt);
+    const source = state.goals.find((item) => item.id === els.goalTransferFromGoalId.value && goalIsActive(item));
+    const original = currentGoalTransferSourceRecord();
     const amount = moneyRound(els.goalTransferAmount.value || 0);
-    const available = goalCurrent(source);
+    let availableCents = source ? goalCurrentCents(source) : 0;
+    if (original && original.fromGoalId === source?.id) availableCents += toCents(original.amount || 0);
+    const available = fromCents(Math.max(0, availableCents));
     const destination = els.goalTransferDestinations.querySelector('input[name="goalTransferDestination"]:checked')?.value || '';
-    const valid = Boolean(source && destination && amount > 0 && toCents(amount) <= toCents(available));
+    const valid = Boolean(source && destination && source.id !== destination && amount > 0 && toCents(amount) <= availableCents && entryDateIsValid(els.goalTransferDate.value || localDateKey()));
     els.goalTransferAvailable.textContent = state.settings.privacy ? 'Available ₱••••' : `Available ${currency(available)}`;
-    els.goalTransferAmountCard.classList.toggle('is-over-limit', toCents(amount) > toCents(available) && amount > 0);
-    if (!amount) els.goalTransferHint.textContent = 'Wallet origin stays attached to the savings.';
-    else if (toCents(amount) > toCents(available)) els.goalTransferHint.textContent = state.settings.privacy ? 'That is more than this goal contains.' : `${currency(amount - available)} over this goal’s savings.`;
+    els.goalTransferAmountCard.classList.toggle('is-over-limit', toCents(amount) > availableCents && amount > 0);
+    if (!amount) els.goalTransferHint.textContent = currentGoalTransferCorrectionId ? 'The original transfer stays in history; this creates an auditable correction.' : currentGoalTransferEditId ? 'Edit the transfer while it is still within the 24-hour window.' : 'Wallet origin stays attached to the savings.';
+    else if (toCents(amount) > availableCents) els.goalTransferHint.textContent = state.settings.privacy ? 'That is more than this goal can support.' : `${currency(amount - available)} over this goal’s available savings.`;
     else els.goalTransferHint.textContent = 'This stays in Savings and keeps its original wallet source.';
     els.goalTransferSaveButton.disabled = !valid;
-    els.goalTransferSaveButton.textContent = amount > 0 ? `Transfer ${currency(amount)}` : 'Transfer savings';
+    const verb = currentGoalTransferCorrectionId ? 'Correct' : currentGoalTransferEditId ? 'Update' : 'Transfer';
+    els.goalTransferSaveButton.textContent = amount > 0 ? `${verb} ${state.settings.privacy ? '₱••••' : currency(amount)}` : (currentGoalTransferCorrectionId ? 'Save correction' : currentGoalTransferEditId ? 'Update transfer' : 'Transfer savings');
   }
 
   function handleGoalTransferKey(key) {
@@ -5221,46 +5956,121 @@
     updateGoalTransferEntry();
   }
 
-  function openGoalTransfer(goalId) {
-    const source = state.goals.find((item) => item.id === goalId && !item.removedAt);
+  function openGoalTransfer(goalId, options = {}) {
+    const original = options.transferId ? state.goalTransfers.find((item) => item.id === options.transferId) : null;
+    const sourceId = original?.fromGoalId || goalId;
+    const source = state.goals.find((item) => item.id === sourceId && goalIsActive(item));
     if (!source) return;
-    const destinations = state.goals.filter((item) => !item.removedAt && item.id !== source.id);
-    if (!destinations.length) return showToast('Create another savings goal before transferring savings.');
+    const destinations = state.goals.filter((item) => goalIsActive(item) && item.id !== source.id);
+    if (!destinations.length) return showToast('Create or restore another active savings goal before transferring savings.');
+    currentGoalTransferEditId = options.mode === 'edit' ? original?.id || null : null;
+    currentGoalTransferCorrectionId = options.mode === 'correct' ? original?.id || null : null;
     els.goalTransferForm.reset();
     els.goalTransferFromGoalId.value = source.id;
-    els.goalTransferAmount.value = '';
+    els.goalTransferAmount.value = original ? String(original.amount) : '';
     els.goalTransferDate.max = localDateKey();
-    els.goalTransferDate.value = localDateKey();
+    els.goalTransferDate.value = original?.date || localDateKey();
     const sourceBreakdown = goalWalletBreakdown(source);
-    const sourceDetail = sourceBreakdown.map(({ account, amount }) => `${account.name} ${state.settings.privacy ? '₱••••' : currency(amount)}`).join(' · ');
-    els.goalTransferSource.innerHTML = `<span class="round-icon purple-soft">${icon('i-savings')}</span><div><small>From</small><strong>${escapeHtml(source.name)}</strong><p>${escapeHtml(sourceDetail || 'No savings available')}</p></div>`;
-    els.goalTransferDestinations.innerHTML = `<legend>Move to</legend>${destinations.map((goal, index) => `<label><input type="radio" name="goalTransferDestination" value="${escapeHtml(goal.id)}"${index === 0 ? ' checked' : ''}><span>${icon('i-target')}<b>${escapeHtml(goal.name)}</b><small>${state.settings.privacy ? '₱•••• saved' : `${currency(goalCurrent(goal))} saved`}</small></span></label>`).join('')}`;
+    const sourceDetail = sourceBreakdown.map(({ account, amount }) => `${account.name} ${privateCurrency(amount)}`).join(' · ');
+    els.goalTransferSource.innerHTML = `<span class="round-icon purple-soft">${icon('i-savings')}</span><div><small>${original ? (options.mode === 'correct' ? 'Correct transfer from' : 'Edit transfer from') : 'From'}</small><strong>${escapeHtml(source.name)}</strong><p>${escapeHtml(sourceDetail || 'No savings available')}</p></div>`;
+    els.goalTransferDestinations.innerHTML = `<legend>Move to</legend>${destinations.map((goal, index) => `<label><input type="radio" name="goalTransferDestination" value="${escapeHtml(goal.id)}"${(original?.toGoalId ? goal.id === original.toGoalId : index === 0) ? ' checked' : ''}><span>${icon('i-target')}<b>${escapeHtml(goal.name)}</b><small>${state.settings.privacy ? '₱•••• saved' : `${currency(goalCurrent(goal))} saved`}</small></span></label>`).join('')}`;
     updateGoalTransferEntry();
     openDialog(els.goalTransferDialog);
     requestAnimationFrame(() => els.goalTransferDialog.focus());
   }
 
+  function createGoalTransferCorrection(original, replacement) {
+    if (!original || !canCorrectGoalTransfer(original)) return null;
+    const candidate = cloneStateSnapshot(state);
+    const source = candidate.goalTransfers.find((item) => item.id === original.id);
+    const groupId = uid('goal-transfer-correction');
+    source.correctedByGroupId = groupId;
+    const reversal = goalTransferReversalFor(source, groupId);
+    const corrected = normalizeGoalTransfer({ ...replacement, id: uid('goal-transfer'), correctionGroupId: groupId, correctsGoalTransferId: source.id, createdAt: new Date(Date.now() + 1).toISOString() });
+    candidate.goalTransfers.push(reversal, corrected);
+    if (!validateCandidateGoals(candidate, 'That correction would make a savings goal negative.')) return null;
+    state = candidate;
+    return corrected;
+  }
+
   function transferGoalSavings() {
-    const source = state.goals.find((item) => item.id === els.goalTransferFromGoalId.value && !item.removedAt);
+    const source = state.goals.find((item) => item.id === els.goalTransferFromGoalId.value && goalIsActive(item));
     const destinationId = els.goalTransferDestinations.querySelector('input[name="goalTransferDestination"]:checked')?.value || '';
-    const destination = state.goals.find((item) => item.id === destinationId && !item.removedAt);
+    const destination = state.goals.find((item) => item.id === destinationId && goalIsActive(item));
     const amount = moneyRound(els.goalTransferAmount.value || 0);
     const date = els.goalTransferDate.value || localDateKey();
-    if (!source || !destination || source.id === destination.id || amount <= 0 || toCents(amount) > goalCurrentCents(source) || !entryDateIsValid(date)) return;
-    const allocations = allocateGoalTransferByWallet(source, amount);
+    const original = currentGoalTransferSourceRecord();
+    let availableCents = source ? goalCurrentCents(source) : 0;
+    if (original && original.fromGoalId === source?.id) availableCents += toCents(original.amount || 0);
+    if (!source || !destination || source.id === destination.id || amount <= 0 || toCents(amount) > availableCents || !entryDateIsValid(date)) return;
+    const allocations = allocateGoalTransferForEdit(source, amount, original);
     const allocatedCents = allocations.reduce((sum, item) => sum + toCents(item.amount || 0), 0);
     if (allocatedCents !== toCents(amount)) return showToast('Pocket could not preserve the wallet source for that transfer.');
-    state.goalTransfers.push({ id: uid('goal-transfer'), fromGoalId: source.id, toGoalId: destination.id, amount, allocations, date, createdAt: new Date().toISOString() });
+    const replacement = { fromGoalId: source.id, toGoalId: destination.id, amount, allocations, date };
 
-    saveState();
-    closeDialog(els.goalTransferDialog);
-    renderAll();
-    setView('savings');
-    showToast(state.settings.privacy ? 'Savings transferred between goals.' : `${currency(amount)} moved from “${source.name}” to “${destination.name}”.`);
+    if (currentGoalTransferEditId) {
+      const candidate = cloneStateSnapshot(state);
+      const item = candidate.goalTransfers.find((entry) => entry.id === currentGoalTransferEditId);
+      if (!item || !canModifyGoalTransfer(item)) return showToast('That goal transfer is locked. Use Correct instead.');
+      Object.assign(item, replacement, { updatedAt: new Date().toISOString() });
+      if (!validateCandidateGoals(candidate, 'That edit would make a savings goal negative.')) return;
+      state = candidate;
+      showToast('Savings transfer updated.');
+    } else if (currentGoalTransferCorrectionId) {
+      const corrected = createGoalTransferCorrection(original, replacement);
+      if (!corrected) return;
+      showToast('Savings transfer correction recorded. The original remains in history.');
+    } else {
+      state.goalTransfers.push(normalizeGoalTransfer({ id: uid('goal-transfer'), ...replacement, createdAt: new Date().toISOString() }));
+      showToast(state.settings.privacy ? 'Savings transferred between goals.' : `${currency(amount)} moved from “${source.name}” to “${destination.name}”.`);
+    }
+    currentGoalTransferEditId = null;
+    currentGoalTransferCorrectionId = null;
+    saveState(); closeDialog(els.goalTransferDialog); renderAll(); setView('savings');
+  }
+
+  function undoGoalTransfer(id) {
+    const transfer = state.goalTransfers.find((item) => item.id === id);
+    if (!transfer || !canModifyGoalTransfer(transfer)) return showToast('This savings transfer is locked. Use Correct for historical changes.');
+    confirmAction('Undo this savings transfer?', 'Pocket will reverse only this transfer if later savings activity does not depend on it.', 'Undo transfer', () => {
+      const candidate = cloneStateSnapshot(state);
+      const item = candidate.goalTransfers.find((entry) => entry.id === id);
+      let removed = [item];
+      let sourceMarker = null;
+      if (item.correctionGroupId) {
+        removed = candidate.goalTransfers.filter((entry) => entry.correctionGroupId === item.correctionGroupId);
+        const sourceId = removed.find((entry) => entry.correctsGoalTransferId)?.correctsGoalTransferId;
+        const source = candidate.goalTransfers.find((entry) => entry.id === sourceId);
+        if (source) { sourceMarker = { id: source.id, correctedByGroupId: source.correctedByGroupId || '' }; delete source.correctedByGroupId; }
+      }
+      const ids = new Set(removed.map((entry) => entry.id));
+      candidate.goalTransfers = candidate.goalTransfers.filter((entry) => !ids.has(entry.id));
+      if (!validateCandidateGoals(candidate, 'This transfer cannot be undone because later goal activity depends on it.')) return;
+      state = candidate; saveState(); renderAll();
+      showToast('Savings transfer undone.', 'Restore', () => {
+        const restore = cloneStateSnapshot(state);
+        restore.goalTransfers.push(...cloneStateSnapshot(removed));
+        if (sourceMarker) { const source = restore.goalTransfers.find((entry) => entry.id === sourceMarker.id); if (source) source.correctedByGroupId = sourceMarker.correctedByGroupId; }
+        if (!validateCandidateGoals(restore, 'Restore is no longer safe because later goal activity depends on that savings.')) return;
+        state = restore; saveState(); renderAll(); showToast('Savings transfer restored.');
+      });
+    });
+  }
+
+  function correctGoalTransfer(id) {
+    const transfer = state.goalTransfers.find((item) => item.id === id);
+    if (!transfer || !canCorrectGoalTransfer(transfer)) return showToast('This savings transfer is not available for correction.');
+    openGoalTransfer(transfer.fromGoalId, { transferId: transfer.id, mode: 'correct' });
+  }
+
+  function editGoalTransfer(id) {
+    const transfer = state.goalTransfers.find((item) => item.id === id);
+    if (!transfer || !canModifyGoalTransfer(transfer)) return showToast('This savings transfer is locked. Use Correct instead.');
+    openGoalTransfer(transfer.fromGoalId, { transferId: transfer.id, mode: 'edit' });
   }
 
   function openContribution(goalId, suggestedAmount = '', accountId = '', options = {}) {
-    const goal = state.goals.find((item) => item.id === goalId && !item.removedAt);
+    const goal = state.goals.find((item) => item.id === goalId && !goalIsWithdrawn(item));
     if (!goal) return;
     currentCorrectionSourceId = options.correctionOf || null;
     els.contributeForm.reset();
@@ -5289,7 +6099,7 @@
   }
 
   function addContribution() {
-    const goal = state.goals.find((item) => item.id === els.contributeGoalId.value && !item.removedAt);
+    const goal = state.goals.find((item) => item.id === els.contributeGoalId.value && goalIsActive(item));
     const amount = moneyRound(els.contributeAmount.value);
     const accountId = els.contributeAccount.value || activeAccounts()[0]?.id;
     const date = els.contributeDate.value || localDateKey();
@@ -5336,7 +6146,7 @@
     if (archivedAccountUsedByTransaction(tx)) return showToast('Restore the archived wallet before editing this transaction.');
     closeDialog(els.expenseReceiptDialog);
     currentCorrectionSourceId = null;
-    if (tx.type === 'expense') return openExpense({ id: tx.id, amount: String(tx.amount), category: tx.category, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
+    if (tx.type === 'expense') return openExpense({ id: tx.id, amount: String(tx.amount), category: tx.category, categoryId: tx.categoryId, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
     if (tx.type === 'income') { closeDialog(els.allowanceHistoryDialog); setView('more'); return openDifferentAllowance({ id: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date }); }
     if (tx.type === 'transfer') return openTransfer({ id: tx.id, amount: String(tx.amount), fromAccountId: tx.fromAccountId, toAccountId: tx.toAccountId, date: tx.date, note: tx.note || '' });
     showToast('Savings entries can be undone while editable, but are not edited separately.');
@@ -5347,10 +6157,11 @@
     if (!tx || !canCorrectTransaction(tx)) return showToast('This transaction is not available for correction.');
     if (archivedAccountUsedByTransaction(tx)) return showToast('Restore the archived wallet before correcting this transaction.');
     closeDialog(els.expenseReceiptDialog);
-    if (tx.type === 'expense') return openExpense({ correctionOf: tx.id, amount: String(tx.amount), category: tx.category, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
+    if (tx.type === 'expense') return openExpense({ correctionOf: tx.id, amount: String(tx.amount), category: tx.category, categoryId: tx.categoryId, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
     if (tx.type === 'income') { closeDialog(els.allowanceHistoryDialog); setView('more'); return openDifferentAllowance({ correctionOf: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date }); }
     if (tx.type === 'transfer') return openTransfer({ correctionOf: tx.id, amount: String(tx.amount), fromAccountId: tx.fromAccountId, toAccountId: tx.toAccountId, date: tx.date, note: tx.note || '' });
     if (tx.type === 'saving') { if (els.goalHistoryDialog?.open) closeDialog(els.goalHistoryDialog); return openContribution(tx.goalId, String(tx.amount), tx.accountId, { correctionOf: tx.id, date: tx.date }); }
+    if (tx.type === 'reconciliation') return openReconciliationCorrection(tx.id);
   }
 
   function transactionUndoGroup(tx, candidate = state) {
@@ -5449,7 +6260,12 @@
     els.walletManageForm.reset();
     els.walletManageTitle.textContent = account.name;
     els.walletManageName.value = account.name;
-    els.walletManageBalance.value = String(Math.max(0, moneyRound(accountBalance(account.id))));
+    els.walletManageBalance.value = state.settings.privacy ? '' : String(Math.max(0, moneyRound(accountBalance(account.id))));
+    els.walletManageBalance.placeholder = state.settings.privacy ? 'Hidden · enter only if reconciling' : 'Enter actual balance to reconcile';
+    els.walletReconcileDate.max = localDateKey();
+    els.walletReconcileDate.value = localDateKey();
+    els.walletReconcileReason.value = 'Cash count correction';
+    els.walletReconcileNote.value = '';
     els.walletArchiveButton.hidden = Boolean(account.isPrimary);
     openDialog(els.walletManageDialog);
     requestAnimationFrame(() => els.walletManageName.focus({ preventScroll: true }));
@@ -5459,7 +6275,11 @@
     const account = state.accounts.find((item) => item.id === currentWalletManageId && !item.archivedAt);
     if (!account) return;
     const name = els.walletManageName.value.trim().slice(0, 30);
-    const actualBalance = Math.max(0, moneyRound(els.walletManageBalance.value || 0));
+    const balanceInput = String(els.walletManageBalance.value || '').trim();
+    const reconcileDate = els.walletReconcileDate.value || localDateKey();
+    const reconcileReason = els.walletReconcileReason.value || 'Other';
+    const reconcileNote = els.walletReconcileNote.value.trim();
+    if (!entryDateIsValid(reconcileDate)) return showToast('Choose today or a past date for the reconciliation.');
     if (!name) return showToast('Give this wallet a name.');
     if (state.accounts.some((item) => item.id !== account.id && item.name.toLowerCase() === name.toLowerCase())) return showToast(`${name} is already in your wallets.`);
 
@@ -5467,13 +6287,14 @@
     const nextAccount = candidate.accounts.find((item) => item.id === account.id);
     nextAccount.name = name;
     const currentBalanceCents = accountBalanceCentsForState(candidate, account.id);
-    const targetCents = toCents(actualBalance);
+    const actualBalance = balanceInput === '' ? fromCents(currentBalanceCents) : Math.max(0, moneyRound(balanceInput));
+    const targetCents = balanceInput === '' ? currentBalanceCents : toCents(actualBalance);
     const differenceCents = targetCents - currentBalanceCents;
     if (differenceCents !== 0) {
       candidate.transactions.push({
         id: uid('tx'), type: 'reconciliation', category: 'Reconciliation', accountId: account.id,
-        amount: fromCents(differenceCents), date: localDateKey(), note: `Balance reconciled for ${name}`,
-        createdAt: new Date().toISOString()
+        amount: fromCents(differenceCents), date: reconcileDate, note: reconcileNote || `Balance reconciled for ${name}`,
+        reconciliationReason: reconcileReason, reconciliationNote: reconcileNote, createdAt: new Date().toISOString()
       });
     }
     if (!validateCandidateBalances(candidate, 'That reconciliation would make a wallet balance negative.')) return;
@@ -5484,6 +6305,34 @@
     currentWalletManageId = null;
     renderAll();
     showToast(differenceCents === 0 ? `${name} updated.` : state.settings.privacy ? `${name} balance reconciled.` : `${name} reconciled to ${currency(actualBalance)}.`);
+  }
+
+  function openReconciliationCorrection(id) {
+    const tx = state.transactions.find((item) => item.id === id && item.type === 'reconciliation');
+    if (!tx || !canCorrectTransaction(tx)) return showToast('This reconciliation is not available for correction.');
+    currentReconciliationCorrectionId = tx.id;
+    els.reconciliationCorrectionForm.reset();
+    els.reconciliationCorrectionAmount.value = String(moneyRound(tx.amount));
+    els.reconciliationCorrectionDate.max = localDateKey();
+    els.reconciliationCorrectionDate.value = tx.date || localDateKey();
+    els.reconciliationCorrectionReason.value = tx.reconciliationReason || 'Cash count correction';
+    els.reconciliationCorrectionNote.value = tx.reconciliationNote || tx.note || '';
+    openDialog(els.reconciliationCorrectionDialog);
+  }
+
+  function saveReconciliationCorrection() {
+    const original = state.transactions.find((item) => item.id === currentReconciliationCorrectionId && item.type === 'reconciliation');
+    if (!original) return;
+    const amount = moneyRound(els.reconciliationCorrectionAmount.value || 0);
+    const date = els.reconciliationCorrectionDate.value || localDateKey();
+    if (toCents(amount) === 0) return showToast('A reconciliation adjustment cannot be zero.');
+    if (!entryDateIsValid(date)) return showToast('Choose today or a past reconciliation date.');
+    const corrected = createCorrectionPair(original.id, { amount, accountId: original.accountId, category: 'Reconciliation', date, note: els.reconciliationCorrectionNote.value.trim() || 'Balance reconciliation correction', reconciliationReason: els.reconciliationCorrectionReason.value || 'Other', reconciliationNote: els.reconciliationCorrectionNote.value.trim() });
+    if (!corrected) return;
+    currentReconciliationCorrectionId = null;
+    closeDialog(els.reconciliationCorrectionDialog);
+    renderAll();
+    showToast('Reconciliation correction recorded with the original audit trail preserved.');
   }
 
   function archiveWallet(id = currentWalletManageId) {
@@ -5555,15 +6404,25 @@
     }
   }
 
+  function secretConfigForBackup() {
+    const safe = cloneStateSnapshot(secretConfig || loadSecretConfig());
+    safe.pinSalt = '';
+    safe.pinHash = '';
+    safe.pinScheme = '';
+    safe.remember = false;
+    safe.credentialsExcluded = true;
+    return safe;
+  }
+
   function pocketBackupPayload() {
     return {
       format: 'pocket-full-backup',
-      backupVersion: 3,
+      backupVersion: 4,
       appVersion: APP_VERSION,
       schemaVersion: SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       tracker: cloneStateSnapshot(state),
-      secretPocket: cloneStateSnapshot(secretConfig || loadSecretConfig()),
+      secretPocket: secretConfigForBackup(),
       storageArchitecture: storageBackend === 'indexeddb' ? 'indexeddb-v1' : 'compatibility-storage'
     };
   }
@@ -5582,7 +6441,7 @@
     uiPreferences.lastExportAt = Date.now();
     saveUiPreferences();
     renderStorageStatus();
-    showToast('Full Pocket backup downloaded, including Secret Pocket and companion progress.');
+    showToast('Full Pocket backup downloaded. Companion and Secret Pocket preferences are included; the secret PIN verifier is intentionally excluded.');
   }
 
   function validateBackupTrackerShape(value) {
@@ -5591,10 +6450,16 @@
     if (!value.accounts.length || value.accounts.length > 100) return false;
     if (value.transactions.length > 100000 || (value.goals || []).length > 1000 || (value.goalTransfers || []).length > 100000) return false;
     if (!value.accounts.every((account) => account && typeof account === 'object' && typeof account.name === 'string' && account.name.trim())) return false;
+    if (value.categories !== undefined && !Array.isArray(value.categories)) return false;
+    if (value.goalEvents !== undefined && !Array.isArray(value.goalEvents)) return false;
+    if ((value.categories || []).length > 500 || (value.goalEvents || []).length > 200000) return false;
     const knownTypes = new Set(['income', 'expense', 'saving', 'saving_return', 'transfer', 'reconciliation', 'correction_reversal']);
     if (!value.transactions.every((tx) => {
       if (!tx || typeof tx !== 'object' || !knownTypes.has(tx.type) || !Number.isFinite(Number(tx.amount))) return false;
-      return tx.type === 'reconciliation' ? toCents(tx.amount) !== 0 : toCents(tx.amount) > 0;
+      const cents = toCents(tx.amount);
+      if (tx.type === 'reconciliation') return cents !== 0;
+      if (tx.type === 'correction_reversal' && tx.originalType === 'reconciliation') return cents !== 0;
+      return cents > 0;
     })) return false;
     if (!(value.goals || []).every((goal) => goal && typeof goal === 'object' && typeof goal.name === 'string' && toCents(goal.target) > 0)) return false;
     if (value.goalTransfers !== undefined && !Array.isArray(value.goalTransfers)) return false;
@@ -5607,13 +6472,17 @@
     const accountIds = new Set(tracker.accounts.map((account) => account.id));
     const goalIds = new Set(tracker.goals.map((goal) => goal.id));
     if (accountIds.size !== tracker.accounts.length || goalIds.size !== tracker.goals.length) throw new Error('Backup contains duplicate IDs.');
+    const categoryIds = new Set((tracker.categories || []).map((category) => category.id));
+    const goalEventIds = new Set((tracker.goalEvents || []).map((event) => event.id));
+    if (categoryIds.size !== (tracker.categories || []).length || goalEventIds.size !== (tracker.goalEvents || []).length) throw new Error('Backup contains duplicate category or goal-event IDs.');
+    for (const event of tracker.goalEvents || []) if (!goalIds.has(event.goalId)) throw new Error('Backup goal history references a missing savings goal.');
     for (const tx of tracker.transactions) {
       if (['income', 'expense', 'saving', 'saving_return', 'reconciliation'].includes(tx.type) && (!tx.accountId || !accountIds.has(tx.accountId))) throw new Error('Backup references a missing wallet.');
       if (tx.type === 'transfer' && (!accountIds.has(tx.fromAccountId) || !accountIds.has(tx.toAccountId) || tx.fromAccountId === tx.toAccountId)) throw new Error('Backup contains an invalid wallet transfer.');
       if (tx.type === 'saving' && tx.goalId && !goalIds.has(tx.goalId)) throw new Error('Backup references a missing savings goal.');
       if (tx.type === 'correction_reversal') {
-        if (!['income', 'expense', 'transfer', 'saving'].includes(tx.originalType)) throw new Error('Backup contains an invalid correction record.');
-        if (['income', 'expense', 'saving'].includes(tx.originalType) && (!tx.accountId || !accountIds.has(tx.accountId))) throw new Error('Backup correction references a missing wallet.');
+        if (!['income', 'expense', 'transfer', 'saving', 'reconciliation'].includes(tx.originalType)) throw new Error('Backup contains an invalid correction record.');
+        if (['income', 'expense', 'saving', 'reconciliation'].includes(tx.originalType) && (!tx.accountId || !accountIds.has(tx.accountId))) throw new Error('Backup correction references a missing wallet.');
         if (tx.originalType === 'transfer' && (!accountIds.has(tx.fromAccountId) || !accountIds.has(tx.toAccountId) || tx.fromAccountId === tx.toAccountId)) throw new Error('Backup correction references an invalid transfer.');
       }
     }
@@ -5644,9 +6513,28 @@
       const allocated = (transfer.allocations || []).reduce((sum, item) => sum + toCents(item.amount || 0), 0);
       if (transfer.allocations?.length && allocated !== toCents(transfer.amount || 0)) throw new Error('Backup contains an inconsistent savings allocation.');
     }
+    const goalTransfersById = new Map(tracker.goalTransfers.map((item) => [item.id, item]));
+    const goalTransferGroups = new Map();
+    tracker.goalTransfers.forEach((item) => {
+      if (!item.correctionGroupId) return;
+      if (!goalTransferGroups.has(item.correctionGroupId)) goalTransferGroups.set(item.correctionGroupId, []);
+      goalTransferGroups.get(item.correctionGroupId).push(item);
+    });
+    for (const source of tracker.goalTransfers.filter((item) => item.correctedByGroupId)) {
+      const members = goalTransferGroups.get(source.correctedByGroupId) || [];
+      const reversal = members.find((item) => item.isReversal && item.correctsGoalTransferId === source.id);
+      const replacement = members.find((item) => !item.isReversal && item.correctsGoalTransferId === source.id);
+      if (!reversal || !replacement || members.length !== 2) throw new Error('Backup contains an incomplete savings-transfer correction trail.');
+    }
+    for (const [groupId, members] of goalTransferGroups) {
+      const sourceId = members.find((item) => item.correctsGoalTransferId)?.correctsGoalTransferId;
+      const source = sourceId ? goalTransfersById.get(sourceId) : null;
+      if (!source || source.correctedByGroupId !== groupId) throw new Error('Backup contains an orphaned savings-transfer correction record.');
+    }
     for (const goal of tracker.goals) {
       const rawGoalCents = toCents(goal.openingSaved || 0) + goalLedgerBalanceCents(goal.id, tracker);
       if (rawGoalCents < 0) throw new Error('Backup would make a savings goal negative.');
+      if (goalIsWithdrawn(goal) && rawGoalCents !== 0) throw new Error('Backup contains a withdrawn goal that still holds savings.');
     }
     const balanceProblem = stateBalanceProblem(tracker);
     if (balanceProblem) throw new Error(`Backup would make ${balanceProblem.name} negative.`);
@@ -5662,11 +6550,11 @@
   function parsePocketBackup(raw) {
     if (!raw || typeof raw !== 'object') throw new Error('Backup must be a JSON object.');
     if (raw.format === 'pocket-full-backup') {
-      if (![1, 2, 3].includes(Number(raw.backupVersion))) throw new Error('Unsupported Pocket backup version.');
+      if (![1, 2, 3, 4].includes(Number(raw.backupVersion))) throw new Error('Unsupported Pocket backup version.');
       if (Number(raw.schemaVersion || 1) > SCHEMA_VERSION) throw new Error('This backup was created by a newer Pocket data schema.');
       if (!validateBackupTrackerShape(raw.tracker)) throw new Error('Pocket tracker data is incomplete.');
       const tracker = validateNormalizedBackupIntegrity(migrateStateSchema(raw.tracker));
-      return { tracker, secretPocket: raw.secretPocket ? normalizeSecretConfig(raw.secretPocket) : null, full: true };
+      return { tracker, secretPocket: raw.secretPocket ? normalizeSecretConfig(raw.secretPocket) : null, full: true, credentialsExcluded: Number(raw.backupVersion) >= 4 || Boolean(raw.secretPocket?.credentialsExcluded) };
     }
     if (Number(raw.version || 1) > SCHEMA_VERSION) throw new Error('This legacy backup uses a newer Pocket data schema.');
     if (validateBackupTrackerShape(raw)) return { tracker: validateNormalizedBackupIntegrity(migrateStateSchema(raw)), secretPocket: null, full: false };
@@ -5680,19 +6568,24 @@
       const parsed = parsePocketBackup(JSON.parse(text));
       const tracker = parsed.tracker;
       const activeWalletCount = activeAccounts(tracker).length;
-      const goalCount = tracker.goals.filter((goal) => !goal.removedAt).length;
+      const goalCount = tracker.goals.filter((goal) => !goalIsWithdrawn(goal)).length;
       const transactionCount = tracker.transactions.length;
-      const companionCopy = parsed.full ? ' Companion profile and Secret Pocket settings are included.' : ' This is a legacy tracker-only backup; your current Secret Pocket profile will be kept.';
+      const companionCopy = parsed.full ? ' Companion profile and Secret Pocket preferences are included; your current secret PIN credential stays on this device.' : ' This is a legacy tracker-only backup; your current Secret Pocket profile will be kept.';
       confirmAction('Restore this Pocket backup?', `${activeWalletCount} active wallet${activeWalletCount === 1 ? '' : 's'}, ${goalCount} active goal${goalCount === 1 ? '' : 's'}, and ${transactionCount} transaction${transactionCount === 1 ? '' : 's'} will replace the current tracker.${companionCopy}`, 'Restore data', async () => {
         const previousTheme = uiPreferences.theme;
         try {
           await waitForStorageQueues();
           await createRecoverySnapshot('Before backup restore');
-          const nextSecret = parsed.secretPocket ? normalizeSecretConfig(parsed.secretPocket) : normalizeSecretConfig(secretConfig);
-          if (parsed.full) {
-            nextSecret.remember = false;
-            uiPreferences.theme = 'dark';
-          }
+          const currentSecret = normalizeSecretConfig(secretConfig);
+          const importedSecret = parsed.secretPocket ? normalizeSecretConfig(parsed.secretPocket) : currentSecret;
+          const nextSecret = parsed.full ? {
+            ...importedSecret,
+            pinSalt: currentSecret.pinSalt,
+            pinHash: currentSecret.pinHash,
+            pinScheme: currentSecret.pinScheme,
+            remember: false
+          } : currentSecret;
+          if (parsed.full) uiPreferences.theme = 'dark';
           saveUiPreferences();
           tracker.settings.theme = uiPreferences.theme;
           await commitAtomicReplacement(tracker, nextSecret);
@@ -5702,7 +6595,7 @@
           resetCompanionDataBaseline();
           renderAll();
           setView('home');
-          showToast(parsed.full ? 'Full Pocket backup restored atomically. Secret Pocket is locked for safety.' : 'Legacy Pocket backup restored atomically.');
+          showToast(parsed.full ? 'Full Pocket backup restored atomically. Secret Pocket is locked; your current secret PIN credential was kept.' : 'Legacy Pocket backup restored atomically.');
         } catch (error) {
           uiPreferences.theme = previousTheme;
           saveUiPreferences();
@@ -5785,7 +6678,7 @@
     if (action === 'open-transfer') openTransfer({ fromAccountId: selectedWalletAccount()?.id || '' });
     if (action === 'home-add-savings') {
       const account = selectedWalletAccount();
-      const goals = state.goals.filter((goal) => !goal.removedAt);
+      const goals = state.goals.filter((goal) => goalIsActive(goal));
       if (!goals.length) {
         openGoal(account?.id || '');
       } else if (goals.length === 1) {
@@ -5800,6 +6693,7 @@
     if (action === 'open-allowance') openDifferentAllowance();
     if (action === 'open-allowance-history') openAllowanceHistory();
     if (action === 'open-goal-history') openGoalHistory(button.dataset.goalId);
+    if (action === 'revert-goal-target') revertGoalTargetEvent(button.dataset.id);
     if (action === 'apply-update') applyAvailableUpdate();
     if (action === 'dismiss-update') hideUpdateAvailable();
     if (action === 'check-update') checkForUpdates({ announce: true, force: true });
@@ -5807,10 +6701,19 @@
     if (action === 'open-contribution') openContribution(button.dataset.goalId, '', button.dataset.accountId || '');
     if (action === 'edit-goal') openGoalEditor(button.dataset.goalId);
     if (action === 'transfer-goal') openGoalTransfer(button.dataset.goalId);
+    if (action === 'archive-goal') archiveGoal(button.dataset.goalId);
+    if (action === 'restore-goal') restoreArchivedGoal(button.dataset.goalId);
+    if (action === 'withdraw-goal') withdrawGoal(button.dataset.goalId);
+    if (action === 'restore-withdrawn-goal') restoreWithdrawnGoal(button.dataset.goalId);
     if (action === 'remove-goal') removeGoal(button.dataset.goalId);
+    if (action === 'edit-goal-transfer') editGoalTransfer(button.dataset.id);
+    if (action === 'undo-goal-transfer') undoGoalTransfer(button.dataset.id);
+    if (action === 'correct-goal-transfer') correctGoalTransfer(button.dataset.id);
     if (action === 'toggle-manage-goals') { manageGoalsMode = !manageGoalsMode; renderSavings(); }
     if (action === 'open-wallet') openWallet();
     if (action === 'manage-wallet') openWalletManage(button.dataset.id);
+    if (action === 'wallet-detail') openWalletDetail(button.dataset.id);
+    if (action === 'wallet-detail-search') { closeDialog(els.walletDetailDialog); openGlobalHistory({ walletId: currentWalletDetailId || 'all' }); }
     if (action === 'archive-wallet') archiveWallet();
     if (action === 'restore-wallet') restoreWallet(button.dataset.id);
     if (action === 'remove-wallet') removeWallet(button.dataset.id);
@@ -5832,6 +6735,13 @@
     if (action === 'reset-companion-position') resetCompanionPosition();
     if (action === 'change-secret-pin') openChangeSecretPin();
     if (action === 'lock-secret-pocket') lockSecretPocket();
+    if (action === 'open-global-history') openGlobalHistory();
+    if (action === 'open-category-manager') openCategoryManager();
+    if (action === 'edit-category') editCategory(button.dataset.id);
+    if (action === 'archive-category') archiveCategory(button.dataset.id);
+    if (action === 'restore-category') restoreCategory(button.dataset.id);
+    if (action === 'move-category-up') moveCategory(button.dataset.id, -1);
+    if (action === 'move-category-down') moveCategory(button.dataset.id, 1);
     if (action === 'toggle-privacy') {
       state.settings.privacy = !state.settings.privacy;
       saveState(); renderAll();
@@ -5839,7 +6749,8 @@
     if (action === 'export-data') exportData();
     if (action === 'import-data') els.importFile.click();
     if (action === 'request-storage-persistence') requestStoragePersistence({ announce: true });
-    if (action === 'run-data-health') runDataHealthCheck({ announce: true });
+    if (action === 'run-data-health') openDataHealthDetails();
+    if (action === 'run-data-health-detail') { runDataHealthCheck({ announce: false }); renderDataHealthDetails(); showToast(storageHealth.healthy ? 'Data Health check passed.' : `Data Health needs attention: ${storageHealth.message}`); }
     if (action === 'create-recovery-point') createManualRecoveryPoint();
     if (action === 'restore-recovery-point') restoreLatestRecoveryPoint();
     if (action === 'reset-data') confirmAction('Clear all data?', 'This removes transactions, allowance history, and savings goals stored on this device. This cannot be undone after you continue.', 'Clear data', resetAllData);
@@ -5850,8 +6761,8 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
-      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
+      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsSection', 'archivedGoalsCount', 'archivedGoalsList', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
+      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'categorySettingsSummary', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDate', 'transferDate', 'goalSaveDate', 'goalTransferDate', 'contributeDate',
@@ -5863,6 +6774,10 @@
       'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalDialogTitle', 'goalSubmitButton', 'goalName', 'goalTarget',
       'goalCurrent', 'goalAccount', 'goalTransferDialog', 'goalTransferForm', 'goalTransferFromGoalId', 'goalTransferSource', 'goalTransferDestinations', 'goalTransferAmountCard', 'goalTransferAvailable', 'goalTransferAmount', 'goalTransferHint', 'goalTransferKeypad', 'goalTransferSaveButton', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount', 'contributeAccount', 'contributeWalletHint',
       'walletPickerDialog', 'walletPickerTitle', 'walletPickerSubtitle', 'walletPickerList',
+      'globalHistoryDialog', 'globalHistorySearch', 'globalHistoryType', 'globalHistoryWallet', 'globalHistoryCategory', 'globalHistoryGoal', 'globalHistoryFrom', 'globalHistoryTo', 'globalHistoryMin', 'globalHistoryMax', 'globalHistoryCount', 'globalHistoryClear', 'globalHistoryResults',
+      'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
+      'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
+      'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
       'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
@@ -6099,6 +7014,17 @@
       event.preventDefault();
       addContribution();
     });
+    els.categoryManagerForm.addEventListener('submit', (event) => { event.preventDefault(); saveCategoryManagerForm(); });
+    [els.globalHistorySearch, els.globalHistoryType, els.globalHistoryWallet, els.globalHistoryCategory, els.globalHistoryGoal, els.globalHistoryFrom, els.globalHistoryTo, els.globalHistoryMin, els.globalHistoryMax].forEach((control) => {
+      control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', renderGlobalHistory);
+    });
+    els.globalHistoryClear.addEventListener('click', clearGlobalHistoryFilters);
+    els.reconciliationCorrectionForm.addEventListener('submit', (event) => { event.preventDefault(); saveReconciliationCorrection(); });
+    els.textSizeSetting.addEventListener('change', () => {
+      uiPreferences.textSize = ['compact','default','large'].includes(els.textSizeSetting.value) ? els.textSizeSetting.value : 'default';
+      saveUiPreferences(); renderAll();
+      showToast(`Text size set to ${uiPreferences.textSize}.`);
+    });
     els.themeUnlockForm.addEventListener('submit', (event) => { event.preventDefault(); unlockLightTheme(); });
     els.secretKeypad.addEventListener('click', (event) => { const button=event.target.closest('[data-secret-key]'); if(button) handleSecretKey(button.dataset.secretKey); });
     els.secretPinDots.addEventListener('click',()=>els.themePassword.focus({preventScroll:true}));
@@ -6108,6 +7034,7 @@
     els.changeSecretPinForm.addEventListener('submit',(event)=>{event.preventDefault();changeSecretPin();});
     els.secretCompanionSpeech.addEventListener('change',()=>{secretConfig.companionSpeech=els.secretCompanionSpeech.value;saveSecretConfig();renderSecretPocketSettings();syncCompanion({fast:true});});
     els.secretCompanionMovement.addEventListener('change',()=>{secretConfig.companionMovement=els.secretCompanionMovement.value;saveSecretConfig();clearCompanionTimers();syncCompanion({fast:true});});
+    els.secretCompanionPerformance.addEventListener('change',()=>{secretConfig.companionPerformance=['auto','full','battery'].includes(els.secretCompanionPerformance.value)?els.secretCompanionPerformance.value:'auto';saveSecretConfig();renderSecretPocketSettings();clearCompanionTimers();syncSecretLightWorld({force:true});syncCompanion({fast:true});showToast(`Companion performance set to ${els.secretCompanionPerformance.options[els.secretCompanionPerformance.selectedIndex].text.toLowerCase()}.`);});
     els.companionNameInput.addEventListener('change',()=>{ const profile=companionProfileState(); profile.name=els.companionNameInput.value.trim().slice(0,14)||'Bunny'; profile.lastInteractionAt=Date.now(); saveSecretConfig(); renderCompanionRoom(); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`${profile.name} likes the new name ♡`; });
     els.companionPersonality.addEventListener('change',()=>{ const profile=companionProfileState(); profile.personality=['gentle','playful','curious'].includes(els.companionPersonality.value)?els.companionPersonality.value:'gentle'; profile.mood=companionMoodFromState(); profile.lastInteractionAt=Date.now(); saveSecretConfig(); renderCompanionRoom(); clearCompanionTimers(); syncCompanion({fast:true}); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`${profile.name} feels a little more ${profile.personality} now ✨`; });
     els.companionDataSpeech.addEventListener('change',()=>{ secretConfig.companionDataSpeech=['quiet','balanced','chatty','very-chatty'].includes(els.companionDataSpeech.value)?els.companionDataSpeech.value:'chatty'; saveSecretConfig(); renderCompanionRoom(); clearCompanionTimers(); syncCompanion({fast:true}); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`Real-data talk set to ${els.companionDataSpeech.options[els.companionDataSpeech.selectedIndex].text.toLowerCase()} ♡`; });
@@ -6116,7 +7043,7 @@
     els.companionBunny.addEventListener('pointerup', (event)=>companionPointerEnd(event,false));
     els.companionBunny.addEventListener('pointercancel', (event)=>companionPointerEnd(event,true));
     document.addEventListener('pointermove', companionPointerWatch, { passive: true });
-    document.addEventListener('pointerover', (event)=>{ if(!companionIsAvailable()||companionPointerState||companionPhase!=='idle') return; const target=event.target.closest('button,[role=button],.card,.goal-card,.wallet-mode-card'); if(target&&companionVisibleElement(target)) companionLookAtElement(target); }, { passive: true });
+    document.addEventListener('pointerover', (event)=>{ if(!companionIsAvailable()||companionPointerState||companionPhase!=='idle'||companionPerformanceReduced()) return; const target=event.target.closest('button,[role=button],.card,.goal-card,.wallet-mode-card'); if(target&&companionVisibleElement(target)) companionLookAtElement(target); }, { passive: true });
     els.contentScroll.addEventListener('scroll', ()=>{ if(companionPerchTarget){ companionClearPerch(); companionStoryGeneration += 1; } }, { passive: true });
     window.addEventListener('resize', ()=>{ companionClearPerch(); companionSetGazeNormalized(0,0,true); }, { passive: true });
     document.addEventListener('keydown', (event) => {
@@ -6167,6 +7094,16 @@
     });
     els.walletManageDialog.addEventListener('close', () => {
       currentWalletManageId = null;
+    });
+    els.goalTransferDialog.addEventListener('close', () => {
+      currentGoalTransferEditId = null;
+      currentGoalTransferCorrectionId = null;
+    });
+    els.reconciliationCorrectionDialog.addEventListener('close', () => {
+      currentReconciliationCorrectionId = null;
+    });
+    els.walletDetailDialog.addEventListener('close', () => {
+      currentWalletDetailId = null;
     });
     els.contributeDialog.addEventListener('close', () => {
       currentCorrectionSourceId = null;
@@ -6220,7 +7157,7 @@
       else { persistCompanionPresence(); clearCompanionTimers(); }
     });
     window.addEventListener('pagehide', persistCompanionPresence);
-    ['pointerdown', 'keydown', 'touchstart'].forEach((eventName) => document.addEventListener(eventName, resetCompanionIdleTimer, { passive: true }));
+    ['pointerdown', 'keydown', 'touchstart'].forEach((eventName) => document.addEventListener(eventName, () => { companionLastUserActivityAt = Date.now(); document.body.classList.remove('companion-low-power'); resetCompanionIdleTimer(); }, { passive: true }));
     window.addEventListener('online', () => checkForUpdates({ force: true }));
   }
 
@@ -6231,7 +7168,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.4.0');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.0');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
