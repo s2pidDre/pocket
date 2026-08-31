@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.12';
+  const APP_VERSION = '3.5.13';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -5537,12 +5537,18 @@
     resetHiddenLetterState();
     openDialog(els.hiddenLetterDialog);
     try { navigator.vibrate?.(18); } catch (error) {}
+    if (secretPocketLightActive()) {
+      emitSecretLightFx('heart', { count: companionReducedMotion ? 2 : 5, area: 'center', duration: companionReducedMotion ? 900 : 1900 });
+    }
     requestAnimationFrame(() => els.hiddenLetterEnvelope?.focus({ preventScroll: true }));
   }
 
   function openHiddenLetterPaper() {
     if (!els.hiddenLetterDialog?.open || !els.hiddenLetterShell) return;
     els.hiddenLetterShell.dataset.letterState = 'open';
+    if (secretPocketLightActive()) {
+      window.setTimeout(() => emitSecretLightFx('sparkle', { count: companionReducedMotion ? 3 : 7, area: 'center', duration: companionReducedMotion ? 900 : 2100 }), 120);
+    }
     window.setTimeout(() => els.hiddenLetterPaper?.focus({ preventScroll: true }), 240);
   }
 
@@ -7899,7 +7905,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.12');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.13');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
