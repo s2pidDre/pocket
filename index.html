@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.3">
+  <link rel="stylesheet" href="css/style.css?v=3.5.4">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -320,7 +320,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.3</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.4</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -365,11 +365,11 @@
   <dialog id="archivedGoalsDialog" class="app-dialog history-dialog archived-goals-dialog">
     <div class="dialog-panel">
       <div class="dialog-header">
-        <div><p class="eyebrow">Savings history</p><h2>Past goals</h2><p class="dialog-subtitle">Archived and withdrawn goals stay out of your active Savings workspace.</p></div>
+        <div><p class="eyebrow">Savings history</p><h2>Past goals</h2><p class="dialog-subtitle">Archived goals stay out of your active Savings workspace until you restore them.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body history-dialog-body">
-        <div class="history-dialog-summary"><strong id="archivedGoalsCount">0 goals</strong><span>Restore a goal here whenever you need it again.</span></div>
+        <div class="history-dialog-summary"><strong id="archivedGoalsCount">0 goals</strong><span>Restore an archived goal here whenever you need it again.</span></div>
         <div class="archived-goals-list" id="archivedGoalsList"></div>
       </div>
     </div>
@@ -1129,6 +1129,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.3" defer></script>
+  <script src="js/app.js?v=3.5.4" defer></script>
 </body>
 </html>

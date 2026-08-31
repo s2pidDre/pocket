@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.3';
+  const APP_VERSION = '3.5.4';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -2750,11 +2750,11 @@
     if (els.savingsInsights) {
       els.savingsInsights.innerHTML = isWalletMode
         ? `<div><small>From wallet</small><strong class="money-value">${privateCurrency(shownBalance)}</strong></div><div><small>All savings</small><strong class="money-value">${privateCurrency(totalSavings())}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div>`
-        : `<div><small>Active</small><strong class="money-value">${privateCurrency(activeSaved)}</strong></div><div><small>Archived</small><strong class="money-value">${privateCurrency(archivedSaved)}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div><div><small>Withdrawn this month</small><strong class="money-value">${privateCurrency(monthStats.withdrawn)}</strong></div>`;
+        : `<div><small>Active</small><strong class="money-value">${privateCurrency(activeSaved)}</strong></div><div><small>Archived</small><strong class="money-value">${privateCurrency(archivedSaved)}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div><div><small>Returned this month</small><strong class="money-value">${privateCurrency(monthStats.withdrawn)}</strong></div>`;
     }
 
     const visibleGoals = state.goals.filter((goal) => goalIsActive(goal));
-    const archivedGoals = state.goals.filter((goal) => goalIsArchived(goal) || goalIsWithdrawn(goal));
+    const archivedGoals = state.goals.filter((goal) => goalIsArchived(goal));
     const goalLayout = visibleGoals.length <= 1 ? 'single' : visibleGoals.length === 2 ? 'pair' : 'multi';
     els.goalsGrid.dataset.goalLayout = goalLayout;
     els.goalsGrid.dataset.goalCount = String(visibleGoals.length);
@@ -2768,7 +2768,7 @@
       els.manageGoalsButton.textContent = 'Manage goals';
       els.goalsGrid.classList.remove('is-managing');
       document.getElementById('view-savings')?.classList.remove('is-managing-goals');
-      els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No active savings goals</strong><span>Create a new goal or restore one from Past goals.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
+      els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No active savings goals</strong><span>Create a new goal or restore an archived one from Past goals.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = visibleGoals.map((goal) => {
         const totalCurrent = goalCurrent(goal);
@@ -2790,7 +2790,7 @@
               <button type="button" data-action="transfer-goal" data-goal-id="${escapeHtml(goal.id)}">${icon('i-transfer')}<span>Transfer</span></button>
               <button type="button" data-action="archive-goal" data-goal-id="${escapeHtml(goal.id)}">${icon('i-download')}<span>Archive</span></button>
               ${goal.legacyAttributionPending && toCents(goal.openingSaved || 0) > 0 ? `<button type="button" data-action="review-legacy-savings" data-goal-id="${escapeHtml(goal.id)}">${icon('i-wallet')}<span>Review source</span></button>` : ''}
-              <button class="goal-remove" type="button" data-action="withdraw-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Withdraw ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}<span>Withdraw</span></button>
+              <button class="goal-remove" type="button" data-action="delete-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Delete ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}<span>Delete</span></button>
             </div>` : '';
         const primarySaved = isWalletMode ? walletCurrent : totalCurrent;
         const primarySavedLabel = isWalletMode ? `From ${selectedAccount.name}` : 'Saved';
@@ -2825,18 +2825,14 @@
       const hasPastGoals = archivedGoals.length > 0;
       els.archivedGoalsButton.classList.toggle('is-hidden', !hasPastGoals);
       if (els.archivedGoalsButtonCount) els.archivedGoalsButtonCount.textContent = String(archivedGoals.length);
-      const withdrawnCount = archivedGoals.filter((goal) => goalIsWithdrawn(goal)).length;
-      els.archivedGoalsCount.textContent = `${archivedGoals.length} goal${archivedGoals.length === 1 ? '' : 's'}${withdrawnCount ? ` · ${withdrawnCount} withdrawn` : ''}`;
+      els.archivedGoalsCount.textContent = `${archivedGoals.length} archived goal${archivedGoals.length === 1 ? '' : 's'}`;
       els.archivedGoalsList.innerHTML = archivedGoals.map((goal) => {
-        const withdrawn = goalIsWithdrawn(goal);
-        const saved = withdrawn ? 0 : goalCurrent(goal);
-        const status = withdrawn ? 'withdrawn · savings returned' : goalIsComplete(goal) ? 'completed · archived' : `${Math.round(Math.min(100, saved / Math.max(goal.target, .01) * 100))}% · archived`;
-        const restoreAction = withdrawn ? 'restore-withdrawn-goal' : 'restore-goal';
-        const restoreLabel = withdrawn ? 'Restore goal' : 'Restore';
-        return `<article class="archived-goal-row${withdrawn ? ' is-withdrawn' : ''}">
-          <span class="round-icon neutral-soft">${icon(withdrawn ? 'i-refresh' : 'i-target')}</span>
-          <div><strong>${escapeHtml(goal.name)}</strong><small>${withdrawn ? '' : `<span class="money-value">${privateCurrency(saved)}</span> saved · `}${escapeHtml(status)}</small></div>
-          <div class="archived-goal-actions"><button type="button" data-action="open-goal-history" data-goal-id="${escapeHtml(goal.id)}">History</button><button type="button" data-action="${restoreAction}" data-goal-id="${escapeHtml(goal.id)}">${restoreLabel}</button>${withdrawn ? '' : `<button class="danger-link" type="button" data-action="withdraw-goal" data-goal-id="${escapeHtml(goal.id)}">Withdraw</button>`}</div>
+        const saved = goalCurrent(goal);
+        const status = goalIsComplete(goal) ? 'completed · archived' : `${Math.round(Math.min(100, saved / Math.max(goal.target, .01) * 100))}% · archived`;
+        return `<article class="archived-goal-row">
+          <span class="round-icon neutral-soft">${icon('i-target')}</span>
+          <div><strong>${escapeHtml(goal.name)}</strong><small><span class="money-value">${privateCurrency(saved)}</span> saved · ${escapeHtml(status)}</small></div>
+          <div class="archived-goal-actions"><button type="button" data-action="open-goal-history" data-goal-id="${escapeHtml(goal.id)}">History</button><button type="button" data-action="restore-goal" data-goal-id="${escapeHtml(goal.id)}">Restore</button><button class="danger-link" type="button" data-action="delete-goal" data-goal-id="${escapeHtml(goal.id)}">Delete</button></div>
         </article>`;
       }).join('');
       if (!hasPastGoals && els.archivedGoalsDialog?.open) closeDialog(els.archivedGoalsDialog);
@@ -2919,7 +2915,7 @@
 
   function goalEventHistoryRow(entry) {
     const event = entry.event;
-    const labels = { created: 'Goal created', renamed: 'Goal renamed', target_changed: 'Target changed', milestone_cycle_reset: 'Milestones recalibrated', milestone: event.note || 'Milestone reached', completed: 'Goal completed', completed_by_target_change: 'Goal completed after target change', reopened: 'Goal reopened', reopened_by_target_change: 'Goal reopened after target change', archived: 'Goal archived', restored: 'Goal restored', withdrawn: 'Goal withdrawn', restored_after_withdrawal: 'Goal restored after withdrawal', legacy_source_assigned: 'Opening savings source reviewed' };
+    const labels = { created: 'Goal created', renamed: 'Goal renamed', target_changed: 'Target changed', milestone_cycle_reset: 'Milestones recalibrated', milestone: event.note || 'Milestone reached', completed: 'Goal completed', completed_by_target_change: 'Goal completed after target change', reopened: 'Goal reopened', reopened_by_target_change: 'Goal reopened after target change', archived: 'Goal archived', restored: 'Goal restored', withdrawn: 'Goal deleted', restored_after_withdrawal: 'Goal restored from legacy deleted state', legacy_source_assigned: 'Opening savings source reviewed' };
     let detail = event.note || '';
     if (event.type === 'target_changed' && event.fromValue !== undefined && event.toValue !== undefined) detail = state.settings.privacy ? 'Target amount changed' : `${currency(Number(event.fromValue || 0))} → ${currency(Number(event.toValue || 0))}`;
     if (event.type === 'renamed' && event.fromValue !== undefined && event.toValue !== undefined) detail = `${event.fromValue} → ${event.toValue}`;
@@ -3090,7 +3086,7 @@
     const goalValue = preset.goalId ?? els.globalHistoryGoal.value ?? 'all';
     els.globalHistoryWallet.innerHTML = `<option value="all">All wallets</option>${(state.accounts || []).map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}${account.archivedAt ? ' · Archived' : ''}</option>`).join('')}`;
     els.globalHistoryCategory.innerHTML = `<option value="all">All categories</option>${expenseCategories(state, true).map((category) => `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}${category.archivedAt ? ' · Archived' : ''}</option>`).join('')}`;
-    els.globalHistoryGoal.innerHTML = `<option value="all">All goals</option>${(state.goals || []).map((goal) => `<option value="${escapeHtml(goal.id)}">${escapeHtml(goal.name)}${goalIsWithdrawn(goal) ? ' · Withdrawn' : goalIsArchived(goal) ? ' · Archived' : ''}</option>`).join('')}`;
+    els.globalHistoryGoal.innerHTML = `<option value="all">All goals</option>${(state.goals || []).filter((goal) => !goalIsWithdrawn(goal)).map((goal) => `<option value="${escapeHtml(goal.id)}">${escapeHtml(goal.name)}${goalIsArchived(goal) ? ' · Archived' : ''}</option>`).join('')}`;
     if ([...els.globalHistoryWallet.options].some((option) => option.value === walletValue)) els.globalHistoryWallet.value = walletValue;
     if ([...els.globalHistoryCategory.options].some((option) => option.value === categoryValue)) els.globalHistoryCategory.value = categoryValue;
     if ([...els.globalHistoryGoal.options].some((option) => option.value === goalValue)) els.globalHistoryGoal.value = goalValue;
@@ -5986,56 +5982,53 @@
     saveState(); renderAll(); showToast(`“${goal.name}” restored to active goals.`);
   }
 
-  function withdrawGoal(goalId) {
+  function deleteGoal(goalId) {
     const goal = state.goals.find((item) => item.id === goalId && !goalIsWithdrawn(item));
     if (!goal) return;
     if (!ensureGoalProvenanceReviewed(goal)) return;
     const saved = goalCurrent(goal);
     const breakdown = goalWalletBreakdown(goal);
     const returnCopy = breakdown.map(({ account, amount }) => `${privateCurrency(amount)} → ${account.name}`).join(' · ');
-    const message = saved > 0 ? `This withdraws the goal and returns ${state.settings.privacy ? 'its saved money' : privateCurrency(saved)} to the wallet${breakdown.length === 1 ? '' : 's'} it came from${returnCopy ? ` (${returnCopy})` : ''}. The goal remains in audit history and can be restored if those returned funds are still available.` : 'This goal has no saved money. It will leave the active/archive lists but remain in audit history.';
-    confirmAction(`Withdraw “${goal.name}”?`, message, 'Withdraw goal', () => {
+    const message = saved > 0
+      ? `This permanently deletes the selected goal from Savings. Pocket will first return ${state.settings.privacy ? 'its saved money' : privateCurrency(saved)} to the wallet${breakdown.length === 1 ? '' : 's'} it came from${returnCopy ? ` (${returnCopy})` : ''}. The goal will not appear in Past goals and cannot be restored.`
+      : 'This permanently deletes the selected goal from Savings. It will not appear in Past goals and cannot be restored.';
+    confirmAction(`Delete “${goal.name}”?`, message, 'Delete goal', () => {
       const now = Date.now();
-      const groupId = uid('goal-withdraw');
+      const groupId = uid('goal-delete');
       breakdown.forEach(({ account, amount }, index) => {
         if (toCents(amount) <= 0) return;
-        state.transactions.push({ id: uid('tx'), type: 'saving_return', amount: moneyRound(amount), category: 'Savings return', accountId: account.id, goalId: goal.id, date: localDateKey(), note: `Withdrawn from ${goal.name}`, savingsAction: 'goal_withdrawal', withdrawalReason: 'Goal withdrawn', goalLifecycleGroupId: groupId, createdAt: new Date(now + index).toISOString() });
+        state.transactions.push({
+          id: uid('tx'),
+          type: 'saving_return',
+          amount: moneyRound(amount),
+          category: 'Savings return',
+          accountId: account.id,
+          goalId: goal.id,
+          date: localDateKey(),
+          note: `Returned from deleted goal ${goal.name}`,
+          savingsAction: 'goal_delete_return',
+          withdrawalReason: 'Goal deleted',
+          goalLifecycleGroupId: groupId,
+          createdAt: new Date(now + index).toISOString()
+        });
       });
+
+      // Keep a hidden tombstone internally so historical ledger references remain valid,
+      // but the goal is permanently removed from every user-facing Savings list.
       goal.withdrawnAt = new Date().toISOString();
       goal.removedAt = goal.withdrawnAt;
       goal.withdrawalGroupId = groupId;
       goal.returnedToWallets = true;
       goal.archivedAt = undefined;
-      addGoalEvent(goal.id, 'withdrawn', { note: saved > 0 ? 'Goal withdrawn and savings returned to wallets' : 'Goal withdrawn' });
+      addGoalEvent(goal.id, 'withdrawn', { note: saved > 0 ? 'Goal deleted and savings returned to source wallets' : 'Goal deleted' });
       if (!state.goals.some((item) => goalIsActive(item))) manageGoalsMode = false;
-      saveState(); renderAll();
-      showToast(saved > 0 ? 'Goal withdrawn and savings returned.' : 'Goal withdrawn.', 'Restore', () => restoreWithdrawnGoal(goal.id));
+      saveState();
+      renderAll();
+      showToast(saved > 0 ? 'Goal deleted. Savings were returned to the source wallet(s).' : 'Goal deleted.');
     });
   }
 
-  function restoreWithdrawnGoal(goalId) {
-    const goal = state.goals.find((item) => item.id === goalId && goalIsWithdrawn(item));
-    if (!goal) return;
-    const candidate = cloneStateSnapshot(state);
-    const candidateGoal = candidate.goals.find((item) => item.id === goal.id);
-    const returns = candidate.transactions.filter((tx) => tx.type === 'saving_return' && tx.goalId === goal.id && tx.goalLifecycleGroupId && tx.goalLifecycleGroupId === candidateGoal.withdrawalGroupId);
-    const now = Date.now();
-    returns.forEach((tx, index) => {
-      candidate.transactions.push({ id: uid('tx'), type: 'saving', amount: tx.amount, category: 'Savings', accountId: tx.accountId, goalId: goal.id, date: localDateKey(), note: `Restored to ${goal.name}`, savingsAction: 'lifecycle_restore', goalLifecycleGroupId: candidateGoal.withdrawalGroupId, createdAt: new Date(now + index).toISOString() });
-    });
-    candidateGoal.withdrawnAt = undefined;
-    candidateGoal.removedAt = undefined;
-    candidateGoal.returnedToWallets = false;
-    candidateGoal.archivedAt = undefined;
-    if (!validateCandidateBalances(candidate, 'This goal cannot be restored because some returned wallet money has already been used.')) return;
-    if (!validateCandidateGoals(candidate, 'This goal cannot be restored safely.')) return;
-    if (!validateCandidateSavingsProvenance(candidate, 'This goal cannot be restored because its wallet-level savings provenance no longer reconciles.')) return;
-    state = candidate;
-    addGoalEvent(goal.id, 'restored_after_withdrawal', { note: 'Withdrawn goal restored and savings moved back from wallets' });
-    saveState(); renderAll(); setView('savings'); showToast(`“${goal.name}” restored with its available returned savings.`);
-  }
-
-  function removeGoal(goalId) { withdrawGoal(goalId); }
+  function removeGoal(goalId) { deleteGoal(goalId); }
 
   function allocateGoalTransferByWallet(goal, amount) {
     const pools = goalWalletBreakdown(goal).map(({ account, amount: walletAmount }) => ({ accountId: account.id, cents: Math.max(0, toCents(walletAmount)) })).filter((item) => item.cents > 0);
@@ -6874,7 +6867,7 @@
     for (const goal of tracker.goals) {
       const rawGoalCents = toCents(goal.openingSaved || 0) + goalLedgerBalanceCents(goal.id, tracker);
       if (rawGoalCents < 0) throw new Error('Backup would make a savings goal negative.');
-      if (goalIsWithdrawn(goal) && rawGoalCents !== 0) throw new Error('Backup contains a withdrawn goal that still holds savings.');
+      if (goalIsWithdrawn(goal) && rawGoalCents !== 0) throw new Error('Backup contains a deleted goal that still holds savings.');
       const openingAllocations = Array.isArray(goal.openingAllocations) ? goal.openingAllocations : [];
       if (openingAllocations.some((item) => !accountIds.has(item.accountId))) throw new Error('Backup opening savings references a missing wallet.');
       const openingAllocatedCents = openingAllocations.reduce((sum, item) => sum + toCents(item.amount || 0), 0);
@@ -7052,8 +7045,7 @@
     if (action === 'transfer-goal') openGoalTransfer(button.dataset.goalId);
     if (action === 'archive-goal') archiveGoal(button.dataset.goalId);
     if (action === 'restore-goal') restoreArchivedGoal(button.dataset.goalId);
-    if (action === 'withdraw-goal') withdrawGoal(button.dataset.goalId);
-    if (action === 'restore-withdrawn-goal') restoreWithdrawnGoal(button.dataset.goalId);
+    if (action === 'delete-goal') deleteGoal(button.dataset.goalId);
     if (action === 'remove-goal') removeGoal(button.dataset.goalId);
     if (action === 'edit-goal-transfer') editGoalTransfer(button.dataset.id);
     if (action === 'undo-goal-transfer') undoGoalTransfer(button.dataset.id);
@@ -7535,7 +7527,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.3');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.4');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

@@ -5897,7 +5897,6 @@ body,
 .archived-goal-row > div:nth-child(2) { min-width: 0; }
 .archived-goal-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .archived-goal-row small { display: block; margin-top: 3px; color: var(--text-3); font-size: 10px; line-height: 1.4; }
-.archived-goal-row.is-withdrawn { opacity: .78; }
 .archived-goal-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .archived-goal-actions button {
   min-height: 32px;
