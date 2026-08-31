@@ -6798,3 +6798,140 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
   .allowance-history-pager { grid-template-columns: auto 1fr auto; gap: 5px; }
   .allowance-history-pager button { min-height: 32px; padding-inline: 8px; font-size: 9px; }
 }
+
+
+/* Pocket v3.5.7 — remove stretched dead space from Savings and Allowance History. */
+/* Savings remains a fixed, non-scrollable tab, but the goal card itself now hugs its content. */
+#view-savings .savings-goals-stage {
+  height: auto !important;
+  min-height: 0 !important;
+  align-self: start !important;
+  align-content: start !important;
+  grid-template-rows: auto auto !important;
+  overflow: visible !important;
+}
+#view-savings .goals-carousel,
+#view-savings.is-managing-goals .goals-carousel {
+  height: auto !important;
+  min-height: 0 !important;
+  align-items: start !important;
+  align-content: start !important;
+  overflow: visible !important;
+}
+#view-savings .goals-carousel .goal-card,
+#view-savings.is-managing-goals .goals-carousel .goal-card,
+#view-savings.is-managing-goals .goals-carousel .goal-card:not(.empty-goal-card) {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  align-self: start !important;
+  justify-content: flex-start !important;
+  overflow: visible !important;
+}
+#view-savings .goals-carousel .empty-goal-card {
+  height: auto !important;
+  min-height: 180px !important;
+}
+#view-savings .goals-carousel .goal-card-metrics,
+#view-savings .goals-carousel .goal-progress-block,
+#view-savings .goals-carousel .goal-footer,
+#view-savings.is-managing-goals .goal-manage-actions {
+  flex: 0 0 auto !important;
+}
+#view-savings .goals-carousel .goal-footer {
+  padding-top: 0 !important;
+}
+
+/* Allowance History should only be as tall as the current page of entries. */
+.app-dialog.allowance-history-dialog,
+.app-dialog.allowance-history-dialog[open] {
+  width: min(560px, calc(100vw - 24px)) !important;
+  height: auto !important;
+  max-height: calc(100dvh - 44px) !important;
+  margin: auto !important;
+  overflow: hidden !important;
+}
+.allowance-history-dialog > .dialog-panel {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: calc(100dvh - 44px) !important;
+  overflow: hidden !important;
+}
+.allowance-history-dialog > .dialog-panel > .history-dialog-body,
+.allowance-history-dialog .history-dialog-body {
+  height: auto !important;
+  min-height: 0 !important;
+  flex: 0 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  overflow: hidden !important;
+}
+.allowance-history-dialog .allowance-history-list {
+  flex: 0 1 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: min(55dvh, 455px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+.allowance-history-dialog .allowance-history-pager {
+  flex: 0 0 auto !important;
+  margin-top: 5px !important;
+  padding-top: 8px !important;
+}
+
+@media (max-width: 560px) {
+  #view-savings .goals-carousel .goal-card,
+  #view-savings.is-managing-goals .goals-carousel .goal-card {
+    padding-top: 11px !important;
+    padding-bottom: 11px !important;
+  }
+  #view-savings .goals-carousel .goal-card-head { margin-bottom: 0 !important; }
+  #view-savings .goal-card-metrics,
+  #view-savings .goal-progress-block,
+  #view-savings .goal-footer,
+  #view-savings.is-managing-goals .goal-manage-actions { margin-top: 7px !important; }
+
+  .app-dialog.allowance-history-dialog,
+  .app-dialog.allowance-history-dialog[open] {
+    width: calc(100vw - 24px) !important;
+    height: auto !important;
+    max-height: calc(100dvh - 56px) !important;
+    border-radius: 20px !important;
+  }
+  .allowance-history-dialog > .dialog-panel {
+    height: auto !important;
+    max-height: calc(100dvh - 56px) !important;
+  }
+  .allowance-history-dialog .dialog-header {
+    padding: 13px 14px 9px !important;
+  }
+  .allowance-history-dialog .history-dialog-body {
+    padding: 8px 14px 11px !important;
+  }
+  .allowance-history-dialog .allowance-history-list {
+    max-height: min(58dvh, 430px) !important;
+  }
+  .allowance-history-row {
+    min-height: 58px !important;
+    padding: 7px 0 !important;
+  }
+  .allowance-history-actions { margin-top: 4px !important; }
+}
+
+@media (max-width: 390px), (max-height: 700px) {
+  .app-dialog.allowance-history-dialog,
+  .app-dialog.allowance-history-dialog[open] {
+    height: auto !important;
+    max-height: calc(100dvh - 34px) !important;
+  }
+  .allowance-history-dialog > .dialog-panel {
+    height: auto !important;
+    max-height: calc(100dvh - 34px) !important;
+  }
+  .allowance-history-dialog .allowance-history-list {
+    max-height: min(55dvh, 360px) !important;
+  }
+}
