@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.2';
+  const APP_VERSION = '3.5.3';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -2768,7 +2768,7 @@
       els.manageGoalsButton.textContent = 'Manage goals';
       els.goalsGrid.classList.remove('is-managing');
       document.getElementById('view-savings')?.classList.remove('is-managing-goals');
-      els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No active savings goals</strong><span>Create a new goal or restore one from the archive below.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
+      els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No active savings goals</strong><span>Create a new goal or restore one from Past goals.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = visibleGoals.map((goal) => {
         const totalCurrent = goalCurrent(goal);
@@ -2821,8 +2821,10 @@
       }).join('');
     }
 
-    if (els.archivedGoalsSection && els.archivedGoalsList && els.archivedGoalsCount) {
-      els.archivedGoalsSection.classList.toggle('is-hidden', archivedGoals.length === 0);
+    if (els.archivedGoalsButton && els.archivedGoalsList && els.archivedGoalsCount) {
+      const hasPastGoals = archivedGoals.length > 0;
+      els.archivedGoalsButton.classList.toggle('is-hidden', !hasPastGoals);
+      if (els.archivedGoalsButtonCount) els.archivedGoalsButtonCount.textContent = String(archivedGoals.length);
       const withdrawnCount = archivedGoals.filter((goal) => goalIsWithdrawn(goal)).length;
       els.archivedGoalsCount.textContent = `${archivedGoals.length} goal${archivedGoals.length === 1 ? '' : 's'}${withdrawnCount ? ` · ${withdrawnCount} withdrawn` : ''}`;
       els.archivedGoalsList.innerHTML = archivedGoals.map((goal) => {
@@ -2837,6 +2839,7 @@
           <div class="archived-goal-actions"><button type="button" data-action="open-goal-history" data-goal-id="${escapeHtml(goal.id)}">History</button><button type="button" data-action="${restoreAction}" data-goal-id="${escapeHtml(goal.id)}">${restoreLabel}</button>${withdrawn ? '' : `<button class="danger-link" type="button" data-action="withdraw-goal" data-goal-id="${escapeHtml(goal.id)}">Withdraw</button>`}</div>
         </article>`;
       }).join('');
+      if (!hasPastGoals && els.archivedGoalsDialog?.open) closeDialog(els.archivedGoalsDialog);
     }
     if (currentGoalHistoryId && els.goalHistoryDialog?.open) renderGoalHistory();
   }
@@ -3801,33 +3804,6 @@
     return { x, y, ...bounds };
   }
 
-  function companionSavingsSafeMode() {
-    return currentView === 'savings' && window.innerWidth <= 820;
-  }
-
-  function companionSavingsElement(element) {
-    return Boolean(element?.closest?.('[data-view-panel="savings"]'));
-  }
-
-  async function companionDockSavingsEdge(immediate = false) {
-    if (!companionIsAvailable() || !companionSavingsSafeMode() || !els.pocketCompanion) return false;
-    const bounds = companionBounds();
-    const x = Math.round(bounds.width - bounds.boxWidth * .58);
-    const y = Math.round(bounds.maxY - 2);
-    companionClearPerch();
-    els.pocketCompanion.classList.add('is-savings-safe-dock');
-    if (immediate || companionReducedMotion) {
-      companionCancelTravel();
-      els.pocketCompanion.style.setProperty('--companion-x', `${x}px`);
-      els.pocketCompanion.style.setProperty('--companion-y', `${y}px`);
-      companionPosition = { x, y };
-      companionUpdateBubbleSide(x, y);
-      return true;
-    }
-    await companionMoveTo(x, y, { mode: 'slide', duration: 360, allowOffscreen: true });
-    return true;
-  }
-
   function companionUpdateBubbleSide(x, y) {
     if (!els.pocketCompanion) return;
     const width = window.innerWidth || 390;
@@ -4221,29 +4197,6 @@
     companionLookAtElement(element);
     await companionWait(options.noticeDuration || 260);
 
-    if (companionSavingsSafeMode() && companionSavingsElement(element)) {
-      await companionDockSavingsEdge(false);
-      if (!companionIsAvailable() || document.querySelector('dialog[open]')) return false;
-      companionSetPhase('interact');
-      companionLookAtElement(element);
-      companionFocusElement(element, options.focusDuration || 1900, false);
-      companionSetProp(options.prop ?? companionPropForElement(element));
-      const safeAction = options.action === 'dozing-sit' ? 'listening' : (options.action === 'celebrating' ? 'waving' : 'curious');
-      await companionPose(safeAction, Math.min(options.duration || 1050, 1350));
-      companionSetPhase('react');
-      companionSetMood(options.reactMood || options.mood || 'proud');
-      if (!options.silent) {
-        const line = options.message || companionInteractionLine(element);
-        if (line && Date.now() - companionLastMessageAt > 8500) companionSay(line, 4000);
-      }
-      await companionWait(options.reactHold || 260);
-      if (!options.keepFocus) companionClearFocus();
-      if (!options.keepProp) companionSetProp('');
-      companionLookAtElement(element);
-      return true;
-    }
-
-    els.pocketCompanion?.classList.remove('is-savings-safe-dock');
     const target = companionTargetPosition(element, { forcePerch: options.forcePerch, perchSide: options.perchSide, avoidPerch: options.avoidPerch });
     companionSetPhase('travel');
     await companionMoveTo(target.x, target.y, { mode: 'hop' });
@@ -4902,15 +4855,10 @@
       if (target) {
         companionLookAtElement(target);
         await companionWait(180);
-        if (companionSavingsSafeMode() && companionSavingsElement(target)) {
-          await companionDockSavingsEdge(false);
-        } else {
-          els.pocketCompanion?.classList.remove('is-savings-safe-dock');
-          const position = companionTargetPosition(target);
-          await companionMoveTo(position.x, position.y, { mode: 'hop' });
-        }
+        const position = companionTargetPosition(target);
+        await companionMoveTo(position.x, position.y, { mode: 'hop' });
         companionLookAtElement(target);
-        companionFocusElement(target, kind === 'complete' ? 3200 : 2350, !(companionSavingsSafeMode() && companionSavingsElement(target)));
+        companionFocusElement(target, kind === 'complete' ? 3200 : 2350, true);
       } else {
         const pos = companionSafePosition(true);
         await companionMoveTo(pos.maxX, pos.maxY, { mode: 'hop' });
@@ -4920,13 +4868,8 @@
       companionSetMood(mood);
       companionSetProp(prop);
       if (target) {
-        if (companionSavingsSafeMode() && companionSavingsElement(target)) {
-          companionEmitEffect(target, effect, kind === 'complete' ? 3 : 2, false);
-        } else if (kind === 'savings' || kind === 'transfer') {
-          companionEmitFromBunnyToElement(target, effect, kind === 'savings' ? 5 : 4);
-        } else {
-          companionEmitEffect(target, effect, kind === 'complete' ? 6 : 4, kind === 'allowance');
-        }
+        if (kind === 'savings' || kind === 'transfer') companionEmitFromBunnyToElement(target, effect, kind === 'savings' ? 5 : 4);
+        else companionEmitEffect(target, effect, kind === 'complete' ? 6 : 4, kind === 'allowance');
       }
       await companionPose(action, kind === 'complete' ? 2600 : 1700);
 
@@ -5306,10 +5249,6 @@
     if (view === 'savings') renderSavings();
     if (view === 'more') { renderSettings(); maybeRemindExternalBackup(); }
     companionSetContext(view);
-    if (view !== 'savings') els.pocketCompanion?.classList.remove('is-savings-safe-dock');
-    if (view === 'savings' && companionIsAvailable() && window.innerWidth <= 820) {
-      window.requestAnimationFrame(() => companionDockSavingsEdge(true));
-    }
     syncSecretLightWorld({ force: true });
     if (updateHash) history.replaceState(null, '', `#${view}`);
     els.contentScroll.scrollTop = 0;
@@ -7100,6 +7039,7 @@
     if (action === 'open-allowance') openDifferentAllowance();
     if (action === 'open-allowance-history') openAllowanceHistory();
     if (action === 'open-goal-history') openGoalHistory(button.dataset.goalId);
+    if (action === 'open-archived-goals') { renderSavings(); if (!els.archivedGoalsButton?.classList.contains('is-hidden')) openDialog(els.archivedGoalsDialog); }
     if (action === 'revert-goal-target') revertGoalTargetEvent(button.dataset.id);
     if (action === 'apply-update') applyAvailableUpdate();
     if (action === 'dismiss-update') hideUpdateAvailable();
@@ -7170,7 +7110,7 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsSection', 'archivedGoalsCount', 'archivedGoalsList', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
+      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
       'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'categorySettingsSummary', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
@@ -7466,7 +7406,7 @@
     els.companionBunny.addEventListener('pointercancel', (event)=>companionPointerEnd(event,true));
     document.addEventListener('pointermove', companionPointerWatch, { passive: true });
     document.addEventListener('pointerover', (event)=>{ if(!companionIsAvailable()||companionPointerState||companionPhase!=='idle'||companionPerformanceReduced()) return; const target=event.target.closest('button,[role=button],.card,.goal-card,.wallet-mode-card'); if(target&&companionVisibleElement(target)) companionLookAtElement(target); }, { passive: true });
-    els.contentScroll.addEventListener('scroll', ()=>{ if(companionPerchTarget){ companionClearPerch(); companionStoryGeneration += 1; } if(companionSavingsSafeMode() && companionIsAvailable() && !companionPointerState){ companionDockSavingsEdge(true); } }, { passive: true });
+    els.contentScroll.addEventListener('scroll', ()=>{ if(companionPerchTarget){ companionClearPerch(); companionStoryGeneration += 1; } }, { passive: true });
     window.addEventListener('resize', ()=>{ companionClearPerch(); companionSetGazeNormalized(0,0,true); }, { passive: true });
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && els.secretPocketDialog?.open) {
@@ -7595,7 +7535,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.2');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.3');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
