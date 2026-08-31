@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.7';
+  const APP_VERSION = '3.5.8';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -2740,6 +2740,83 @@
     renderSavings();
   }
 
+  function recentSavingsActivityItems() {
+    const accountId = savingsMode === 'wallet' ? (activeAccounts()[savingsWalletIndex]?.id || '') : '';
+    const txItems = effectiveTransactions()
+      .filter((tx) => {
+        if (!['saving', 'saving_return'].includes(tx.type)) return false;
+        if (!accountId) return true;
+        return tx.accountId === accountId;
+      })
+      .map((tx) => ({
+        kind: tx.type,
+        date: tx.date || localDateKey(),
+        createdAt: tx.createdAt || `${tx.date || localDateKey()}T12:00:00`,
+        amount: Number(tx.amount || 0),
+        goalId: tx.goalId,
+        accountId: tx.accountId,
+        note: tx.savingsNote || tx.note || ''
+      }));
+    const transferItems = effectiveGoalTransfers()
+      .filter((transfer) => {
+        if (!accountId) return true;
+        return (transfer.allocations || []).some((item) => item.accountId === accountId && toCents(item.amount || 0) > 0);
+      })
+      .map((transfer) => ({
+        kind: 'goal_transfer',
+        date: transfer.date || localDateKey(),
+        createdAt: transfer.createdAt || `${transfer.date || localDateKey()}T12:00:00`,
+        amount: Number(transfer.amount || 0),
+        fromGoalId: transfer.fromGoalId,
+        toGoalId: transfer.toGoalId
+      }));
+    return [...txItems, ...transferItems].sort((a, b) => {
+      const dateCompare = String(b.date || '').localeCompare(String(a.date || ''));
+      return dateCompare || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
+  }
+
+  function renderSavingsRecentActivity() {
+    if (!els.savingsRecentPanel || !els.savingsRecentActivity) return;
+    const items = recentSavingsActivityItems();
+    const limit = window.innerWidth <= 820 ? 2 : 3;
+    const visible = items.slice(0, limit);
+    els.savingsRecentPanel.classList.toggle('is-empty', visible.length === 0);
+    if (!visible.length) {
+      els.savingsRecentActivity.innerHTML = '<div class="savings-recent-empty">Your latest contributions, withdrawals, and goal transfers will appear here.</div>';
+      return;
+    }
+    els.savingsRecentActivity.innerHTML = visible.map((item) => {
+      const dateLabel = validDateKey(item.date) ? DATE_LABEL.format(fromDateKey(item.date)) : 'Recent';
+      let title = 'Savings activity';
+      let meta = dateLabel;
+      let amount = '';
+      let tone = 'green-soft';
+      if (item.kind === 'saving') {
+        const goal = state.goals.find((goal) => goal.id === item.goalId);
+        const account = state.accounts.find((account) => account.id === item.accountId);
+        title = goal ? `Saved to ${goal.name}` : 'Added to savings';
+        meta = [account?.name, dateLabel].filter(Boolean).join(' · ');
+        amount = `+${privateCurrency(item.amount)}`;
+      } else if (item.kind === 'saving_return') {
+        const goal = state.goals.find((goal) => goal.id === item.goalId);
+        const account = state.accounts.find((account) => account.id === item.accountId);
+        title = goal ? `From ${goal.name}` : 'Savings withdrawn';
+        meta = [account?.name, dateLabel].filter(Boolean).join(' · ');
+        amount = `−${privateCurrency(item.amount)}`;
+        tone = 'neutral-soft';
+      } else {
+        const fromGoal = state.goals.find((goal) => goal.id === item.fromGoalId)?.name || 'Goal';
+        const toGoal = state.goals.find((goal) => goal.id === item.toGoalId)?.name || 'Goal';
+        title = `${fromGoal} → ${toGoal}`;
+        meta = `Goal transfer · ${dateLabel}`;
+        amount = privateCurrency(item.amount);
+        tone = 'accent-soft';
+      }
+      return `<div class="savings-recent-row"><span class="round-icon ${tone}">${icon(item.kind === 'goal_transfer' ? 'i-transfer' : item.kind === 'saving_return' ? 'i-arrow-up' : 'i-download')}</span><div class="savings-recent-copy"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(meta)}</small></div><strong class="savings-recent-amount money-value">${escapeHtml(amount)}</strong></div>`;
+    }).join('');
+  }
+
   function renderSavings() {
     const accounts = activeAccounts();
     savingsWalletIndex = Math.max(0, Math.min(savingsWalletIndex, Math.max(0, accounts.length - 1)));
@@ -2862,6 +2939,7 @@
       }).join('');
       if (!hasPastGoals && els.archivedGoalsDialog?.open) closeDialog(els.archivedGoalsDialog);
     }
+    renderSavingsRecentActivity();
     if (currentGoalHistoryId && els.goalHistoryDialog?.open) renderGoalHistory();
   }
 
@@ -7151,7 +7229,7 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'savingsGoalPager', 'savingsGoalPrev', 'savingsGoalNext', 'savingsGoalPageLabel', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
+      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'savingsRecentPanel', 'savingsRecentActivity', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'savingsGoalPager', 'savingsGoalPrev', 'savingsGoalNext', 'savingsGoalPageLabel', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
       'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'allowanceHistoryPager', 'allowanceHistoryPrev', 'allowanceHistoryNext', 'allowanceHistoryPageLabel', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
@@ -7578,7 +7656,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.7');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.8');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
