@@ -7615,3 +7615,39 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
     text-indent: .85em;
   }
 }
+
+
+/* Pocket v3.5.15 — wallet carousel performance pass. */
+/* Carousel motion is already driven frame-by-frame by scroll position; interpolating every
+   transform again adds visible latency behind the finger. Keep only the cosmetic transitions. */
+.wallet-mode-card {
+  transition: border-color .24s ease, box-shadow .24s ease !important;
+}
+
+/* Light Pocket cards are already almost opaque. Backdrop blur on every moving 3D wallet
+   produced a large GPU repaint cost with almost no visible contribution to the glass look. */
+:root[data-theme="light"] .wallet-mode-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Freeze decorative animation only while the wallet strip is moving. The same visual state
+   resumes immediately after settling, while swipe frames stay dedicated to the cards. */
+.wallet-carousel.is-interacting .wallet-mode-card-glow {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+:root[data-theme="light"] body.wallet-carousel-interacting::before,
+:root[data-theme="light"] body.wallet-carousel-interacting .secret-scene-orb,
+:root[data-theme="light"] body.wallet-carousel-interacting .secret-scene-cloud,
+:root[data-theme="light"] body.wallet-carousel-interacting .secret-scene-star,
+:root[data-theme="light"] body.wallet-carousel-interacting .pocket-companion::before,
+:root[data-theme="light"] body.wallet-carousel-interacting .companion-bunny,
+:root[data-theme="light"] body.wallet-carousel-interacting .companion-sparkles {
+  animation-play-state: paused !important;
+}
+
+/* Avoid spending paint time on the glow transition while the JS is already positioning it. */
+.wallet-carousel.is-interacting .wallet-mode-card-glow {
+  will-change: transform;
+}

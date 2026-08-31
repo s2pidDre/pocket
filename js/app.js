@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.14';
+  const APP_VERSION = '3.5.15';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -111,6 +111,9 @@
   let walletCarouselStabilizeFrame = 0;
   let walletCarouselResizeObserver = null;
   let walletCarouselCards = [];
+  let walletCarouselMetrics = [];
+  let walletCarouselViewportWidth = 0;
+  let walletCarouselInteractionTimer = 0;
   let walletModeUiIndex = -1;
   let resizeFrame = 0;
   let savingsResponsivePageSize = 0;
@@ -2451,18 +2454,106 @@
     return accounts[walletModeIndex] || accounts[0] || null;
   }
 
-  function walletExpenseSummary(accountId, startDate, endDate, transactions = null) {
-    const effective = transactions || effectiveTransactions();
-    const expenses = effective.filter((tx) => tx.type === 'expense' && tx.accountId === accountId && tx.date >= startDate && tx.date <= endDate);
-    const spentCents = expenses.reduce((sum, tx) => sum + toCents(tx.amount || 0), 0);
-    const categories = expenses.reduce((map, tx) => {
-      const name = tx.category || 'Other';
-      map[name] = (map[name] || 0) + toCents(tx.amount || 0);
-      return map;
-    }, {});
-    const topCents = Object.entries(categories).sort((a, b) => b[1] - a[1])[0] || null;
-    const top = topCents ? [topCents[0], fromCents(topCents[1])] : null;
-    return { expenses, spent: fromCents(spentCents), top };
+  function walletExpenseSummaries(accountId, todayKey, monthStart, monthEnd) {
+    const todayExpenses = [];
+    const monthExpenses = [];
+    let todaySpentCents = 0;
+    let monthSpentCents = 0;
+    const todayCategories = new Map();
+    const monthCategories = new Map();
+
+    for (const tx of state.transactions || []) {
+      if (tx.type !== 'expense' || tx.accountId !== accountId || isSupersededTransaction(tx)) continue;
+      const amountCents = toCents(tx.amount || 0);
+      const category = tx.category || 'Other';
+      if (tx.date === todayKey) {
+        todayExpenses.push(tx);
+        todaySpentCents += amountCents;
+        todayCategories.set(category, (todayCategories.get(category) || 0) + amountCents);
+      }
+      if (tx.date >= monthStart && tx.date <= monthEnd) {
+        monthExpenses.push(tx);
+        monthSpentCents += amountCents;
+        monthCategories.set(category, (monthCategories.get(category) || 0) + amountCents);
+      }
+    }
+
+    const finish = (expenses, spentCents, categories) => {
+      const sorted = [...categories.entries()].sort((a, b) => b[1] - a[1]);
+      const denominator = Math.max(1, spentCents);
+      const breakdown = sorted.map(([category, cents]) => ({
+        category,
+        amount: fromCents(cents),
+        percent: (cents / denominator) * 100
+      }));
+      const top = sorted[0] ? [sorted[0][0], fromCents(sorted[0][1])] : null;
+      return { expenses, spent: fromCents(spentCents), top, breakdown };
+    };
+
+    return {
+      today: finish(todayExpenses, todaySpentCents, todayCategories),
+      month: finish(monthExpenses, monthSpentCents, monthCategories)
+    };
+  }
+
+  function walletHomeLedgerSnapshot(todayKey) {
+    const accounts = activeAccounts();
+    const accountIds = new Set(accounts.map((account) => account.id));
+    const balances = new Map(accounts.map((account) => [account.id, toCents(account.openingBalance || 0)]));
+    const savings = new Map(accounts.map((account) => [account.id, 0]));
+    const todaySpent = new Map();
+    const addBalance = (accountId, delta) => {
+      if (!accountId || !accountIds.has(accountId) || !delta) return;
+      balances.set(accountId, (balances.get(accountId) || 0) + delta);
+    };
+    const addSavings = (accountId, delta) => {
+      if (!accountId || !accountIds.has(accountId) || !delta) return;
+      savings.set(accountId, (savings.get(accountId) || 0) + delta);
+    };
+
+    for (const tx of state.transactions || []) {
+      const amount = toCents(tx.amount || 0);
+      if (amount || tx.type === 'reconciliation') {
+        if (tx.type === 'income') addBalance(tx.accountId, amount);
+        else if (tx.type === 'expense' || tx.type === 'saving') addBalance(tx.accountId, -amount);
+        else if (tx.type === 'saving_return' || tx.type === 'reconciliation') addBalance(tx.accountId, amount);
+        else if (tx.type === 'transfer') {
+          addBalance(tx.fromAccountId, -amount);
+          if (tx.toAccountId !== tx.fromAccountId) addBalance(tx.toAccountId, amount);
+        } else if (tx.type === 'correction_reversal') {
+          if (tx.originalType === 'income') addBalance(tx.accountId, -amount);
+          else if (tx.originalType === 'expense' || tx.originalType === 'saving') addBalance(tx.accountId, amount);
+          else if (tx.originalType === 'saving_return') addBalance(tx.accountId, -amount);
+          else if (tx.originalType === 'transfer') {
+            addBalance(tx.fromAccountId, amount);
+            if (tx.toAccountId !== tx.fromAccountId) addBalance(tx.toAccountId, -amount);
+          } else if (tx.originalType === 'reconciliation') addBalance(tx.accountId, amount);
+        }
+      }
+
+      if (tx.accountId && accountIds.has(tx.accountId)) {
+        if (tx.type === 'saving') addSavings(tx.accountId, amount);
+        else if (tx.type === 'saving_return') addSavings(tx.accountId, -amount);
+        else if (tx.type === 'correction_reversal' && tx.originalType === 'saving') addSavings(tx.accountId, -amount);
+        else if (tx.type === 'correction_reversal' && tx.originalType === 'saving_return') addSavings(tx.accountId, amount);
+
+        if (tx.type === 'expense' && !isSupersededTransaction(tx) && tx.date === todayKey) {
+          todaySpent.set(tx.accountId, (todaySpent.get(tx.accountId) || 0) + amount);
+        }
+      }
+    }
+
+    const primaryId = primaryAccount(state)?.id || '';
+    for (const goal of state.goals || []) {
+      const allocations = Array.isArray(goal.openingAllocations) ? goal.openingAllocations : [];
+      if (allocations.length) {
+        for (const allocation of allocations) addSavings(allocation.accountId, toCents(allocation.amount || 0));
+      } else if (primaryId) {
+        addSavings(primaryId, toCents(goal.openingSaved || 0));
+      }
+    }
+
+    return { balances, savings, todaySpent };
   }
 
   function expenseCategoryClass(category) {
@@ -2479,6 +2570,7 @@
   }
 
   function expenseCategoryBreakdown(summary) {
+    if (Array.isArray(summary?.breakdown)) return summary.breakdown;
     if (!summary?.spent) return [];
     const spentCents = Math.max(1, toCents(summary.spent));
     const totals = summary.expenses.reduce((map, tx) => {
@@ -2514,9 +2606,9 @@
     if (!account || !els.homeWalletTodaySpent) return;
     const today = localDateKey();
     const month = monthRange();
-    const effective = effectiveTransactions();
-    const todaySummary = walletExpenseSummary(account.id, today, today, effective);
-    const monthSummary = walletExpenseSummary(account.id, month.start, month.end, effective);
+    const summaries = walletExpenseSummaries(account.id, today, month.start, month.end);
+    const todaySummary = summaries.today;
+    const monthSummary = summaries.month;
     const monthName = new Intl.DateTimeFormat('en-PH', { month: 'long' }).format(new Date());
 
     els.homeWalletTodaySpent.textContent = state.settings.privacy ? '₱•••• spent' : `${currency(todaySummary.spent, true)} spent`;
@@ -2548,20 +2640,46 @@
     renderHomeWalletDetails(walletModeIndex);
   }
 
+  function refreshWalletCarouselMetrics() {
+    const carousel = els.walletCarousel;
+    if (!carousel) return [];
+    if (!walletCarouselCards.length) walletCarouselCards = [...carousel.querySelectorAll('.wallet-mode-card')];
+    walletCarouselViewportWidth = carousel.clientWidth;
+    walletCarouselMetrics = walletCarouselCards.map((card) => ({
+      card,
+      center: card.offsetLeft + card.offsetWidth / 2,
+      width: card.offsetWidth
+    }));
+    return walletCarouselMetrics;
+  }
+
+  function setWalletCarouselInteracting(active = true) {
+    window.clearTimeout(walletCarouselInteractionTimer);
+    if (!els.walletCarousel) return;
+    if (active) {
+      els.walletCarousel.classList.add('is-interacting');
+      document.body.classList.add('wallet-carousel-interacting');
+      walletCarouselInteractionTimer = window.setTimeout(() => setWalletCarouselInteracting(false), 150);
+      return;
+    }
+    els.walletCarousel.classList.remove('is-interacting');
+    document.body.classList.remove('wallet-carousel-interacting');
+    walletCarouselInteractionTimer = 0;
+  }
+
   function updateWalletCarouselTransforms() {
     walletCarouselFrame = 0;
     const carousel = els.walletCarousel;
     if (!carousel) return;
-    if (!walletCarouselCards.length) walletCarouselCards = [...carousel.querySelectorAll('.wallet-mode-card')];
+    if (!walletCarouselMetrics.length || walletCarouselMetrics.length !== walletCarouselCards.length || !walletCarouselViewportWidth) refreshWalletCarouselMetrics();
     const cards = walletCarouselCards;
-    const width = carousel.clientWidth;
+    const width = walletCarouselViewportWidth;
     if (!cards.length || !width) return;
 
     const center = carousel.scrollLeft + width / 2;
-    const metrics = cards.map((card) => ({ card, center: card.offsetLeft + card.offsetWidth / 2 }));
     let closestIndex = 0;
     let closestDistance = Infinity;
-    const transforms = metrics.map((metric, index) => {
+    const transforms = walletCarouselMetrics.map((metric, index) => {
       const rawDistance = (metric.center - center) / Math.max(width, 1);
       const distance = Math.max(-1.25, Math.min(1.25, rawDistance));
       const magnitude = Math.min(1, Math.abs(distance));
@@ -2586,17 +2704,18 @@
   }
 
   function queueWalletCarouselTransforms() {
+    setWalletCarouselInteracting(true);
     if (walletCarouselFrame) return;
     walletCarouselFrame = requestAnimationFrame(updateWalletCarouselTransforms);
   }
 
   function scrollToWalletMode(index, behavior = 'smooth') {
-    if (!walletCarouselCards.length) walletCarouselCards = [...els.walletCarousel.querySelectorAll('.wallet-mode-card')];
+    if (!walletCarouselMetrics.length || walletCarouselMetrics.length !== walletCarouselCards.length || !walletCarouselViewportWidth) refreshWalletCarouselMetrics();
     const cards = walletCarouselCards;
     if (!cards.length) return;
     const targetIndex = Math.max(0, Math.min(index, cards.length - 1));
-    const card = cards[targetIndex];
-    const left = card.offsetLeft - (els.walletCarousel.clientWidth - card.offsetWidth) / 2;
+    const metric = walletCarouselMetrics[targetIndex];
+    const left = metric.center - walletCarouselViewportWidth / 2;
     walletModeIndex = targetIndex;
     els.walletCarousel.scrollTo({ left: Math.max(0, left), behavior });
     updateWalletModeHeader(targetIndex);
@@ -2614,6 +2733,7 @@
     walletCarouselStabilizeFrame = requestAnimationFrame(() => {
       walletCarouselStabilizeFrame = requestAnimationFrame(() => {
         walletCarouselStabilizeFrame = 0;
+        refreshWalletCarouselMetrics();
         scrollToWalletMode(index, 'auto');
         updateWalletCarouselTransforms();
         els.walletCarousel.classList.add('is-ready');
@@ -2625,17 +2745,12 @@
     const accounts = activeAccounts();
     walletModeIndex = Math.max(0, Math.min(walletModeIndex, Math.max(0, accounts.length - 1)));
     const today = localDateKey();
-
-    const todaySpentByAccount = new Map();
-    effectiveTransactions().forEach((tx) => {
-      if (tx.type !== 'expense' || tx.date !== today) return;
-      todaySpentByAccount.set(tx.accountId, (todaySpentByAccount.get(tx.accountId) || 0) + toCents(tx.amount || 0));
-    });
+    const walletSnapshot = walletHomeLedgerSnapshot(today);
 
     els.walletCarousel.innerHTML = accounts.map((account, index) => {
-      const balance = state.settings.privacy ? '₱••••' : currency(accountBalance(account.id));
-      const savings = state.settings.privacy ? '₱••••' : currency(walletSavingsBalance(account.id));
-      const todaySpent = fromCents(todaySpentByAccount.get(account.id) || 0);
+      const balance = state.settings.privacy ? '₱••••' : currency(fromCents(walletSnapshot.balances.get(account.id) || 0));
+      const savings = state.settings.privacy ? '₱••••' : currency(fromCents(Math.max(0, walletSnapshot.savings.get(account.id) || 0)));
+      const todaySpent = fromCents(walletSnapshot.todaySpent.get(account.id) || 0);
       const todayLabel = state.settings.privacy ? '₱••••' : (todaySpent > 0 ? `−${currency(todaySpent, true)}` : currency(0, true));
       const iconId = account.type === 'cash' ? 'i-wallet' : 'i-phone';
       return `
@@ -2667,6 +2782,8 @@
       <button type="button" data-wallet-mode-index="${index}" aria-label="Show ${escapeHtml(account.name)}"${index === walletModeIndex ? ' class="is-active" aria-current="true"' : ''}></button>`).join('');
 
     walletCarouselCards = [...els.walletCarousel.querySelectorAll('.wallet-mode-card')];
+    walletCarouselMetrics = [];
+    walletCarouselViewportWidth = 0;
     walletModeUiIndex = -1;
     updateWalletModeHeader(walletModeIndex, true);
     stabilizeWalletCarousel(walletModeIndex);
@@ -7969,7 +8086,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.14');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.15');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
