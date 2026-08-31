@@ -11,8 +11,8 @@
   const DB_TRACKER_KEY = 'tracker';
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
-  const SCHEMA_VERSION = 4;
-  const APP_VERSION = '3.5.0';
+  const SCHEMA_VERSION = 5;
+  const APP_VERSION = '3.5.1';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -99,6 +99,9 @@
   let currentWalletDetailId = null;
   let currentGoalTransferEditId = null;
   let currentGoalTransferCorrectionId = null;
+  let currentSavingEditId = null;
+  let currentSavingsWithdrawalEditId = null;
+  let currentSavingsWithdrawalCorrectionId = null;
   let currentReconciliationCorrectionId = null;
   let companionLastUserActivityAt = Date.now();
   let secretFailedAttempts = 0;
@@ -115,6 +118,7 @@
   let activeWalletPickerTarget = '';
   let currentGoalEditId = null;
   let currentGoalHistoryId = '';
+  let milestoneEffectiveDateHint = '';
   let companionActionTimer = 0;
   let companionAffirmationTimer = 0;
   let companionIdleTimer = 0;
@@ -683,7 +687,9 @@
   function saveState() {
     if (!state) return Promise.resolve(false);
     persistCurrentTheme();
-    syncGoalMilestones();
+    const milestoneDate = milestoneEffectiveDateHint && validDateKey(milestoneEffectiveDateHint) ? milestoneEffectiveDateHint : localDateKey();
+    milestoneEffectiveDateHint = '';
+    syncGoalMilestones(milestoneDate);
     const fullSnapshot = cloneStorageValue(state);
     const health = evaluateDataHealth(fullSnapshot);
     storageHealth = health;
@@ -1485,6 +1491,7 @@
       if (tx.originalType === 'income' && tx.accountId === accountId) return -amount;
       if (tx.originalType === 'expense' && tx.accountId === accountId) return amount;
       if (tx.originalType === 'saving' && tx.accountId === accountId) return amount;
+      if (tx.originalType === 'saving_return' && tx.accountId === accountId) return -amount;
       if (tx.originalType === 'transfer') {
         if (tx.fromAccountId === accountId) return amount;
         if (tx.toAccountId === accountId) return -amount;
@@ -1528,6 +1535,7 @@
       if (tx.type === 'saving') return sum + toCents(tx.amount || 0);
       if (tx.type === 'saving_return') return sum - toCents(tx.amount || 0);
       if (tx.type === 'correction_reversal' && tx.originalType === 'saving') return sum - toCents(tx.amount || 0);
+      if (tx.type === 'correction_reversal' && tx.originalType === 'saving_return') return sum + toCents(tx.amount || 0);
       return sum;
     }, 0);
     const transferNet = (candidate?.goalTransfers || []).reduce((sum, item) => {
@@ -1568,13 +1576,33 @@
     return false;
   }
 
-  function syncGoalMilestones() {
+  function goalMilestoneThresholdsForCurrent(goal, candidate = state) {
+    const target = Math.max(1, toCents(goal?.target || 0));
+    const current = Math.max(0, rawGoalCurrentCents(goal, candidate));
+    const percent = Math.floor((current / target) * 100);
+    return [25, 50, 75, 90].filter((threshold) => percent >= threshold);
+  }
+
+  function resetGoalMilestoneCycle(goal, newTarget, { recordEvent = true } = {}) {
+    if (!goal) return;
+    goal.milestoneVersion = Math.max(1, Number(goal.milestoneVersion || 1)) + 1;
+    goal.milestoneTarget = moneyRound(newTarget);
+    goal.milestones = goalMilestoneThresholdsForCurrent({ ...goal, target: newTarget });
+    if (recordEvent) addGoalEvent(goal.id, 'milestone_cycle_reset', { toValue: String(goal.milestoneVersion), note: 'Milestone thresholds recalibrated for the new target' });
+  }
+
+  function syncGoalMilestones(eventDate = localDateKey()) {
     if (!state?.goals) return;
     state.goalEvents ||= [];
     const now = new Date().toISOString();
     const thresholds = [25, 50, 75, 90];
     state.goals.forEach((goal) => {
       if (goalIsWithdrawn(goal)) return;
+      goal.milestoneVersion = Math.max(1, Number(goal.milestoneVersion || 1));
+      goal.milestoneTarget = Math.max(.01, moneyRound(goal.milestoneTarget || goal.target || .01));
+      if (toCents(goal.milestoneTarget) !== toCents(goal.target)) {
+        resetGoalMilestoneCycle(goal, goal.target, { recordEvent: false });
+      }
       goal.milestones = Array.isArray(goal.milestones) ? goal.milestones : [];
       const target = Math.max(1, toCents(goal.target || 0));
       const current = Math.max(0, rawGoalCurrentCents(goal, state));
@@ -1582,16 +1610,16 @@
       thresholds.forEach((threshold) => {
         if (percent >= threshold && !goal.milestones.includes(threshold)) {
           goal.milestones.push(threshold);
-          state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'milestone', date: localDateKey(), toValue: `${threshold}%`, note: `Reached ${threshold}%`, createdAt: now }));
+          state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'milestone', date: eventDate, toValue: `${threshold}%`, note: `Reached ${threshold}%`, milestoneVersion: goal.milestoneVersion, createdAt: now }));
         }
       });
       const complete = current >= target;
       if (complete && !goal.completedAt) {
         goal.completedAt = now;
-        state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'completed', date: localDateKey(), note: 'Goal completed', createdAt: now }));
+        state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'completed', date: eventDate, note: 'Goal completed through savings progress', milestoneVersion: goal.milestoneVersion, createdAt: now }));
       } else if (!complete && goal.completedAt && !goal.archivedAt) {
         goal.completedAt = undefined;
-        state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'reopened', date: localDateKey(), note: 'Goal reopened after target or balance changed', createdAt: now }));
+        state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId: goal.id, type: 'reopened', date: eventDate, note: 'Goal reopened after savings balance changed', milestoneVersion: goal.milestoneVersion, createdAt: now }));
       }
     });
   }
@@ -1637,7 +1665,7 @@
   }
 
   function canEditTransaction(tx) {
-    return (tx?.type === 'expense' || tx?.type === 'income' || tx?.type === 'transfer') && canModifyTransaction(tx);
+    return Boolean(tx) && canModifyTransaction(tx) && (['expense','income','transfer','saving'].includes(tx.type) || (tx.type === 'saving_return' && tx.savingsAction === 'partial_withdrawal'));
   }
 
   function transactionWindowLabel(tx) {
@@ -1760,13 +1788,14 @@
       fromValue: item.fromValue === undefined ? undefined : String(item.fromValue).slice(0, 80),
       toValue: item.toValue === undefined ? undefined : String(item.toValue).slice(0, 80),
       note: typeof item.note === 'string' ? item.note.slice(0, 120) : '',
+      milestoneVersion: Math.max(0, Number(item.milestoneVersion || 0)) || undefined,
       createdAt
     };
   }
 
   function addGoalEvent(goalId, type, details = {}) {
     state.goalEvents ||= [];
-    state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId, type, date: details.date || localDateKey(), fromValue: details.fromValue, toValue: details.toValue, note: details.note || '', createdAt: new Date().toISOString() }));
+    state.goalEvents.push(normalizeGoalEvent({ id: uid('goal-event'), goalId, type, date: details.date || localDateKey(), fromValue: details.fromValue, toValue: details.toValue, note: details.note || '', milestoneVersion: details.milestoneVersion, createdAt: new Date().toISOString() }));
   }
 
   function normalizeAccounts(accounts) {
@@ -1795,7 +1824,7 @@
     if (!tx || typeof tx !== 'object') return null;
     const knownTypes = new Set(['income', 'expense', 'saving', 'saving_return', 'transfer', 'reconciliation', 'correction_reversal']);
     if (!knownTypes.has(tx.type)) return null;
-    const originalType = ['income', 'expense', 'transfer', 'saving', 'reconciliation'].includes(tx.originalType) ? tx.originalType : undefined;
+    const originalType = ['income', 'expense', 'transfer', 'saving', 'saving_return', 'reconciliation'].includes(tx.originalType) ? tx.originalType : undefined;
     const signedAllowed = tx.type === 'reconciliation' || (tx.type === 'correction_reversal' && originalType === 'reconciliation');
     const rawAmount = moneyRound(tx.amount || 0);
     const amount = signedAllowed ? rawAmount : Math.abs(rawAmount);
@@ -1826,7 +1855,10 @@
       correctsTransactionId: typeof tx.correctsTransactionId === 'string' ? tx.correctsTransactionId : undefined,
       correctedByGroupId: typeof tx.correctedByGroupId === 'string' ? tx.correctedByGroupId : undefined,
       allowanceId: typeof tx.allowanceId === 'string' ? tx.allowanceId : undefined,
-      goalLifecycleGroupId: typeof tx.goalLifecycleGroupId === 'string' ? tx.goalLifecycleGroupId : undefined
+      goalLifecycleGroupId: typeof tx.goalLifecycleGroupId === 'string' ? tx.goalLifecycleGroupId : undefined,
+      savingsAction: typeof tx.savingsAction === 'string' ? tx.savingsAction.slice(0, 40) : undefined,
+      savingsNote: typeof tx.savingsNote === 'string' ? tx.savingsNote.slice(0, 100) : '',
+      withdrawalReason: typeof tx.withdrawalReason === 'string' ? tx.withdrawalReason.slice(0, 50) : ''
     };
   }
 
@@ -1850,9 +1882,10 @@
     };
   }
 
-  function normalizeGoals(goals, transactions, goalTransfers) {
+  function normalizeGoals(goals, transactions, goalTransfers, accounts = []) {
     const source = Array.isArray(goals) ? goals : [];
     const tempState = { transactions, goalTransfers };
+    const primaryId = (accounts.find((account) => account.isPrimary) || accounts[0])?.id || '';
     return source.filter((goal) => goal && typeof goal === 'object').map((goal) => {
       const id = typeof goal.id === 'string' && goal.id ? goal.id : uid('goal');
       const target = Math.max(0.01, moneyRound(goal.target || 0));
@@ -1860,16 +1893,34 @@
       const migratedOpening = goal.openingSaved !== undefined
         ? Math.max(0, moneyRound(goal.openingSaved || 0))
         : Math.max(0, fromCents(toCents(legacyCurrent) - goalLedgerBalanceCents(id, tempState)));
+      const sourceAllocations = Array.isArray(goal.openingAllocations) ? goal.openingAllocations : [];
+      let openingAllocations = sourceAllocations
+        .map((item) => ({ accountId: String(item?.accountId || ''), amount: Math.max(0, moneyRound(item?.amount || 0)) }))
+        .filter((item) => item.accountId && accounts.some((account) => account.id === item.accountId) && toCents(item.amount) > 0);
+      const allocationCents = openingAllocations.reduce((sum, item) => sum + toCents(item.amount || 0), 0);
+      if (toCents(migratedOpening) > 0 && allocationCents !== toCents(migratedOpening)) {
+        openingAllocations = primaryId ? [{ accountId: primaryId, amount: migratedOpening }] : [];
+      }
       const withdrawnAt = Number.isFinite(Date.parse(goal.withdrawnAt || goal.removedAt || '')) ? (goal.withdrawnAt || goal.removedAt) : undefined;
+      const currentCentsForMilestones = Math.max(0, toCents(migratedOpening) + goalLedgerBalanceCents(id, tempState));
+      const targetCentsForMilestones = Math.max(1, toCents(target));
+      const currentPercentForMilestones = Math.floor((currentCentsForMilestones / targetCentsForMilestones) * 100);
+      const normalizedMilestones = goal.recalibrateMilestones
+        ? [25,50,75,90].filter((threshold) => currentPercentForMilestones >= threshold)
+        : (Array.isArray(goal.milestones) ? [...new Set(goal.milestones.map(Number).filter((value) => [25,50,75,90].includes(value)))] : []);
       return {
         id, name: String(goal.name || 'Savings goal').trim().slice(0, 40) || 'Savings goal', target, openingSaved: migratedOpening,
+        openingAllocations,
+        legacyAttributionPending: Boolean(goal.legacyAttributionPending ?? (toCents(migratedOpening) > 0 && !sourceAllocations.length)),
         createdAt: validDateKey(goal.createdAt) ? goal.createdAt : (Number.isFinite(Date.parse(goal.createdAt || '')) ? localDateKey(new Date(goal.createdAt)) : localDateKey()),
         updatedAt: Number.isFinite(Date.parse(goal.updatedAt || '')) ? goal.updatedAt : undefined,
         completedAt: Number.isFinite(Date.parse(goal.completedAt || '')) ? goal.completedAt : undefined,
         archivedAt: Number.isFinite(Date.parse(goal.archivedAt || '')) ? goal.archivedAt : undefined,
         withdrawnAt, removedAt: withdrawnAt, returnedToWallets: Boolean(goal.returnedToWallets),
         withdrawalGroupId: typeof goal.withdrawalGroupId === 'string' ? goal.withdrawalGroupId : undefined,
-        milestones: Array.isArray(goal.milestones) ? [...new Set(goal.milestones.map(Number).filter((value) => [25,50,75,90].includes(value)))] : []
+        milestoneVersion: Math.max(1, Number(goal.milestoneVersion || 1)),
+        milestoneTarget: Math.max(0.01, moneyRound(goal.milestoneTarget || target)),
+        milestones: normalizedMilestones
       };
     });
   }
@@ -1908,13 +1959,34 @@
     return next;
   }
 
+  function migrateSchema4To5(candidate) {
+    const next = cloneStorageValue(candidate && typeof candidate === 'object' ? candidate : {});
+    next.version = 5;
+    const accounts = Array.isArray(next.accounts) ? next.accounts : [];
+    const primaryId = (accounts.find((account) => account?.isPrimary) || accounts[0])?.id || '';
+    next.goals = (next.goals || []).map((goal) => {
+      const opening = Math.max(0, moneyRound(goal?.openingSaved || 0));
+      const hadAllocations = Array.isArray(goal?.openingAllocations) && goal.openingAllocations.length > 0;
+      return {
+        ...goal,
+        openingAllocations: hadAllocations ? goal.openingAllocations : (opening > 0 && primaryId ? [{ accountId: primaryId, amount: opening }] : []),
+        legacyAttributionPending: Boolean(goal?.legacyAttributionPending ?? (opening > 0 && !hadAllocations)),
+        milestoneVersion: Math.max(1, Number(goal?.milestoneVersion || 1)),
+        milestoneTarget: Math.max(.01, moneyRound(goal?.milestoneTarget || goal?.target || .01)),
+        recalibrateMilestones: true
+      };
+    });
+    next.transactions = (next.transactions || []).map((tx) => ({ ...tx, savingsNote: typeof tx?.savingsNote === 'string' ? tx.savingsNote : '' }));
+    return next;
+  }
+
   function normalizeState(candidate) {
     if (!candidate || typeof candidate !== 'object') return seedState();
     const accounts = normalizeAccounts(candidate.accounts);
     const categories = normalizeCategories(candidate.categories);
     const transactions = (Array.isArray(candidate.transactions) ? candidate.transactions : []).map((tx) => normalizeTransaction(tx, categories)).filter(Boolean);
     const goalTransfers = (Array.isArray(candidate.goalTransfers) ? candidate.goalTransfers : []).map(normalizeGoalTransfer).filter(Boolean);
-    const goals = normalizeGoals(candidate.goals, transactions, goalTransfers);
+    const goals = normalizeGoals(candidate.goals, transactions, goalTransfers, accounts);
     const goalEvents = (Array.isArray(candidate.goalEvents) ? candidate.goalEvents : []).map(normalizeGoalEvent).filter(Boolean);
     return {
       version: SCHEMA_VERSION,
@@ -1932,6 +2004,7 @@
       if (version === 1) working = migrateSchema1To2(working);
       else if (version === 2) working = migrateSchema2To3(working);
       else if (version === 3) working = migrateSchema3To4(working);
+      else if (version === 4) working = migrateSchema4To5(working);
       else throw new Error(`No migration path exists from Pocket schema ${version}.`);
       version = Number(working.version || version + 1);
     }
@@ -2139,11 +2212,10 @@
       if (tx.type === 'saving') return sum + toCents(tx.amount || 0);
       if (tx.type === 'saving_return') return sum - toCents(tx.amount || 0);
       if (tx.type === 'correction_reversal' && tx.originalType === 'saving') return sum - toCents(tx.amount || 0);
+      if (tx.type === 'correction_reversal' && tx.originalType === 'saving_return') return sum + toCents(tx.amount || 0);
       return sum;
     }, 0);
-    if (accountId === primaryId) {
-      cents += (candidate?.goals || []).reduce((sum, goal) => sum + toCents(goal.openingSaved || 0), 0);
-    }
+    cents += (candidate?.goals || []).reduce((sum, goal) => sum + goalOpeningAllocationCents(goal, accountId, candidate), 0);
     return Math.max(0, cents);
   }
 
@@ -2151,23 +2223,60 @@
     return fromCents(walletSavingsCentsForState(state, accountId));
   }
 
-  function goalWalletSavings(goal, accountId) {
+  function goalOpeningAllocationCents(goal, accountId, candidate = state) {
     if (!goal || !accountId) return 0;
-    let cents = state.transactions.reduce((sum, tx) => {
+    const allocations = Array.isArray(goal.openingAllocations) ? goal.openingAllocations : [];
+    if (allocations.length) return allocations.filter((item) => item.accountId === accountId).reduce((sum, item) => sum + toCents(item.amount || 0), 0);
+    const primaryId = primaryAccount(candidate)?.id || '';
+    return accountId === primaryId ? toCents(goal.openingSaved || 0) : 0;
+  }
+
+  function rawGoalWalletSavingsCents(goalId, accountId, candidate = state) {
+    const goal = (candidate?.goals || []).find((item) => item.id === goalId);
+    if (!goal || !accountId) return 0;
+    let cents = (candidate.transactions || []).reduce((sum, tx) => {
       if (tx.goalId !== goal.id || tx.accountId !== accountId) return sum;
       if (tx.type === 'saving') return sum + toCents(tx.amount || 0);
       if (tx.type === 'saving_return') return sum - toCents(tx.amount || 0);
       if (tx.type === 'correction_reversal' && tx.originalType === 'saving') return sum - toCents(tx.amount || 0);
+      if (tx.type === 'correction_reversal' && tx.originalType === 'saving_return') return sum + toCents(tx.amount || 0);
       return sum;
     }, 0);
-    cents += state.goalTransfers.reduce((sum, item) => {
+    cents += (candidate.goalTransfers || []).reduce((sum, item) => {
       const allocation = (Array.isArray(item.allocations) ? item.allocations : []).filter((entry) => entry.accountId === accountId).reduce((value, entry) => value + toCents(entry.amount || 0), 0);
       if (item.toGoalId === goal.id) return sum + allocation;
       if (item.fromGoalId === goal.id) return sum - allocation;
       return sum;
     }, 0);
-    if (accountId === primaryAccount(state)?.id) cents += toCents(goal.openingSaved || 0);
-    return fromCents(Math.max(0, cents));
+    return cents + goalOpeningAllocationCents(goal, accountId, candidate);
+  }
+
+  function savingsProvenanceProblem(candidate) {
+    const accounts = candidate?.accounts || [];
+    for (const goal of candidate?.goals || []) {
+      if (goalIsWithdrawn(goal)) continue;
+      let attributed = 0;
+      for (const account of accounts) {
+        const cents = rawGoalWalletSavingsCents(goal.id, account.id, candidate);
+        if (cents < 0) return { goal, account, cents, kind: 'negative' };
+        attributed += cents;
+      }
+      const actual = rawGoalCurrentCents(goal, candidate);
+      if (attributed !== actual) return { goal, account: null, cents: attributed - actual, kind: 'mismatch' };
+    }
+    return null;
+  }
+
+  function validateCandidateSavingsProvenance(candidate, message = 'That change would break the wallet source of this savings.') {
+    const problem = savingsProvenanceProblem(candidate);
+    if (!problem) return true;
+    if (problem.kind === 'negative' && problem.account) showToast(`${problem.goal.name} no longer has enough savings attributed to ${problem.account.name} for that change.`);
+    else showToast(message);
+    return false;
+  }
+
+  function goalWalletSavings(goal, accountId, candidate = state) {
+    return fromCents(Math.max(0, rawGoalWalletSavingsCents(goal?.id, accountId, candidate)));
   }
 
   function goalWalletBreakdown(goal) {
@@ -2207,10 +2316,9 @@
   function canCorrectTransaction(tx) {
     if (!tx || canModifyTransaction(tx) || tx.correctedByGroupId) return false;
     if (['expense', 'income', 'transfer', 'reconciliation'].includes(tx.type)) return true;
-    if (tx.type !== 'saving' || !tx.goalId) return false;
-    const goal = state.goals.find((item) => item.id === tx.goalId && goalIsActive(item));
-    if (!goal) return false;
-    return !state.goalTransfers.some((item) => item.fromGoalId === tx.goalId || item.toGoalId === tx.goalId);
+    if (tx.type === 'saving' && tx.goalId) return Boolean(state.goals.find((item) => item.id === tx.goalId && goalIsActive(item)));
+    if (tx.type === 'saving_return' && tx.savingsAction === 'partial_withdrawal' && tx.goalId) return Boolean(state.goals.find((item) => item.id === tx.goalId && goalIsActive(item)));
+    return false;
   }
 
   function transactionTitle(tx) {
@@ -2218,6 +2326,7 @@
       if (tx.type === 'income') return 'Corrected allowance';
       if (tx.type === 'transfer') return 'Corrected wallet transfer';
       if (tx.type === 'saving') return `Corrected savings · ${tx.note || 'Savings goal'}`;
+      if (tx.type === 'saving_return') return `Corrected savings withdrawal · ${tx.note || 'Savings goal'}`;
       if (tx.type === 'expense') return `Corrected · ${tx.note || tx.category || 'Expense'}`;
     }
     if (tx.type === 'goal_transfer') {
@@ -2230,7 +2339,7 @@
     if (tx.type === 'reconciliation') return tx.reconciliationReason || tx.note || 'Wallet balance reconciliation';
     if (tx.type === 'income') return tx.note || 'Allowance received';
     if (tx.type === 'saving') return tx.note || 'Moved to savings';
-    if (tx.type === 'saving_return') return tx.note || 'Savings returned';
+    if (tx.type === 'saving_return') return tx.savingsAction === 'partial_withdrawal' ? (tx.note || 'Savings withdrawn') : (tx.note || 'Savings returned');
     if (tx.type === 'transfer') {
       const destination = state.accounts.find((item) => item.id === tx.toAccountId)?.name || 'wallet';
       return tx.note || `Transfer to ${destination}`;
@@ -2256,8 +2365,8 @@
     }
     if (tx.type === 'correction_reversal') return withTiming(`Audit reversal of ${tx.originalType || 'transaction'}`);
     if (tx.type === 'reconciliation') return withTiming(`${tx.reconciliationReason || 'Balance adjustment'} · ${account}${tx.reconciliationNote ? ` · ${tx.reconciliationNote}` : ''}`);
-    if (tx.type === 'saving') return withTiming(`Saved from ${account}`);
-    if (tx.type === 'saving_return') return withTiming(`Returned to ${account}`);
+    if (tx.type === 'saving') return withTiming(`Saved from ${account}${tx.savingsNote ? ` · ${tx.savingsNote}` : ''}`);
+    if (tx.type === 'saving_return') return withTiming(`${tx.savingsAction === 'partial_withdrawal' ? 'Withdrawn to' : 'Returned to'} ${account}${tx.withdrawalReason ? ` · ${tx.withdrawalReason}` : ''}${tx.savingsNote ? ` · ${tx.savingsNote}` : ''}`);
     if (tx.type === 'transfer') {
       const from = state.accounts.find((item) => item.id === tx.fromAccountId)?.name || 'Wallet';
       const to = state.accounts.find((item) => item.id === tx.toAccountId)?.name || 'Wallet';
@@ -2276,16 +2385,11 @@
       if (canCorrectGoalTransfer(source)) return `<div class="transaction-actions"><button class="transaction-action" type="button" data-action="correct-goal-transfer" data-id="${escapeHtml(source.id)}">${icon('i-edit')} Correct</button></div>`;
       return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Locked">${icon('i-lock')}</span></div>`;
     }
-    if (tx.type === 'saving_return' || tx.type === 'correction_reversal') {
+    if (tx.type === 'correction_reversal' || (tx.type === 'saving_return' && tx.savingsAction !== 'partial_withdrawal')) {
       return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Audit record">${icon('i-lock')}</span></div>`;
     }
     if (tx.correctedByGroupId) {
       return `<div class="transaction-actions is-locked"><span class="status-pill neutral">Corrected</span></div>`;
-    }
-    if (tx.type === 'saving' && tx.goalId) {
-      const goal = state.goals.find((item) => item.id === tx.goalId);
-      const allocationChanged = Boolean(goal?.removedAt) || state.goalTransfers.some((item) => item.fromGoalId === tx.goalId || item.toGoalId === tx.goalId);
-      if (allocationChanged) return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Locked">${icon('i-lock')}</span></div>`;
     }
     if (!canModifyTransaction(tx)) {
       if (canCorrectTransaction(tx)) {
@@ -2613,12 +2717,23 @@
     els.activitySwipeHint.classList.toggle('is-hidden', !hasActivity);
   }
 
+  function savingsMonthStats() {
+    const range = monthRange();
+    const effective = effectiveTransactions().filter((tx) => tx.date >= range.start && tx.date <= range.end);
+    const newSavedCents = effective.filter((tx) => tx.type === 'saving' && tx.savingsAction !== 'lifecycle_restore').reduce((sum, tx) => sum + toCents(tx.amount || 0), 0);
+    const withdrawnCents = effective.filter((tx) => tx.type === 'saving_return').reduce((sum, tx) => sum + toCents(tx.amount || 0), 0);
+    return { newSaved: fromCents(newSavedCents), withdrawn: fromCents(withdrawnCents) };
+  }
+
   function renderSavings() {
     const accounts = activeAccounts();
     savingsWalletIndex = Math.max(0, Math.min(savingsWalletIndex, Math.max(0, accounts.length - 1)));
     const selectedAccount = accounts[savingsWalletIndex] || accounts[0];
     const isWalletMode = savingsMode === 'wallet' && selectedAccount;
     const shownBalance = isWalletMode ? walletSavingsBalance(selectedAccount.id) : totalSavings();
+    const activeSaved = fromCents(state.goals.filter((goal) => goalIsActive(goal)).reduce((sum, goal) => sum + goalCurrentCents(goal), 0));
+    const archivedSaved = fromCents(state.goals.filter((goal) => goalIsArchived(goal)).reduce((sum, goal) => sum + goalCurrentCents(goal), 0));
+    const monthStats = savingsMonthStats();
 
     els.savingsModeToggle.querySelectorAll('[data-savings-mode]').forEach((button) => {
       button.classList.toggle('is-active', button.dataset.savingsMode === savingsMode);
@@ -2632,6 +2747,11 @@
     els.savingsBalanceLabel.textContent = isWalletMode ? `Saved from ${selectedAccount.name}` : 'Total savings';
     els.totalSavings.textContent = privateCurrency(shownBalance);
     replayAnimation(els.totalSavings, 'amount-pop');
+    if (els.savingsInsights) {
+      els.savingsInsights.innerHTML = isWalletMode
+        ? `<div><small>From wallet</small><strong class="money-value">${privateCurrency(shownBalance)}</strong></div><div><small>All savings</small><strong class="money-value">${privateCurrency(totalSavings())}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div>`
+        : `<div><small>Active</small><strong class="money-value">${privateCurrency(activeSaved)}</strong></div><div><small>Archived</small><strong class="money-value">${privateCurrency(archivedSaved)}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div><div><small>Withdrawn this month</small><strong class="money-value">${privateCurrency(monthStats.withdrawn)}</strong></div>`;
+    }
 
     const visibleGoals = state.goals.filter((goal) => goalIsActive(goal));
     const archivedGoals = state.goals.filter((goal) => goalIsArchived(goal) || goalIsWithdrawn(goal));
@@ -2669,6 +2789,7 @@
               <button type="button" data-action="edit-goal" data-goal-id="${escapeHtml(goal.id)}">${icon('i-edit')}<span>Edit</span></button>
               <button type="button" data-action="transfer-goal" data-goal-id="${escapeHtml(goal.id)}">${icon('i-transfer')}<span>Transfer</span></button>
               <button type="button" data-action="archive-goal" data-goal-id="${escapeHtml(goal.id)}">${icon('i-download')}<span>Archive</span></button>
+              ${goal.legacyAttributionPending && toCents(goal.openingSaved || 0) > 0 ? `<button type="button" data-action="review-legacy-savings" data-goal-id="${escapeHtml(goal.id)}">${icon('i-wallet')}<span>Review source</span></button>` : ''}
               <button class="goal-remove" type="button" data-action="withdraw-goal" data-goal-id="${escapeHtml(goal.id)}" aria-label="Withdraw ${escapeHtml(goal.name)} savings goal">${icon('i-trash')}<span>Withdraw</span></button>
             </div>` : '';
         const primarySaved = isWalletMode ? walletCurrent : totalCurrent;
@@ -2693,7 +2814,9 @@
               <div class="goal-progress"><span style="width:${percent.toFixed(1)}%"></span></div>
             </div>
             ${manageButtons}
-            <div class="goal-footer"><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${accountAttribute}>Add savings</button></div>
+            <div class="goal-footer">${complete
+              ? `<button class="button-primary" type="button" data-action="archive-goal" data-goal-id="${escapeHtml(goal.id)}">Archive</button><button class="button-secondary" type="button" data-action="withdraw-savings" data-goal-id="${escapeHtml(goal.id)}">Withdraw</button><button class="button-secondary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${accountAttribute}>Add more</button>`
+              : `<button class="button-secondary" type="button" data-action="withdraw-savings" data-goal-id="${escapeHtml(goal.id)}">Withdraw</button><button class="button-primary" type="button" data-action="open-contribution" data-goal-id="${escapeHtml(goal.id)}"${accountAttribute}>Add savings</button>`}</div>
           </article>`;
       }).join('');
     }
@@ -2719,14 +2842,18 @@
   }
 
   function goalHistoryEntries(goalId) {
-    const transactions = state.transactions
-      .filter((tx) => (tx.type === 'saving' || tx.type === 'saving_return') && tx.goalId === goalId)
-      .map((tx) => ({ kind: 'transaction', createdAt: tx.createdAt || `${tx.date || ''}T12:00:00`, tx }));
-    const transfers = state.goalTransfers
+    const entries = [];
+    state.transactions
+      .filter((tx) => (tx.type === 'saving' || tx.type === 'saving_return' || (tx.type === 'correction_reversal' && ['saving','saving_return'].includes(tx.originalType))) && tx.goalId === goalId)
+      .forEach((tx) => entries.push({ kind: 'transaction', effectiveDate: tx.date || localDateKey(), createdAt: tx.createdAt || `${tx.date || ''}T12:00:00`, tx }));
+    state.goalTransfers
       .filter((item) => item.fromGoalId === goalId || item.toGoalId === goalId)
-      .map((item) => ({ kind: 'goal_transfer', createdAt: item.createdAt || '', transfer: item }));
-    const events = (state.goalEvents || []).filter((item) => item.goalId === goalId).map((item) => ({ kind: 'goal_event', createdAt: item.createdAt || `${item.date || ''}T12:00:00`, event: item }));
-    return [...transactions, ...transfers, ...events].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      .forEach((item) => entries.push({ kind: 'goal_transfer', effectiveDate: item.date || localDateKey(), createdAt: item.createdAt || '', transfer: item }));
+    (state.goalEvents || []).filter((item) => item.goalId === goalId).forEach((item) => entries.push({ kind: 'goal_event', effectiveDate: item.date || localDateKey(), createdAt: item.createdAt || `${item.date || ''}T12:00:00`, event: item }));
+    return entries.sort((a, b) => {
+      const dateCompare = String(b.effectiveDate || '').localeCompare(String(a.effectiveDate || ''));
+      return dateCompare || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
   }
 
   function goalTransferHistoryRow(entry, goal) {
@@ -2760,23 +2887,27 @@
   function goalTransactionHistoryRow(entry, goal) {
     const tx = entry.tx;
     const isReturn = tx.type === 'saving_return';
+    const isAuditReversal = tx.type === 'correction_reversal';
     const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Wallet';
     const time = transactionTimeLabel(tx);
     const date = tx.date ? DATE_LABEL.format(fromDateKey(tx.date)) : '';
-    const timing = [account, date, time].filter(Boolean).join(' · ');
-    const amount = state.settings.privacy ? '₱••••' : `${isReturn ? '−' : '+'}${currency(tx.amount)}`;
-    const allocationChanged = state.goalTransfers.some((item) => item.fromGoalId === goal.id || item.toGoalId === goal.id);
-    const canUndo = !isReturn && !tx.correctedByGroupId && canModifyTransaction(tx) && !allocationChanged;
+    const extra = tx.savingsNote || tx.withdrawalReason || '';
+    const timing = [account, date, time, extra].filter(Boolean).join(' · ');
+    const sign = isAuditReversal ? (tx.originalType === 'saving' ? '−' : '+') : isReturn ? '−' : '+';
+    const amount = state.settings.privacy ? '₱••••' : `${sign}${currency(tx.amount)}`;
+    const editableSaving = tx.type === 'saving' && !tx.correctedByGroupId && canModifyTransaction(tx);
+    const editableWithdrawal = tx.type === 'saving_return' && tx.savingsAction === 'partial_withdrawal' && !tx.correctedByGroupId && canModifyTransaction(tx);
     let status = `<span class="inline-lock" aria-label="Locked">${icon('i-lock')}</span>`;
     if (tx.correctedByGroupId) status = `<span class="status-pill neutral">Corrected</span>`;
-    else if (canUndo) status = `<button class="compact-history-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')}<span>Undo</span></button>`;
-    else if (!isReturn && canCorrectTransaction(tx)) status = `<button class="compact-history-action correction" type="button" data-action="correct-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')}<span>Correct</span></button>`;
-    const title = isReturn ? 'Savings returned' : tx.correctsTransactionId ? 'Savings correction' : 'Savings added';
+    else if (isAuditReversal) status = '<span class="status-pill neutral">Audit reversal</span>';
+    else if (editableSaving || editableWithdrawal) status = `<div class="allowance-history-actions"><button class="compact-history-action" type="button" data-action="edit-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')}<span>Edit</span></button><button class="compact-history-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')}<span>Undo</span></button></div>`;
+    else if (!isAuditReversal && canCorrectTransaction(tx)) status = `<button class="compact-history-action correction" type="button" data-action="correct-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')}<span>Correct</span></button>`;
+    const title = isAuditReversal ? `Correction reversal · ${tx.originalType === 'saving_return' ? 'withdrawal' : 'savings'}` : isReturn ? (tx.correctsTransactionId ? 'Savings withdrawal correction' : tx.savingsAction === 'partial_withdrawal' ? 'Savings withdrawn' : 'Savings returned') : tx.correctsTransactionId ? 'Savings correction' : tx.savingsAction === 'lifecycle_restore' ? 'Goal savings restored' : 'Savings added';
     return `
       <div class="goal-history-row ${escapeHtml(tx.type)}${tx.correctedByGroupId ? ' is-corrected' : ''}">
-        <span class="round-icon ${isReturn ? 'green-soft' : 'purple-soft'}">${icon('i-savings')}</span>
+        <span class="round-icon ${isReturn ? 'green-soft' : isAuditReversal ? 'neutral-soft' : 'purple-soft'}">${icon(isReturn ? 'i-arrow-up' : isAuditReversal ? 'i-refresh' : 'i-savings')}</span>
         <div class="goal-history-copy">
-          <strong>${title}</strong>
+          <strong>${escapeHtml(title)}</strong>
           <small>${escapeHtml(timing)}</small>
         </div>
         <div class="goal-history-amount"><strong class="money-value">${amount}</strong>${status}</div>
@@ -2785,7 +2916,7 @@
 
   function goalEventHistoryRow(entry) {
     const event = entry.event;
-    const labels = { created: 'Goal created', renamed: 'Goal renamed', target_changed: 'Target changed', milestone: event.note || 'Milestone reached', completed: 'Goal completed', reopened: 'Goal reopened', archived: 'Goal archived', restored: 'Goal restored', withdrawn: 'Goal withdrawn', restored_after_withdrawal: 'Goal restored after withdrawal' };
+    const labels = { created: 'Goal created', renamed: 'Goal renamed', target_changed: 'Target changed', milestone_cycle_reset: 'Milestones recalibrated', milestone: event.note || 'Milestone reached', completed: 'Goal completed', completed_by_target_change: 'Goal completed after target change', reopened: 'Goal reopened', reopened_by_target_change: 'Goal reopened after target change', archived: 'Goal archived', restored: 'Goal restored', withdrawn: 'Goal withdrawn', restored_after_withdrawal: 'Goal restored after withdrawal', legacy_source_assigned: 'Opening savings source reviewed' };
     let detail = event.note || '';
     if (event.type === 'target_changed' && event.fromValue !== undefined && event.toValue !== undefined) detail = state.settings.privacy ? 'Target amount changed' : `${currency(Number(event.fromValue || 0))} → ${currency(Number(event.toValue || 0))}`;
     if (event.type === 'renamed' && event.fromValue !== undefined && event.toValue !== undefined) detail = `${event.fromValue} → ${event.toValue}`;
@@ -2967,7 +3098,7 @@
     const goals = [...ledgerEntryGoalIds(entry)].map((id) => state.goals.find((goal) => goal.id === id)?.name || '').join(' ');
     const category = entry.type === 'expense' ? categoryForTransaction(entry)?.name || entry.category || '' : entry.category || '';
     const amountText = String(Math.abs(Number(entry.amount || 0)));
-    return [transactionTitle(entry), transactionSubtitle(entry, true), entry.note, entry.reconciliationReason, entry.reconciliationNote, wallets, goals, category, amountText].filter(Boolean).join(' ').toLowerCase();
+    return [transactionTitle(entry), transactionSubtitle(entry, true), entry.note, entry.savingsNote, entry.withdrawalReason, entry.reconciliationReason, entry.reconciliationNote, wallets, goals, category, amountText].filter(Boolean).join(' ').toLowerCase();
   }
 
   function renderGlobalHistory() {
@@ -3047,8 +3178,9 @@
     const effective = effectiveTransactions().filter((tx) => tx.date >= range.start && tx.date <= range.end);
     const income = fromCents(effective.filter((tx) => tx.type === 'income' && tx.accountId === accountId).reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
     const expenses = fromCents(effective.filter((tx) => tx.type === 'expense' && tx.accountId === accountId).reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
-    const saved = fromCents(effective.filter((tx) => ['saving','saving_return'].includes(tx.type) && tx.accountId === accountId).reduce((sum, tx) => sum + (tx.type === 'saving' ? toCents(tx.amount || 0) : -toCents(tx.amount || 0)), 0));
-    return { income, expenses, saved };
+    const newSaved = fromCents(effective.filter((tx) => tx.type === 'saving' && tx.accountId === accountId && tx.savingsAction !== 'lifecycle_restore').reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
+    const withdrawn = fromCents(effective.filter((tx) => tx.type === 'saving_return' && tx.accountId === accountId).reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
+    return { income, expenses, newSaved, withdrawn };
   }
 
   function renderWalletDetail(accountId) {
@@ -3061,7 +3193,8 @@
       <div><small>In savings</small><strong class="money-value">${privateCurrency(walletSavingsBalance(account.id))}</strong></div>
       <div><small>This month income</small><strong class="money-value">${privateCurrency(stats.income)}</strong></div>
       <div><small>This month spent</small><strong class="money-value">${privateCurrency(stats.expenses)}</strong></div>
-      <div><small>This month saved</small><strong class="money-value">${privateCurrency(stats.saved)}</strong></div>
+      <div><small>New savings</small><strong class="money-value">${privateCurrency(stats.newSaved)}</strong></div>
+      <div><small>Withdrawn</small><strong class="money-value">${privateCurrency(stats.withdrawn)}</strong></div>
       <div><small>Status</small><strong>${account.archivedAt ? 'Archived' : account.isPrimary ? 'Main wallet' : 'Active'}</strong></div>`;
     const entries = allLedgerEntries().filter((entry) => ledgerEntryWalletIds(entry).has(account.id)).slice(0, 30);
     els.walletDetailTransactions.innerHTML = renderTransactionRows(entries, true, { includeDate: true, emptyTitle: 'No wallet activity yet', emptyCopy: 'Transactions linked to this wallet will appear here.' });
@@ -3088,9 +3221,13 @@
     const invalidGoalTransfers = (state.goalTransfers || []).filter((transfer) => !state.goals.some((goal) => goal.id === transfer.fromGoalId) || !state.goals.some((goal) => goal.id === transfer.toGoalId) || transfer.fromGoalId === transfer.toGoalId);
     const categoryIds = (state.categories || []).map((category) => category.id);
     const duplicateCategories = new Set(categoryIds).size !== categoryIds.length;
+    const provenanceIssue = savingsProvenanceProblem(state);
+    const pendingLegacyAttribution = (state.goals || []).filter((goal) => goal.legacyAttributionPending && toCents(goal.openingSaved || 0) > 0);
 
     checks.push({ ok: !negativeWallets.length, title: 'Wallet balances', copy: negativeWallets.length ? `${negativeWallets.length} wallet${negativeWallets.length === 1 ? '' : 's'} would be negative.` : `${state.accounts.length} wallet${state.accounts.length === 1 ? '' : 's'} reconcile without negative balances.` });
     checks.push({ ok: !negativeGoals.length, title: 'Savings ledger', copy: negativeGoals.length ? `${negativeGoals.length} goal${negativeGoals.length === 1 ? '' : 's'} has an invalid negative ledger.` : `${state.goals.length} savings goal${state.goals.length === 1 ? '' : 's'} reconcile to the ledger.` });
+    checks.push({ ok: !provenanceIssue, title: 'Savings wallet provenance', copy: provenanceIssue ? 'At least one goal does not reconcile cleanly across its source wallets.' : 'Every goal balance matches the sum of its wallet-level savings sources.' });
+    checks.push({ ok: true, title: 'Legacy savings attribution', copy: pendingLegacyAttribution.length ? `${pendingLegacyAttribution.length} older goal${pendingLegacyAttribution.length === 1 ? '' : 's'} still use a provisional wallet source. Review them from Manage goals when convenient.` : 'Opening savings from older Pocket versions have reviewed wallet attribution.' });
     checks.push({ ok: !duplicateTx, title: 'Ledger IDs', copy: duplicateTx ? 'Duplicate transaction IDs were detected.' : `${state.transactions.length} transaction record${state.transactions.length === 1 ? '' : 's'} have unique IDs.` });
     checks.push({ ok: !incompleteCorrections.length, title: 'Correction audit trails', copy: incompleteCorrections.length ? `${incompleteCorrections.length} correction trail${incompleteCorrections.length === 1 ? '' : 's'} is incomplete.` : 'Originals, reversals, and replacements are paired correctly.' });
     checks.push({ ok: !invalidGoalTransfers.length, title: 'Goal transfers', copy: invalidGoalTransfers.length ? `${invalidGoalTransfers.length} savings transfer${invalidGoalTransfers.length === 1 ? '' : 's'} references an invalid goal.` : `${state.goalTransfers.length} goal transfer record${state.goalTransfers.length === 1 ? '' : 's'} references valid goals.` });
@@ -5396,6 +5533,9 @@
       note: `Audit reversal of ${transactionTitle(original)}`,
       reconciliationReason: original.reconciliationReason || '',
       reconciliationNote: original.reconciliationNote || '',
+      savingsAction: original.savingsAction || undefined,
+      savingsNote: original.savingsNote || '',
+      withdrawalReason: original.withdrawalReason || '',
       correctionGroupId: groupId,
       correctsTransactionId: original.id,
       createdAt: new Date().toISOString()
@@ -5424,6 +5564,8 @@
     };
     candidate.transactions.push(reversal, corrected);
     if (!validateCandidateBalances(candidate, 'That correction would make a wallet balance negative.')) return null;
+    if (!validateCandidateGoals(candidate, 'That correction would make a savings goal negative.')) return null;
+    if (!validateCandidateSavingsProvenance(candidate, 'That correction would break the wallet source of a savings goal.')) return null;
     state = candidate;
 
     saveState();
@@ -5730,6 +5872,27 @@
     openDialog(els.goalDialog);
   }
 
+  function applyGoalTargetChange(goal, nextTarget, note = 'Target amount changed') {
+    if (!goal) return;
+    const previousTarget = moneyRound(goal.target || 0);
+    const target = Math.max(.01, moneyRound(nextTarget));
+    if (toCents(previousTarget) === toCents(target)) return;
+    const wasComplete = Boolean(goal.completedAt) || rawGoalCurrentCents(goal, state) >= toCents(previousTarget);
+    const now = new Date().toISOString();
+    goal.target = target;
+    goal.updatedAt = now;
+    resetGoalMilestoneCycle(goal, target);
+    addGoalEvent(goal.id, 'target_changed', { fromValue: String(previousTarget), toValue: String(target), note });
+    const isComplete = rawGoalCurrentCents(goal, state) >= toCents(target);
+    if (isComplete && !wasComplete) {
+      goal.completedAt = now;
+      addGoalEvent(goal.id, 'completed_by_target_change', { note: 'Goal became complete because its target changed' });
+    } else if (!isComplete && wasComplete) {
+      goal.completedAt = undefined;
+      addGoalEvent(goal.id, 'reopened_by_target_change', { note: 'Goal reopened because its target increased' });
+    }
+  }
+
   function revertGoalTargetEvent(eventId) {
     const event = (state.goalEvents || []).find((item) => item.id === eventId && item.type === 'target_changed');
     const goal = event ? state.goals.find((item) => item.id === event.goalId && !goalIsWithdrawn(item)) : null;
@@ -5737,22 +5900,18 @@
     if (toCents(goal.target) !== toCents(event.toValue)) return showToast('This target changed again later, so that older history entry cannot be reverted directly.');
     const previous = moneyRound(goal.target);
     const restored = Math.max(.01, moneyRound(event.fromValue));
-    confirmAction('Revert this goal target?', state.settings.privacy ? 'Pocket will restore the previous target and keep both changes in goal history.' : `Restore the target from ${currency(previous)} to ${currency(restored)}? Both changes will remain in history.`, 'Revert target', () => {
-      goal.target = restored;
-      goal.updatedAt = new Date().toISOString();
-      addGoalEvent(goal.id, 'target_changed', { fromValue: String(previous), toValue: String(restored), note: 'Target change reverted' });
+    confirmAction('Revert this goal target?', state.settings.privacy ? 'Pocket will restore the previous target and start a fresh milestone cycle for that target.' : `Restore the target from ${currency(previous)} to ${currency(restored)}? Savings stay untouched and milestone tracking recalibrates to the restored target.`, 'Revert target', () => {
+      applyGoalTargetChange(goal, restored, 'Target change reverted');
       saveState(); renderAll(); renderGoalHistory(); showToast('Goal target restored.');
     });
   }
 
   function applyGoalEdit(goal, name, target) {
     const previousName = goal.name;
-    const previousTarget = moneyRound(goal.target || 0);
     goal.name = name;
-    goal.target = moneyRound(target);
     goal.updatedAt = new Date().toISOString();
     if (previousName !== name) addGoalEvent(goal.id, 'renamed', { fromValue: previousName, toValue: name, note: `Renamed from ${previousName} to ${name}` });
-    if (toCents(previousTarget) !== toCents(target)) addGoalEvent(goal.id, 'target_changed', { fromValue: String(previousTarget), toValue: String(moneyRound(target)), note: 'Target amount changed' });
+    applyGoalTargetChange(goal, target);
 
     saveState();
     renderAll();
@@ -5783,18 +5942,19 @@
     const accountId = els.goalAccount.value || activeAccounts()[0]?.id;
     const saveDate = els.goalSaveDate.value || localDateKey();
     if (!accountId || !entryDateIsValid(saveDate)) return showToast('Choose a valid savings date and wallet.');
-    const startingAmount = Math.min(requested, target);
+    const startingAmount = requested;
     const available = accountBalance(accountId);
     if (toCents(startingAmount) > toCents(available)) {
       const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
       showToast(state.settings.privacy ? `${walletName} does not have enough available money.` : `You only have ${currency(Math.max(0, available))} available in ${walletName}.`);
       return;
     }
-    const goal = { id: uid('goal'), name, target, openingSaved: 0, createdAt: localDateKey(), milestones: [] };
+    const goal = { id: uid('goal'), name, target, openingSaved: 0, openingAllocations: [], legacyAttributionPending: false, createdAt: saveDate, milestoneVersion: 1, milestoneTarget: target, milestones: [] };
     state.goals.push(goal);
     addGoalEvent(goal.id, 'created', { toValue: String(target), note: 'Savings goal created', date: saveDate });
-    if (startingAmount > 0) state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: saveDate, note: name, goalId: goal.id, createdAt: new Date().toISOString() });
+    if (startingAmount > 0) state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: saveDate, note: name, goalId: goal.id, savingsAction: 'contribution', createdAt: new Date().toISOString() });
 
+    milestoneEffectiveDateHint = saveDate;
     saveState();
     closeDialog(els.goalDialog);
     renderAll();
@@ -5826,6 +5986,7 @@
   function withdrawGoal(goalId) {
     const goal = state.goals.find((item) => item.id === goalId && !goalIsWithdrawn(item));
     if (!goal) return;
+    if (!ensureGoalProvenanceReviewed(goal)) return;
     const saved = goalCurrent(goal);
     const breakdown = goalWalletBreakdown(goal);
     const returnCopy = breakdown.map(({ account, amount }) => `${privateCurrency(amount)} → ${account.name}`).join(' · ');
@@ -5835,7 +5996,7 @@
       const groupId = uid('goal-withdraw');
       breakdown.forEach(({ account, amount }, index) => {
         if (toCents(amount) <= 0) return;
-        state.transactions.push({ id: uid('tx'), type: 'saving_return', amount: moneyRound(amount), category: 'Savings return', accountId: account.id, goalId: goal.id, date: localDateKey(), note: `Withdrawn from ${goal.name}`, goalLifecycleGroupId: groupId, createdAt: new Date(now + index).toISOString() });
+        state.transactions.push({ id: uid('tx'), type: 'saving_return', amount: moneyRound(amount), category: 'Savings return', accountId: account.id, goalId: goal.id, date: localDateKey(), note: `Withdrawn from ${goal.name}`, savingsAction: 'goal_withdrawal', withdrawalReason: 'Goal withdrawn', goalLifecycleGroupId: groupId, createdAt: new Date(now + index).toISOString() });
       });
       goal.withdrawnAt = new Date().toISOString();
       goal.removedAt = goal.withdrawnAt;
@@ -5857,7 +6018,7 @@
     const returns = candidate.transactions.filter((tx) => tx.type === 'saving_return' && tx.goalId === goal.id && tx.goalLifecycleGroupId && tx.goalLifecycleGroupId === candidateGoal.withdrawalGroupId);
     const now = Date.now();
     returns.forEach((tx, index) => {
-      candidate.transactions.push({ id: uid('tx'), type: 'saving', amount: tx.amount, category: 'Savings', accountId: tx.accountId, goalId: goal.id, date: localDateKey(), note: `Restored to ${goal.name}`, goalLifecycleGroupId: candidateGoal.withdrawalGroupId, createdAt: new Date(now + index).toISOString() });
+      candidate.transactions.push({ id: uid('tx'), type: 'saving', amount: tx.amount, category: 'Savings', accountId: tx.accountId, goalId: goal.id, date: localDateKey(), note: `Restored to ${goal.name}`, savingsAction: 'lifecycle_restore', goalLifecycleGroupId: candidateGoal.withdrawalGroupId, createdAt: new Date(now + index).toISOString() });
     });
     candidateGoal.withdrawnAt = undefined;
     candidateGoal.removedAt = undefined;
@@ -5865,6 +6026,7 @@
     candidateGoal.archivedAt = undefined;
     if (!validateCandidateBalances(candidate, 'This goal cannot be restored because some returned wallet money has already been used.')) return;
     if (!validateCandidateGoals(candidate, 'This goal cannot be restored safely.')) return;
+    if (!validateCandidateSavingsProvenance(candidate, 'This goal cannot be restored because its wallet-level savings provenance no longer reconciles.')) return;
     state = candidate;
     addGoalEvent(goal.id, 'restored_after_withdrawal', { note: 'Withdrawn goal restored and savings moved back from wallets' });
     saveState(); renderAll(); setView('savings'); showToast(`“${goal.name}” restored with its available returned savings.`);
@@ -5961,6 +6123,7 @@
     const sourceId = original?.fromGoalId || goalId;
     const source = state.goals.find((item) => item.id === sourceId && goalIsActive(item));
     if (!source) return;
+    if (!ensureGoalProvenanceReviewed(source)) return;
     const destinations = state.goals.filter((item) => goalIsActive(item) && item.id !== source.id);
     if (!destinations.length) return showToast('Create or restore another active savings goal before transferring savings.');
     currentGoalTransferEditId = options.mode === 'edit' ? original?.id || null : null;
@@ -5989,6 +6152,7 @@
     const corrected = normalizeGoalTransfer({ ...replacement, id: uid('goal-transfer'), correctionGroupId: groupId, correctsGoalTransferId: source.id, createdAt: new Date(Date.now() + 1).toISOString() });
     candidate.goalTransfers.push(reversal, corrected);
     if (!validateCandidateGoals(candidate, 'That correction would make a savings goal negative.')) return null;
+    if (!validateCandidateSavingsProvenance(candidate, 'That correction would break wallet-level savings provenance.')) return null;
     state = candidate;
     return corrected;
   }
@@ -6014,6 +6178,7 @@
       if (!item || !canModifyGoalTransfer(item)) return showToast('That goal transfer is locked. Use Correct instead.');
       Object.assign(item, replacement, { updatedAt: new Date().toISOString() });
       if (!validateCandidateGoals(candidate, 'That edit would make a savings goal negative.')) return;
+      if (!validateCandidateSavingsProvenance(candidate, 'That edit would break wallet-level savings provenance.')) return;
       state = candidate;
       showToast('Savings transfer updated.');
     } else if (currentGoalTransferCorrectionId) {
@@ -6026,6 +6191,7 @@
     }
     currentGoalTransferEditId = null;
     currentGoalTransferCorrectionId = null;
+    milestoneEffectiveDateHint = date;
     saveState(); closeDialog(els.goalTransferDialog); renderAll(); setView('savings');
   }
 
@@ -6046,13 +6212,15 @@
       const ids = new Set(removed.map((entry) => entry.id));
       candidate.goalTransfers = candidate.goalTransfers.filter((entry) => !ids.has(entry.id));
       if (!validateCandidateGoals(candidate, 'This transfer cannot be undone because later goal activity depends on it.')) return;
-      state = candidate; saveState(); renderAll();
+      if (!validateCandidateSavingsProvenance(candidate, 'This transfer cannot be undone because later wallet-level savings activity depends on it.')) return;
+      state = candidate; milestoneEffectiveDateHint = item?.date || localDateKey(); saveState(); renderAll();
       showToast('Savings transfer undone.', 'Restore', () => {
         const restore = cloneStateSnapshot(state);
         restore.goalTransfers.push(...cloneStateSnapshot(removed));
         if (sourceMarker) { const source = restore.goalTransfers.find((entry) => entry.id === sourceMarker.id); if (source) source.correctedByGroupId = sourceMarker.correctedByGroupId; }
         if (!validateCandidateGoals(restore, 'Restore is no longer safe because later goal activity depends on that savings.')) return;
-        state = restore; saveState(); renderAll(); showToast('Savings transfer restored.');
+        if (!validateCandidateSavingsProvenance(restore, 'Restore is no longer safe because wallet-level savings provenance changed.')) return;
+        state = restore; milestoneEffectiveDateHint = transfer?.date || localDateKey(); saveState(); renderAll(); showToast('Savings transfer restored.');
       });
     });
   }
@@ -6070,20 +6238,22 @@
   }
 
   function openContribution(goalId, suggestedAmount = '', accountId = '', options = {}) {
-    const goal = state.goals.find((item) => item.id === goalId && !goalIsWithdrawn(item));
+    const goal = state.goals.find((item) => item.id === goalId && goalIsActive(item));
     if (!goal) return;
+    currentSavingEditId = options.editId || null;
     currentCorrectionSourceId = options.correctionOf || null;
     els.contributeForm.reset();
     els.contributeGoalId.value = goal.id;
-    els.contributeTitle.textContent = currentCorrectionSourceId ? `Correct · ${goal.name}` : goal.name;
+    els.contributeTitle.textContent = currentCorrectionSourceId ? `Correct · ${goal.name}` : currentSavingEditId ? `Edit · ${goal.name}` : goal.name;
     els.contributeAmount.value = suggestedAmount || '';
     els.contributeDate.max = localDateKey();
     els.contributeDate.value = options.date || localDateKey();
+    els.contributeNote.value = options.savingsNote || '';
     populateAccounts();
     const preferredAccount = accountId || (savingsMode === 'wallet' ? activeAccounts()[savingsWalletIndex]?.id : '') || activeAccounts()[0]?.id;
     if (preferredAccount && activeAccounts().some((account) => account.id === preferredAccount)) els.contributeAccount.value = preferredAccount;
     const submit = els.contributeForm.querySelector('button[type="submit"]');
-    if (submit) submit.textContent = currentCorrectionSourceId ? 'Save correction' : 'Add savings';
+    if (submit) submit.textContent = currentCorrectionSourceId ? 'Save correction' : currentSavingEditId ? 'Update savings' : 'Add savings';
     syncWalletPickerTriggers();
     updateContributionWalletHint();
     openDialog(els.contributeDialog);
@@ -6092,10 +6262,16 @@
 
   function updateContributionWalletHint() {
     const account = state.accounts.find((item) => item.id === els.contributeAccount.value) || activeAccounts()[0];
-    const balance = account ? accountBalance(account.id) : 0;
+    let availableCents = account ? accountBalanceCentsForState(state, account.id) : 0;
+    const sourceId = currentSavingEditId || currentCorrectionSourceId;
+    if (sourceId) {
+      const original = state.transactions.find((tx) => tx.id === sourceId && tx.type === 'saving');
+      if (original?.accountId === account?.id) availableCents += toCents(original.amount || 0);
+    }
+    const available = fromCents(Math.max(0, availableCents));
     els.contributeWalletHint.textContent = state.settings.privacy
       ? `Savings will move out of ${account?.name || 'the selected wallet'}.`
-      : `${currency(Math.max(0, balance))} is currently available in ${account?.name || 'the selected wallet'}.`;
+      : `${currency(available)} can be used from ${account?.name || 'the selected wallet'} for this entry.`;
   }
 
   function addContribution() {
@@ -6103,10 +6279,12 @@
     const amount = moneyRound(els.contributeAmount.value);
     const accountId = els.contributeAccount.value || activeAccounts()[0]?.id;
     const date = els.contributeDate.value || localDateKey();
+    const savingsNote = els.contributeNote.value.trim().slice(0, 100);
     if (!goal || amount <= 0 || !accountId || !entryDateIsValid(date)) return;
     let availableCents = accountBalanceCentsForState(state, accountId);
-    if (currentCorrectionSourceId) {
-      const original = state.transactions.find((tx) => tx.id === currentCorrectionSourceId && tx.type === 'saving');
+    const sourceId = currentSavingEditId || currentCorrectionSourceId;
+    if (sourceId) {
+      const original = state.transactions.find((tx) => tx.id === sourceId && tx.type === 'saving');
       if (original?.accountId === accountId) availableCents += toCents(original.amount || 0);
     }
     const available = fromCents(Math.max(0, availableCents));
@@ -6117,19 +6295,42 @@
     }
     const previousGoalAmount = goalCurrent(goal);
     const completedNow = toCents(previousGoalAmount) < toCents(goal.target || 0) && toCents(previousGoalAmount) + toCents(amount) >= toCents(goal.target || 0);
+    const replacement = { amount, category: 'Savings', accountId, date, note: goal.name, savingsNote, goalId: goal.id, savingsAction: 'contribution' };
+
     if (currentCorrectionSourceId) {
-      const corrected = createCorrectionPair(currentCorrectionSourceId, { amount, category: 'Savings', accountId, date, note: goal.name, goalId: goal.id });
+      milestoneEffectiveDateHint = date;
+      const corrected = createCorrectionPair(currentCorrectionSourceId, replacement);
       if (!corrected) return;
       closeDialog(els.contributeDialog);
       currentCorrectionSourceId = null;
+      currentSavingEditId = null;
       renderAll();
       resetCompanionDataBaseline();
       showToast('Savings correction recorded. The original entry remains in the audit history.');
       companionReact('savings');
       return;
     }
-    state.transactions.push({ id: uid('tx'), type: 'saving', amount, category: 'Savings', accountId, date, note: goal.name, goalId: goal.id, createdAt: new Date().toISOString() });
 
+    if (currentSavingEditId) {
+      const candidate = cloneStateSnapshot(state);
+      const original = candidate.transactions.find((tx) => tx.id === currentSavingEditId && tx.type === 'saving');
+      if (!original || !canModifyTransaction(original)) return showToast('This savings entry is locked. Use Correct instead.');
+      Object.assign(original, replacement, { updatedAt: new Date().toISOString() });
+      if (!validateCandidateBalances(candidate, 'That savings edit would make a wallet balance negative.')) return;
+      if (!validateCandidateGoals(candidate, 'That savings edit would make a goal negative.')) return;
+      if (!validateCandidateSavingsProvenance(candidate, 'That savings edit conflicts with later goal transfers or withdrawals.')) return;
+      state = candidate;
+      milestoneEffectiveDateHint = date;
+      saveState(); closeDialog(els.contributeDialog); renderAll();
+      const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
+      showToast(state.settings.privacy ? 'Savings entry updated.' : `${currency(amount)} savings entry updated for ${goal.name} from ${walletName}.`);
+      currentSavingEditId = null;
+      companionReact('savings');
+      return;
+    }
+
+    state.transactions.push({ id: uid('tx'), type: 'saving', ...replacement, createdAt: new Date().toISOString() });
+    milestoneEffectiveDateHint = date;
     saveState();
     closeDialog(els.contributeDialog);
     renderAll();
@@ -6137,6 +6338,133 @@
     companionReact(completedNow ? 'complete' : 'savings');
     const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
     showToast(state.settings.privacy ? `Savings added from ${walletName}.` : `${currency(amount)} saved from ${walletName} for ${goal.name}.`);
+  }
+
+
+  function currentSavingsWithdrawalSource() {
+    const id = currentSavingsWithdrawalEditId || currentSavingsWithdrawalCorrectionId;
+    return id ? state.transactions.find((tx) => tx.id === id && tx.type === 'saving_return' && tx.savingsAction === 'partial_withdrawal') : null;
+  }
+
+  function updateSavingsWithdrawalAvailability() {
+    const goal = state.goals.find((item) => item.id === els.savingsWithdrawGoalId.value && goalIsActive(item));
+    const accountId = els.savingsWithdrawAccount.value;
+    if (!goal || !accountId) return;
+    let cents = rawGoalWalletSavingsCents(goal.id, accountId, state);
+    const source = currentSavingsWithdrawalSource();
+    if (source?.accountId === accountId) cents += toCents(source.amount || 0);
+    const available = fromCents(Math.max(0, cents));
+    const account = state.accounts.find((item) => item.id === accountId);
+    els.savingsWithdrawAmount.max = String(available);
+    els.savingsWithdrawAvailable.textContent = state.settings.privacy ? `Available to return to ${account?.name || 'this wallet'} is hidden.` : `${currency(available)} of this goal is currently attributed to ${account?.name || 'this wallet'}.`;
+  }
+
+  function ensureGoalProvenanceReviewed(goal) {
+    if (!goal?.legacyAttributionPending || toCents(goal.openingSaved || 0) <= 0) return true;
+    showToast('Review this older goal’s opening wallet source before moving savings out of it.');
+    openLegacySavingsSource(goal.id);
+    return false;
+  }
+
+  function openSavingsWithdrawal(goalId, options = {}) {
+    const goal = state.goals.find((item) => item.id === goalId && goalIsActive(item));
+    if (!goal || goalCurrentCents(goal) <= 0) return showToast('This goal has no savings available to withdraw.');
+    if (!ensureGoalProvenanceReviewed(goal)) return;
+    currentSavingsWithdrawalEditId = options.editId || null;
+    currentSavingsWithdrawalCorrectionId = options.correctionOf || null;
+    const source = currentSavingsWithdrawalSource();
+    els.savingsWithdrawForm.reset();
+    els.savingsWithdrawGoalId.value = goal.id;
+    els.savingsWithdrawTitle.textContent = currentSavingsWithdrawalCorrectionId ? `Correct withdrawal · ${goal.name}` : currentSavingsWithdrawalEditId ? `Edit withdrawal · ${goal.name}` : `Withdraw from ${goal.name}`;
+    els.savingsWithdrawDate.max = localDateKey();
+    els.savingsWithdrawDate.value = source?.date || localDateKey();
+    els.savingsWithdrawAmount.value = source ? String(source.amount) : '';
+    els.savingsWithdrawReason.value = source?.withdrawalReason || 'Needed for spending';
+    els.savingsWithdrawNote.value = source?.savingsNote || '';
+    let breakdown = goalWalletBreakdown(goal);
+    if (source && !breakdown.some((item) => item.account.id === source.accountId)) {
+      const account = state.accounts.find((item) => item.id === source.accountId);
+      if (account) breakdown = [...breakdown, { account, amount: 0 }];
+    }
+    els.savingsWithdrawAccount.innerHTML = breakdown.map(({ account, amount }) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}${state.settings.privacy ? '' : ` · ${escapeHtml(currency(amount + (source?.accountId === account.id ? Number(source.amount || 0) : 0)))}`}</option>`).join('');
+    if (source?.accountId && [...els.savingsWithdrawAccount.options].some((option) => option.value === source.accountId)) els.savingsWithdrawAccount.value = source.accountId;
+    els.savingsWithdrawSummary.innerHTML = `<span class="round-icon green-soft">${icon('i-arrow-up')}</span><div><small>Current goal savings</small><strong>${escapeHtml(goal.name)}</strong><p class="money-value">${privateCurrency(goalCurrent(goal))}</p></div>`;
+    els.savingsWithdrawSaveButton.textContent = currentSavingsWithdrawalCorrectionId ? 'Save correction' : currentSavingsWithdrawalEditId ? 'Update withdrawal' : 'Withdraw savings';
+    updateSavingsWithdrawalAvailability();
+    openDialog(els.savingsWithdrawDialog);
+    requestAnimationFrame(() => els.savingsWithdrawAmount.focus());
+  }
+
+  function saveSavingsWithdrawal() {
+    const goal = state.goals.find((item) => item.id === els.savingsWithdrawGoalId.value && goalIsActive(item));
+    const accountId = els.savingsWithdrawAccount.value;
+    const amount = moneyRound(els.savingsWithdrawAmount.value || 0);
+    const date = els.savingsWithdrawDate.value || localDateKey();
+    const withdrawalReason = els.savingsWithdrawReason.value || 'Other';
+    const savingsNote = els.savingsWithdrawNote.value.trim().slice(0, 100);
+    const source = currentSavingsWithdrawalSource();
+    if (!goal || !accountId || amount <= 0 || !entryDateIsValid(date)) return;
+    let availableCents = rawGoalWalletSavingsCents(goal.id, accountId, state);
+    if (source?.accountId === accountId) availableCents += toCents(source.amount || 0);
+    if (toCents(amount) > Math.max(0, availableCents)) {
+      const account = state.accounts.find((item) => item.id === accountId);
+      return showToast(state.settings.privacy ? `That wallet source does not have enough savings in this goal.` : `Only ${currency(fromCents(Math.max(0, availableCents)))} of ${goal.name} is attributed to ${account?.name || 'that wallet'}.`);
+    }
+    const replacement = { amount, category: 'Savings return', accountId, date, note: `Withdrawn from ${goal.name}`, goalId: goal.id, savingsAction: 'partial_withdrawal', withdrawalReason, savingsNote };
+    if (currentSavingsWithdrawalCorrectionId) {
+      milestoneEffectiveDateHint = date;
+      const corrected = createCorrectionPair(currentSavingsWithdrawalCorrectionId, replacement);
+      if (!corrected) return;
+      showToast('Savings withdrawal correction recorded.');
+    } else if (currentSavingsWithdrawalEditId) {
+      const candidate = cloneStateSnapshot(state);
+      const tx = candidate.transactions.find((item) => item.id === currentSavingsWithdrawalEditId && item.type === 'saving_return' && item.savingsAction === 'partial_withdrawal');
+      if (!tx || !canModifyTransaction(tx)) return showToast('This withdrawal is locked. Use Correct instead.');
+      Object.assign(tx, replacement, { updatedAt: new Date().toISOString() });
+      if (!validateCandidateBalances(candidate, 'That withdrawal edit would make a wallet balance negative.')) return;
+      if (!validateCandidateGoals(candidate, 'That withdrawal edit would make the savings goal negative.')) return;
+      if (!validateCandidateSavingsProvenance(candidate, 'That withdrawal edit conflicts with later wallet-level savings activity.')) return;
+      state = candidate;
+      showToast('Savings withdrawal updated.');
+    } else {
+      const candidate = cloneStateSnapshot(state);
+      candidate.transactions.push({ id: uid('tx'), type: 'saving_return', ...replacement, createdAt: new Date().toISOString() });
+      if (!validateCandidateGoals(candidate, 'That withdrawal is larger than the savings available in this goal.')) return;
+      if (!validateCandidateSavingsProvenance(candidate, 'That withdrawal is larger than this wallet’s share of the goal.')) return;
+      state = candidate;
+      showToast(state.settings.privacy ? 'Savings returned to the selected wallet.' : `${currency(amount)} returned from ${goal.name} to ${state.accounts.find((item) => item.id === accountId)?.name || 'wallet'}.`);
+    }
+    currentSavingsWithdrawalEditId = null;
+    currentSavingsWithdrawalCorrectionId = null;
+    milestoneEffectiveDateHint = date;
+    saveState(); closeDialog(els.savingsWithdrawDialog); renderAll(); setView('savings'); resetCompanionDataBaseline();
+  }
+
+  function openLegacySavingsSource(goalId) {
+    const goal = state.goals.find((item) => item.id === goalId && !goalIsWithdrawn(item) && toCents(item.openingSaved || 0) > 0);
+    if (!goal) return;
+    els.legacySavingsSourceForm.reset();
+    els.legacySavingsGoalId.value = goal.id;
+    els.legacySavingsSourceTitle.textContent = `Review · ${goal.name}`;
+    els.legacySavingsSourceSummary.innerHTML = `<span class="round-icon purple-soft">${icon('i-savings')}</span><div><small>Opening savings from an older Pocket version</small><strong class="money-value">${privateCurrency(goal.openingSaved || 0)}</strong><p>Choose the wallet this opening amount originally came from.</p></div>`;
+    els.legacySavingsAccount.innerHTML = activeAccounts().map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join('');
+    const currentAccountId = goal.openingAllocations?.[0]?.accountId;
+    if (currentAccountId && [...els.legacySavingsAccount.options].some((option) => option.value === currentAccountId)) els.legacySavingsAccount.value = currentAccountId;
+    openDialog(els.legacySavingsSourceDialog);
+  }
+
+  function saveLegacySavingsSource() {
+    const goal = state.goals.find((item) => item.id === els.legacySavingsGoalId.value && !goalIsWithdrawn(item));
+    const accountId = els.legacySavingsAccount.value;
+    if (!goal || !accountId || !state.accounts.some((account) => account.id === accountId && !account.archivedAt)) return;
+    const candidate = cloneStateSnapshot(state);
+    const candidateGoal = candidate.goals.find((item) => item.id === goal.id);
+    candidateGoal.openingAllocations = toCents(candidateGoal.openingSaved || 0) > 0 ? [{ accountId, amount: moneyRound(candidateGoal.openingSaved || 0) }] : [];
+    candidateGoal.legacyAttributionPending = false;
+    if (!validateCandidateSavingsProvenance(candidate, 'Pocket could not assign that legacy savings source safely.')) return;
+    state = candidate;
+    addGoalEvent(goal.id, 'legacy_source_assigned', { note: `Opening savings source assigned to ${state.accounts.find((account) => account.id === accountId)?.name || 'wallet'}` });
+    saveState(); closeDialog(els.legacySavingsSourceDialog); renderAll(); showToast('Opening savings wallet source updated.');
   }
 
   function editTransaction(id) {
@@ -6149,7 +6477,9 @@
     if (tx.type === 'expense') return openExpense({ id: tx.id, amount: String(tx.amount), category: tx.category, categoryId: tx.categoryId, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
     if (tx.type === 'income') { closeDialog(els.allowanceHistoryDialog); setView('more'); return openDifferentAllowance({ id: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date }); }
     if (tx.type === 'transfer') return openTransfer({ id: tx.id, amount: String(tx.amount), fromAccountId: tx.fromAccountId, toAccountId: tx.toAccountId, date: tx.date, note: tx.note || '' });
-    showToast('Savings entries can be undone while editable, but are not edited separately.');
+    if (tx.type === 'saving') { if (els.goalHistoryDialog?.open) closeDialog(els.goalHistoryDialog); return openContribution(tx.goalId, String(tx.amount), tx.accountId, { editId: tx.id, date: tx.date, savingsNote: tx.savingsNote || '' }); }
+    if (tx.type === 'saving_return' && tx.savingsAction === 'partial_withdrawal') { if (els.goalHistoryDialog?.open) closeDialog(els.goalHistoryDialog); return openSavingsWithdrawal(tx.goalId, { editId: tx.id }); }
+    showToast('This entry cannot be edited directly.');
   }
 
   function correctTransaction(id) {
@@ -6160,7 +6490,8 @@
     if (tx.type === 'expense') return openExpense({ correctionOf: tx.id, amount: String(tx.amount), category: tx.category, categoryId: tx.categoryId, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
     if (tx.type === 'income') { closeDialog(els.allowanceHistoryDialog); setView('more'); return openDifferentAllowance({ correctionOf: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date }); }
     if (tx.type === 'transfer') return openTransfer({ correctionOf: tx.id, amount: String(tx.amount), fromAccountId: tx.fromAccountId, toAccountId: tx.toAccountId, date: tx.date, note: tx.note || '' });
-    if (tx.type === 'saving') { if (els.goalHistoryDialog?.open) closeDialog(els.goalHistoryDialog); return openContribution(tx.goalId, String(tx.amount), tx.accountId, { correctionOf: tx.id, date: tx.date }); }
+    if (tx.type === 'saving') { if (els.goalHistoryDialog?.open) closeDialog(els.goalHistoryDialog); return openContribution(tx.goalId, String(tx.amount), tx.accountId, { correctionOf: tx.id, date: tx.date, savingsNote: tx.savingsNote || '' }); }
+    if (tx.type === 'saving_return' && tx.savingsAction === 'partial_withdrawal') { if (els.goalHistoryDialog?.open) closeDialog(els.goalHistoryDialog); return openSavingsWithdrawal(tx.goalId, { correctionOf: tx.id }); }
     if (tx.type === 'reconciliation') return openReconciliationCorrection(tx.id);
   }
 
@@ -6183,7 +6514,10 @@
       else delete tx.correctedByGroupId;
     });
     if (!validateCandidateBalances(candidate, 'Restore is no longer safe because some of that wallet money has been used.')) return;
+    if (!validateCandidateGoals(candidate, 'Restore is no longer safe because later savings activity depends on that entry.')) return;
+    if (!validateCandidateSavingsProvenance(candidate, 'Restore is no longer safe because wallet-level savings allocation changed.')) return;
     state = candidate;
+    milestoneEffectiveDateHint = packet.transactions.find((item) => validDateKey(item.date))?.date || localDateKey();
     saveState();
     renderAll();
     resetCompanionDataBaseline();
@@ -6211,7 +6545,10 @@
       }
       candidate.transactions = candidate.transactions.filter((item) => !removeIds.has(item.id));
       if (!validateCandidateBalances(candidate, 'This transaction cannot be undone because later activity depends on that money.')) return;
+      if (!validateCandidateGoals(candidate, 'This transaction cannot be undone because later savings activity depends on it.')) return;
+      if (!validateCandidateSavingsProvenance(candidate, 'This transaction cannot be undone because later wallet-level savings activity depends on it.')) return;
       state = candidate;
+      milestoneEffectiveDateHint = candidateTx?.date || localDateKey();
 
       saveState();
       closeDialog(els.expenseReceiptDialog);
@@ -6417,7 +6754,7 @@
   function pocketBackupPayload() {
     return {
       format: 'pocket-full-backup',
-      backupVersion: 4,
+      backupVersion: 5,
       appVersion: APP_VERSION,
       schemaVersion: SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
@@ -6479,10 +6816,10 @@
     for (const tx of tracker.transactions) {
       if (['income', 'expense', 'saving', 'saving_return', 'reconciliation'].includes(tx.type) && (!tx.accountId || !accountIds.has(tx.accountId))) throw new Error('Backup references a missing wallet.');
       if (tx.type === 'transfer' && (!accountIds.has(tx.fromAccountId) || !accountIds.has(tx.toAccountId) || tx.fromAccountId === tx.toAccountId)) throw new Error('Backup contains an invalid wallet transfer.');
-      if (tx.type === 'saving' && tx.goalId && !goalIds.has(tx.goalId)) throw new Error('Backup references a missing savings goal.');
+      if (['saving','saving_return'].includes(tx.type) && tx.goalId && !goalIds.has(tx.goalId)) throw new Error('Backup references a missing savings goal.');
       if (tx.type === 'correction_reversal') {
-        if (!['income', 'expense', 'transfer', 'saving', 'reconciliation'].includes(tx.originalType)) throw new Error('Backup contains an invalid correction record.');
-        if (['income', 'expense', 'saving', 'reconciliation'].includes(tx.originalType) && (!tx.accountId || !accountIds.has(tx.accountId))) throw new Error('Backup correction references a missing wallet.');
+        if (!['income', 'expense', 'transfer', 'saving', 'saving_return', 'reconciliation'].includes(tx.originalType)) throw new Error('Backup contains an invalid correction record.');
+        if (['income', 'expense', 'saving', 'saving_return', 'reconciliation'].includes(tx.originalType) && (!tx.accountId || !accountIds.has(tx.accountId))) throw new Error('Backup correction references a missing wallet.');
         if (tx.originalType === 'transfer' && (!accountIds.has(tx.fromAccountId) || !accountIds.has(tx.toAccountId) || tx.fromAccountId === tx.toAccountId)) throw new Error('Backup correction references an invalid transfer.');
       }
     }
@@ -6535,7 +6872,13 @@
       const rawGoalCents = toCents(goal.openingSaved || 0) + goalLedgerBalanceCents(goal.id, tracker);
       if (rawGoalCents < 0) throw new Error('Backup would make a savings goal negative.');
       if (goalIsWithdrawn(goal) && rawGoalCents !== 0) throw new Error('Backup contains a withdrawn goal that still holds savings.');
+      const openingAllocations = Array.isArray(goal.openingAllocations) ? goal.openingAllocations : [];
+      if (openingAllocations.some((item) => !accountIds.has(item.accountId))) throw new Error('Backup opening savings references a missing wallet.');
+      const openingAllocatedCents = openingAllocations.reduce((sum, item) => sum + toCents(item.amount || 0), 0);
+      if (openingAllocatedCents !== toCents(goal.openingSaved || 0)) throw new Error('Backup opening savings attribution does not match the opening savings balance.');
     }
+    const provenanceProblem = savingsProvenanceProblem(tracker);
+    if (provenanceProblem) throw new Error(provenanceProblem.kind === 'negative' ? 'Backup would make a wallet-level savings allocation negative.' : 'Backup wallet-level savings allocations do not reconcile with goal balances.');
     const balanceProblem = stateBalanceProblem(tracker);
     if (balanceProblem) throw new Error(`Backup would make ${balanceProblem.name} negative.`);
     for (const account of tracker.accounts) {
@@ -6550,7 +6893,7 @@
   function parsePocketBackup(raw) {
     if (!raw || typeof raw !== 'object') throw new Error('Backup must be a JSON object.');
     if (raw.format === 'pocket-full-backup') {
-      if (![1, 2, 3, 4].includes(Number(raw.backupVersion))) throw new Error('Unsupported Pocket backup version.');
+      if (![1, 2, 3, 4, 5].includes(Number(raw.backupVersion))) throw new Error('Unsupported Pocket backup version.');
       if (Number(raw.schemaVersion || 1) > SCHEMA_VERSION) throw new Error('This backup was created by a newer Pocket data schema.');
       if (!validateBackupTrackerShape(raw.tracker)) throw new Error('Pocket tracker data is incomplete.');
       const tracker = validateNormalizedBackupIntegrity(migrateStateSchema(raw.tracker));
@@ -6699,6 +7042,8 @@
     if (action === 'check-update') checkForUpdates({ announce: true, force: true });
     if (action === 'open-goal') openGoal();
     if (action === 'open-contribution') openContribution(button.dataset.goalId, '', button.dataset.accountId || '');
+    if (action === 'withdraw-savings') openSavingsWithdrawal(button.dataset.goalId);
+    if (action === 'review-legacy-savings') openLegacySavingsSource(button.dataset.goalId);
     if (action === 'edit-goal') openGoalEditor(button.dataset.goalId);
     if (action === 'transfer-goal') openGoalTransfer(button.dataset.goalId);
     if (action === 'archive-goal') archiveGoal(button.dataset.goalId);
@@ -6761,7 +7106,7 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsSection', 'archivedGoalsCount', 'archivedGoalsList', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
+      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsSection', 'archivedGoalsCount', 'archivedGoalsList', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
       'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'categorySettingsSummary', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
@@ -6772,7 +7117,9 @@
       'transferDialog', 'transferForm', 'transferDialogTitle', 'transferFromAccount', 'transferToAccount', 'transferAmountCard', 'transferAvailable', 'transferAmount', 'transferAmountHint', 'transferKeypad', 'transferNote', 'transferSaveButton',
       'expenseAmount', 'expenseAmountCard', 'expenseAvailable', 'expenseAmountHint', 'expenseKeypad', 'expenseAccount',
       'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalDialogTitle', 'goalSubmitButton', 'goalName', 'goalTarget',
-      'goalCurrent', 'goalAccount', 'goalTransferDialog', 'goalTransferForm', 'goalTransferFromGoalId', 'goalTransferSource', 'goalTransferDestinations', 'goalTransferAmountCard', 'goalTransferAvailable', 'goalTransferAmount', 'goalTransferHint', 'goalTransferKeypad', 'goalTransferSaveButton', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount', 'contributeAccount', 'contributeWalletHint',
+      'goalCurrent', 'goalAccount', 'goalTransferDialog', 'goalTransferForm', 'goalTransferFromGoalId', 'goalTransferSource', 'goalTransferDestinations', 'goalTransferAmountCard', 'goalTransferAvailable', 'goalTransferAmount', 'goalTransferHint', 'goalTransferKeypad', 'goalTransferSaveButton', 'contributeDialog', 'contributeForm', 'contributeTitle', 'contributeGoalId', 'contributeAmount', 'contributeAccount', 'contributeNote', 'contributeWalletHint',
+      'savingsWithdrawDialog', 'savingsWithdrawForm', 'savingsWithdrawTitle', 'savingsWithdrawGoalId', 'savingsWithdrawSummary', 'savingsWithdrawAccount', 'savingsWithdrawAvailable', 'savingsWithdrawAmount', 'savingsWithdrawDate', 'savingsWithdrawReason', 'savingsWithdrawNote', 'savingsWithdrawSaveButton',
+      'legacySavingsSourceDialog', 'legacySavingsSourceForm', 'legacySavingsGoalId', 'legacySavingsSourceTitle', 'legacySavingsSourceSummary', 'legacySavingsAccount',
       'walletPickerDialog', 'walletPickerTitle', 'walletPickerSubtitle', 'walletPickerList',
       'globalHistoryDialog', 'globalHistorySearch', 'globalHistoryType', 'globalHistoryWallet', 'globalHistoryCategory', 'globalHistoryGoal', 'globalHistoryFrom', 'globalHistoryTo', 'globalHistoryMin', 'globalHistoryMax', 'globalHistoryCount', 'globalHistoryClear', 'globalHistoryResults',
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
@@ -7014,6 +7361,17 @@
       event.preventDefault();
       addContribution();
     });
+    els.savingsWithdrawAccount.addEventListener('change', updateSavingsWithdrawalAvailability);
+    els.savingsWithdrawForm.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') return;
+      event.preventDefault();
+      saveSavingsWithdrawal();
+    });
+    els.legacySavingsSourceForm.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') return;
+      event.preventDefault();
+      saveLegacySavingsSource();
+    });
     els.categoryManagerForm.addEventListener('submit', (event) => { event.preventDefault(); saveCategoryManagerForm(); });
     [els.globalHistorySearch, els.globalHistoryType, els.globalHistoryWallet, els.globalHistoryCategory, els.globalHistoryGoal, els.globalHistoryFrom, els.globalHistoryTo, els.globalHistoryMin, els.globalHistoryMax].forEach((control) => {
       control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', renderGlobalHistory);
@@ -7107,8 +7465,13 @@
     });
     els.contributeDialog.addEventListener('close', () => {
       currentCorrectionSourceId = null;
+      currentSavingEditId = null;
       const submit = els.contributeForm.querySelector('button[type="submit"]');
       if (submit) submit.textContent = 'Add savings';
+    });
+    els.savingsWithdrawDialog.addEventListener('close', () => {
+      currentSavingsWithdrawalEditId = null;
+      currentSavingsWithdrawalCorrectionId = null;
     });
 
     els.importFile.addEventListener('change', () => {
@@ -7168,7 +7531,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.0');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.1');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.0">
+  <link rel="stylesheet" href="css/style.css?v=3.5.1">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -205,6 +205,7 @@
               </div>
               <span class="round-icon purple-soft"><svg><use href="#i-savings"/></svg></span>
             </div>
+            <div class="savings-insights" id="savingsInsights" aria-label="Savings breakdown"></div>
 
           </article>
 
@@ -322,7 +323,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.1</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -698,12 +699,53 @@
           <label class="field-label" for="contributeAccountPicker">Save from</label>
           <select class="native-wallet-select" id="contributeAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="contributeAccountPicker" type="button" data-wallet-select="contributeAccount" aria-label="Choose wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button>
         </div>
+        <div class="field-group">
+          <label class="field-label" for="contributeNote">Note <span>optional</span></label>
+          <input class="text-input" id="contributeNote" type="text" maxlength="100" placeholder="Leftover allowance, birthday money…" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false">
+        </div>
         <p class="helper-text" id="contributeWalletHint">This amount moves out of the selected wallet and into savings.</p>
       </div>
       <div class="dialog-footer">
         <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
         <button class="button-primary" type="submit" value="default">Add savings</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="savingsWithdrawDialog" class="app-dialog compact-dialog savings-withdraw-dialog">
+    <form method="dialog" class="dialog-panel" id="savingsWithdrawForm" autocomplete="off">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Savings withdrawal</p><h2 id="savingsWithdrawTitle">Withdraw from goal</h2><p class="dialog-subtitle">Return only the amount you need to one of its source wallets.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <input type="hidden" id="savingsWithdrawGoalId">
+        <div class="savings-withdraw-summary" id="savingsWithdrawSummary"></div>
+        <div class="field-group">
+          <label class="field-label" for="savingsWithdrawAccount">Return to wallet</label>
+          <select class="text-input" id="savingsWithdrawAccount" required></select>
+          <p class="helper-text" id="savingsWithdrawAvailable">Choose a wallet that currently funds this goal.</p>
+        </div>
+        <div class="field-grid">
+          <div class="field-group"><label class="field-label" for="savingsWithdrawAmount">Amount</label><div class="compact-amount"><span>₱</span><input id="savingsWithdrawAmount" type="number" min="0.01" step="0.01" required></div></div>
+          <div class="field-group"><label class="field-label" for="savingsWithdrawDate">Date</label><input class="text-input" id="savingsWithdrawDate" type="date" required></div>
+        </div>
+        <div class="field-group"><label class="field-label" for="savingsWithdrawReason">Reason</label><select class="text-input" id="savingsWithdrawReason"><option value="Needed for spending">Needed for spending</option><option value="Emergency">Emergency</option><option value="Goal changed">Goal changed</option><option value="Move back to wallet">Move back to wallet</option><option value="Other">Other</option></select></div>
+        <div class="field-group"><label class="field-label" for="savingsWithdrawNote">Note <span>optional</span></label><input class="text-input" id="savingsWithdrawNote" type="text" maxlength="100" placeholder="What was this withdrawal for?" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></div>
+      </div>
+      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-primary" id="savingsWithdrawSaveButton" type="submit" value="default">Withdraw savings</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="legacySavingsSourceDialog" class="app-dialog compact-dialog">
+    <form method="dialog" class="dialog-panel" id="legacySavingsSourceForm" autocomplete="off">
+      <div class="dialog-header"><div><p class="eyebrow">Legacy savings source</p><h2 id="legacySavingsSourceTitle">Review savings source</h2><p class="dialog-subtitle">Older Pocket versions did not keep wallet-level origin for this opening savings amount.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-body">
+        <input type="hidden" id="legacySavingsGoalId">
+        <div class="savings-withdraw-summary" id="legacySavingsSourceSummary"></div>
+        <div class="field-group"><label class="field-label" for="legacySavingsAccount">Assign opening savings to</label><select class="text-input" id="legacySavingsAccount" required></select><p class="helper-text">This only corrects wallet attribution. It does not change any wallet balance or savings total.</p></div>
+      </div>
+      <div class="dialog-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-primary" type="submit" value="default">Save source</button></div>
     </form>
   </dialog>
 
@@ -1077,6 +1119,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.0" defer></script>
+  <script src="js/app.js?v=3.5.1" defer></script>
 </body>
 </html>
