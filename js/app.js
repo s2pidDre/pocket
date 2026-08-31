@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.10';
+  const APP_VERSION = '3.5.11';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -108,7 +108,12 @@
   let secretLockoutUntil = 0;
   let walletModeIndex = 0;
   let walletCarouselFrame = 0;
+  let walletCarouselStabilizeFrame = 0;
   let walletCarouselResizeObserver = null;
+  let walletCarouselCards = [];
+  let walletModeUiIndex = -1;
+  let resizeFrame = 0;
+  let savingsResponsivePageSize = 0;
   let savingsMode = 'total';
   let savingsWalletIndex = 0;
   let savingsGoalPage = 0;
@@ -411,17 +416,6 @@
       const request = tx.objectStore(DB_STORE).get(key);
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(request.error || new Error(`Unable to read ${key}.`));
-    });
-  }
-
-  function idbPutRecord(record) {
-    return new Promise((resolve, reject) => {
-      if (!storageDb) return reject(new Error('Pocket storage is not open.'));
-      const tx = storageDb.transaction(DB_STORE, 'readwrite');
-      tx.objectStore(DB_STORE).put(record);
-      tx.oncomplete = () => resolve(record);
-      tx.onerror = () => reject(tx.error || new Error('Unable to write Pocket storage.'));
-      tx.onabort = () => reject(tx.error || new Error('Pocket storage write was aborted.'));
     });
   }
 
@@ -1398,26 +1392,6 @@
     return localDateKey(date);
   }
 
-  function addMonths(key, months) {
-    const date = fromDateKey(key);
-    const day = date.getDate();
-    const target = new Date(date.getFullYear(), date.getMonth() + months, 1, 12);
-    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0, 12).getDate();
-    target.setDate(Math.min(day, lastDay));
-    return localDateKey(target);
-  }
-
-
-  function endOfMonthKey(key) {
-    const date = fromDateKey(key);
-    return localDateKey(new Date(date.getFullYear(), date.getMonth() + 1, 0, 12));
-  }
-
-  function daysInclusive(startKey, endKey) {
-    const diff = fromDateKey(endKey) - fromDateKey(startKey);
-    return Math.max(1, Math.floor(diff / 86400000) + 1);
-  }
-
   function uid(prefix = 'id') {
     if (globalThis.crypto?.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -1560,6 +1534,31 @@
     return fromCents(goalCurrentCents(goal, candidate));
   }
 
+  function goalCurrentCentsMap(candidate = state) {
+    const ledger = new Map();
+    const add = (goalId, cents) => {
+      if (!goalId || !cents) return;
+      ledger.set(goalId, (ledger.get(goalId) || 0) + cents);
+    };
+    for (const tx of candidate?.transactions || []) {
+      if (!tx.goalId) continue;
+      const amount = toCents(tx.amount || 0);
+      if (tx.type === 'saving') add(tx.goalId, amount);
+      else if (tx.type === 'saving_return') add(tx.goalId, -amount);
+      else if (tx.type === 'correction_reversal' && tx.originalType === 'saving') add(tx.goalId, -amount);
+      else if (tx.type === 'correction_reversal' && tx.originalType === 'saving_return') add(tx.goalId, amount);
+    }
+    for (const item of candidate?.goalTransfers || []) {
+      const amount = toCents(item.amount || 0);
+      add(item.toGoalId, amount);
+      if (item.fromGoalId !== item.toGoalId) add(item.fromGoalId, -amount);
+    }
+    return new Map((candidate?.goals || []).map((goal) => [
+      goal.id,
+      Math.max(0, toCents(goal.openingSaved || 0) + (ledger.get(goal.id) || 0))
+    ]));
+  }
+
   function goalIsWithdrawn(goal) { return Boolean(goal?.withdrawnAt || goal?.removedAt); }
   function goalIsArchived(goal) { return Boolean(goal?.archivedAt) && !goalIsWithdrawn(goal); }
   function goalIsActive(goal) { return Boolean(goal) && !goalIsWithdrawn(goal) && !goalIsArchived(goal); }
@@ -1567,7 +1566,6 @@
     if (!goal) return 0;
     return toCents(goal.openingSaved || 0) + goalLedgerBalanceCents(goal.id, candidate);
   }
-  function goalIsComplete(goal, candidate = state) { return rawGoalCurrentCents(goal, candidate) >= toCents(goal?.target || 0); }
 
   function goalBalanceProblem(candidate) {
     return (candidate?.goals || []).find((goal) => !goalIsWithdrawn(goal) && rawGoalCurrentCents(goal, candidate) < 0) || null;
@@ -1634,11 +1632,6 @@
   }
   function canModifyGoalTransfer(item) { return Boolean(item) && !item.correctedByGroupId && (Date.now() - goalTransferTimestampMs(item)) < 24 * 60 * 60 * 1000; }
   function canCorrectGoalTransfer(item) { return Boolean(item) && !item.isReversal && !item.correctedByGroupId && !canModifyGoalTransfer(item); }
-  function goalTransferCorrectionMembers(item, candidate = state) {
-    if (!item?.correctionGroupId) return [item];
-    return (candidate.goalTransfers || []).filter((entry) => entry.correctionGroupId === item.correctionGroupId);
-  }
-
   function effectiveGoalTransfers(candidate = state) {
     return (candidate?.goalTransfers || []).filter((item) => !item.isReversal && !item.correctedByGroupId);
   }
@@ -1670,10 +1663,6 @@
 
   function canEditTransaction(tx) {
     return Boolean(tx) && canModifyTransaction(tx) && (['expense','income','transfer','saving'].includes(tx.type) || (tx.type === 'saving_return' && tx.savingsAction === 'partial_withdrawal'));
-  }
-
-  function transactionWindowLabel(tx) {
-    return canModifyTransaction(tx) ? 'Editable' : 'Locked';
   }
 
   function spendableAvailableForEntry(accountId, editingTransactionId = null) {
@@ -2210,7 +2199,6 @@
   }
 
   function walletSavingsCentsForState(candidate, accountId) {
-    const primaryId = primaryAccount(candidate)?.id || '';
     let cents = (candidate?.transactions || []).reduce((sum, tx) => {
       if (tx.accountId !== accountId) return sum;
       if (tx.type === 'saving') return sum + toCents(tx.amount || 0);
@@ -2295,10 +2283,6 @@
 
   function totalSavings() {
     return fromCents(state.goals.filter((goal) => !goalIsWithdrawn(goal)).reduce((total, goal) => total + goalCurrentCents(goal), 0));
-  }
-
-  function transactionsForDate(dateKey) {
-    return state.transactions.filter((tx) => tx.date === dateKey);
   }
 
   function sumTransactions(type, startDate, endDate) {
@@ -2461,8 +2445,9 @@
     return accounts[walletModeIndex] || accounts[0] || null;
   }
 
-  function walletExpenseSummary(accountId, startDate, endDate) {
-    const expenses = effectiveTransactions().filter((tx) => tx.type === 'expense' && tx.accountId === accountId && tx.date >= startDate && tx.date <= endDate);
+  function walletExpenseSummary(accountId, startDate, endDate, transactions = null) {
+    const effective = transactions || effectiveTransactions();
+    const expenses = effective.filter((tx) => tx.type === 'expense' && tx.accountId === accountId && tx.date >= startDate && tx.date <= endDate);
     const spentCents = expenses.reduce((sum, tx) => sum + toCents(tx.amount || 0), 0);
     const categories = expenses.reduce((map, tx) => {
       const name = tx.category || 'Other';
@@ -2523,8 +2508,9 @@
     if (!account || !els.homeWalletTodaySpent) return;
     const today = localDateKey();
     const month = monthRange();
-    const todaySummary = walletExpenseSummary(account.id, today, today);
-    const monthSummary = walletExpenseSummary(account.id, month.start, month.end);
+    const effective = effectiveTransactions();
+    const todaySummary = walletExpenseSummary(account.id, today, today, effective);
+    const monthSummary = walletExpenseSummary(account.id, month.start, month.end, effective);
     const monthName = new Intl.DateTimeFormat('en-PH', { month: 'long' }).format(new Date());
 
     els.homeWalletTodaySpent.textContent = state.settings.privacy ? '₱•••• spent' : `${currency(todaySummary.spent, true)} spent`;
@@ -2538,10 +2524,13 @@
     els.homeWalletMonthLegend.innerHTML = renderExpenseCategoryLegend(monthSummary);
   }
 
-  function updateWalletModeHeader(index) {
+  function updateWalletModeHeader(index, force = false) {
     const count = activeAccounts().length;
     if (!count) return;
-    walletModeIndex = Math.max(0, Math.min(index, count - 1));
+    const nextIndex = Math.max(0, Math.min(index, count - 1));
+    walletModeIndex = nextIndex;
+    if (!force && walletModeUiIndex === nextIndex) return;
+    walletModeUiIndex = nextIndex;
     els.walletModeCounter.textContent = `${walletModeIndex + 1} / ${count}`;
     els.walletCarouselPrev.disabled = walletModeIndex <= 0;
     els.walletCarouselNext.disabled = walletModeIndex >= count - 1;
@@ -2556,24 +2545,29 @@
   function updateWalletCarouselTransforms() {
     walletCarouselFrame = 0;
     const carousel = els.walletCarousel;
-    const cards = [...carousel.querySelectorAll('.wallet-mode-card')];
-    if (!cards.length || !carousel.clientWidth) return;
+    if (!carousel) return;
+    if (!walletCarouselCards.length) walletCarouselCards = [...carousel.querySelectorAll('.wallet-mode-card')];
+    const cards = walletCarouselCards;
+    const width = carousel.clientWidth;
+    if (!cards.length || !width) return;
 
-    const center = carousel.scrollLeft + carousel.clientWidth / 2;
+    const center = carousel.scrollLeft + width / 2;
+    const metrics = cards.map((card) => ({ card, center: card.offsetLeft + card.offsetWidth / 2 }));
     let closestIndex = 0;
     let closestDistance = Infinity;
-
-    cards.forEach((card, index) => {
-      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
-      const rawDistance = (cardCenter - center) / Math.max(carousel.clientWidth, 1);
+    const transforms = metrics.map((metric, index) => {
+      const rawDistance = (metric.center - center) / Math.max(width, 1);
       const distance = Math.max(-1.25, Math.min(1.25, rawDistance));
       const magnitude = Math.min(1, Math.abs(distance));
-      const absolutePixels = Math.abs(cardCenter - center);
+      const absolutePixels = Math.abs(metric.center - center);
       if (absolutePixels < closestDistance) {
         closestDistance = absolutePixels;
         closestIndex = index;
       }
+      return { card: metric.card, distance, magnitude };
+    });
 
+    transforms.forEach(({ card, distance, magnitude }, index) => {
       card.style.setProperty('--wallet-rotate', `${(-distance * 20).toFixed(2)}deg`);
       card.style.setProperty('--wallet-scale', (1 - magnitude * 0.085).toFixed(3));
       card.style.setProperty('--wallet-lift', `${(magnitude * 8).toFixed(1)}px`);
@@ -2591,7 +2585,8 @@
   }
 
   function scrollToWalletMode(index, behavior = 'smooth') {
-    const cards = [...els.walletCarousel.querySelectorAll('.wallet-mode-card')];
+    if (!walletCarouselCards.length) walletCarouselCards = [...els.walletCarousel.querySelectorAll('.wallet-mode-card')];
+    const cards = walletCarouselCards;
     if (!cards.length) return;
     const targetIndex = Math.max(0, Math.min(index, cards.length - 1));
     const card = cards[targetIndex];
@@ -2605,8 +2600,14 @@
   function stabilizeWalletCarousel(index = walletModeIndex) {
     if (!els.walletCarousel) return;
     els.walletCarousel.classList.remove('is-ready');
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
+    if (walletCarouselFrame) {
+      cancelAnimationFrame(walletCarouselFrame);
+      walletCarouselFrame = 0;
+    }
+    if (walletCarouselStabilizeFrame) cancelAnimationFrame(walletCarouselStabilizeFrame);
+    walletCarouselStabilizeFrame = requestAnimationFrame(() => {
+      walletCarouselStabilizeFrame = requestAnimationFrame(() => {
+        walletCarouselStabilizeFrame = 0;
         scrollToWalletMode(index, 'auto');
         updateWalletCarouselTransforms();
         els.walletCarousel.classList.add('is-ready');
@@ -2619,12 +2620,16 @@
     walletModeIndex = Math.max(0, Math.min(walletModeIndex, Math.max(0, accounts.length - 1)));
     const today = localDateKey();
 
+    const todaySpentByAccount = new Map();
+    effectiveTransactions().forEach((tx) => {
+      if (tx.type !== 'expense' || tx.date !== today) return;
+      todaySpentByAccount.set(tx.accountId, (todaySpentByAccount.get(tx.accountId) || 0) + toCents(tx.amount || 0));
+    });
+
     els.walletCarousel.innerHTML = accounts.map((account, index) => {
       const balance = state.settings.privacy ? '₱••••' : currency(accountBalance(account.id));
       const savings = state.settings.privacy ? '₱••••' : currency(walletSavingsBalance(account.id));
-      const todaySpent = fromCents(effectiveTransactions()
-        .filter((tx) => tx.type === 'expense' && tx.accountId === account.id && tx.date === today)
-        .reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
+      const todaySpent = fromCents(todaySpentByAccount.get(account.id) || 0);
       const todayLabel = state.settings.privacy ? '₱••••' : (todaySpent > 0 ? `−${currency(todaySpent, true)}` : currency(0, true));
       const iconId = account.type === 'cash' ? 'i-wallet' : 'i-phone';
       return `
@@ -2655,7 +2660,9 @@
     els.walletModeIndicators.innerHTML = accounts.map((account, index) => `
       <button type="button" data-wallet-mode-index="${index}" aria-label="Show ${escapeHtml(account.name)}"${index === walletModeIndex ? ' class="is-active" aria-current="true"' : ''}></button>`).join('');
 
-    renderHomeWalletDetails(walletModeIndex);
+    walletCarouselCards = [...els.walletCarousel.querySelectorAll('.wallet-mode-card')];
+    walletModeUiIndex = -1;
+    updateWalletModeHeader(walletModeIndex, true);
     stabilizeWalletCarousel(walletModeIndex);
   }
 
@@ -2910,9 +2917,16 @@
     savingsWalletIndex = Math.max(0, Math.min(savingsWalletIndex, Math.max(0, accounts.length - 1)));
     const selectedAccount = accounts[savingsWalletIndex] || accounts[0];
     const isWalletMode = savingsMode === 'wallet' && selectedAccount;
-    const shownBalance = isWalletMode ? walletSavingsBalance(selectedAccount.id) : totalSavings();
-    const activeSaved = fromCents(state.goals.filter((goal) => goalIsActive(goal)).reduce((sum, goal) => sum + goalCurrentCents(goal), 0));
-    const archivedSaved = fromCents(state.goals.filter((goal) => goalIsArchived(goal)).reduce((sum, goal) => sum + goalCurrentCents(goal), 0));
+    const visibleGoals = state.goals.filter((goal) => goalIsActive(goal));
+    const archivedGoals = state.goals.filter((goal) => goalIsArchived(goal));
+    const currentCentsByGoal = goalCurrentCentsMap();
+    const currentCents = (goal) => currentCentsByGoal.get(goal.id) || 0;
+    const activeSavedCents = visibleGoals.reduce((sum, goal) => sum + currentCents(goal), 0);
+    const archivedSavedCents = archivedGoals.reduce((sum, goal) => sum + currentCents(goal), 0);
+    const activeSaved = fromCents(activeSavedCents);
+    const archivedSaved = fromCents(archivedSavedCents);
+    const allSaved = fromCents(activeSavedCents + archivedSavedCents);
+    const shownBalance = isWalletMode ? walletSavingsBalance(selectedAccount.id) : allSaved;
     const monthStats = savingsMonthStats();
 
     els.savingsModeToggle.querySelectorAll('[data-savings-mode]').forEach((button) => {
@@ -2925,16 +2939,16 @@
     els.savingsViewTitle.textContent = isWalletMode ? `${selectedAccount.name} savings` : 'All savings';
     els.savingsViewSubtitle.textContent = isWalletMode ? `Only money saved from ${selectedAccount.name} is shown.` : 'Everything you have set aside across all wallets.';
     els.savingsBalanceLabel.textContent = isWalletMode ? `Saved from ${selectedAccount.name}` : 'Total savings';
-    els.totalSavings.textContent = privateCurrency(shownBalance);
-    replayAnimation(els.totalSavings, 'amount-pop');
+    const savingsBalanceText = privateCurrency(shownBalance);
+    const savingsBalanceChanged = els.totalSavings.textContent !== savingsBalanceText;
+    els.totalSavings.textContent = savingsBalanceText;
+    if (savingsBalanceChanged) replayAnimation(els.totalSavings, 'amount-pop');
     if (els.savingsInsights) {
       els.savingsInsights.innerHTML = isWalletMode
-        ? `<div><small>From wallet</small><strong class="money-value">${privateCurrency(shownBalance)}</strong></div><div><small>All savings</small><strong class="money-value">${privateCurrency(totalSavings())}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div>`
+        ? `<div><small>From wallet</small><strong class="money-value">${privateCurrency(shownBalance)}</strong></div><div><small>All savings</small><strong class="money-value">${privateCurrency(allSaved)}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div>`
         : `<div><small>Active</small><strong class="money-value">${privateCurrency(activeSaved)}</strong></div><div><small>Archived</small><strong class="money-value">${privateCurrency(archivedSaved)}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div>`;
     }
 
-    const visibleGoals = state.goals.filter((goal) => goalIsActive(goal));
-    const archivedGoals = state.goals.filter((goal) => goalIsArchived(goal));
     const goalPageSize = savingsGoalsPerPage();
     const goalPages = Math.max(1, Math.ceil(visibleGoals.length / goalPageSize));
     savingsGoalPage = Math.max(0, Math.min(savingsGoalPage, goalPages - 1));
@@ -2964,10 +2978,11 @@
       els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No active savings goals</strong><span>Create a new goal or restore an archived one from Past goals.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = pageGoals.map((goal) => {
-        const totalCurrent = goalCurrent(goal);
+        const totalCurrentCents = currentCents(goal);
+        const totalCurrent = fromCents(totalCurrentCents);
         const target = Math.max(Number(goal.target || 1), 1);
         const percent = Math.min(100, totalCurrent / target * 100);
-        const complete = goalIsComplete(goal);
+        const complete = totalCurrentCents >= toCents(goal.target || 0);
         const walletCurrent = isWalletMode ? goalWalletSavings(goal, selectedAccount.id) : totalCurrent;
         const amountCopy = isWalletMode
           ? `${privateCurrency(walletCurrent)} from ${selectedAccount.name}`
@@ -3020,8 +3035,9 @@
       if (els.archivedGoalsButtonCount) els.archivedGoalsButtonCount.textContent = String(archivedGoals.length);
       els.archivedGoalsCount.textContent = `${archivedGoals.length} archived goal${archivedGoals.length === 1 ? '' : 's'}`;
       els.archivedGoalsList.innerHTML = archivedGoals.map((goal) => {
-        const saved = goalCurrent(goal);
-        const status = goalIsComplete(goal) ? 'completed · archived' : `${Math.round(Math.min(100, saved / Math.max(goal.target, .01) * 100))}% · archived`;
+        const savedCents = currentCents(goal);
+        const saved = fromCents(savedCents);
+        const status = savedCents >= toCents(goal.target || 0) ? 'completed · archived' : `${Math.round(Math.min(100, saved / Math.max(goal.target, .01) * 100))}% · archived`;
         return `<article class="archived-goal-row">
           <span class="round-icon neutral-soft">${icon('i-target')}</span>
           <div><strong>${escapeHtml(goal.name)}</strong><small><span class="money-value">${privateCurrency(saved)}</span> saved · ${escapeHtml(status)}</small></div>
@@ -4496,24 +4512,6 @@
     return companionPlace(edgeX, y, true).then(() => true);
   }
 
-  async function companionSurpriseSequence() {
-    if (!companionIsAvailable() || companionReducedMotion) return false;
-    const pos = companionSafePosition(false);
-    await companionMoveTo(pos.x, pos.y, { mode: 'hop' });
-    companionSetPhase('interact');
-    companionSetMood('excited');
-    companionSetProp(Math.random() < .5 ? 'flower' : 'pouch');
-    const fakeTarget = document.elementFromPoint(
-      Math.min(window.innerWidth - 8, Math.max(8, pos.x + pos.boxWidth / 2)),
-      Math.min(window.innerHeight - 8, Math.max(8, pos.y + pos.boxHeight / 2))
-    );
-    if (fakeTarget && fakeTarget !== els.pocketCompanion) companionEmitEffect(fakeTarget, Math.random() < .5 ? 'heart' : 'sparkle', 4, false);
-    await companionPose(Math.random() < .55 ? 'catching' : 'spinning', 1250);
-    if (Date.now() - companionLastMessageAt > 18000 && Math.random() < .42) companionSay('Tiny happy moment! ♡', 3600);
-    companionSetProp('');
-    return true;
-  }
-
   function companionMemoryLine() {
     const profile = companionProfileState();
     if (profile.visitStreak >= 7) return `${profile.visitStreak} days together. ${profile.name} notices that kind of consistency ♡`;
@@ -4702,10 +4700,6 @@
     companionRecentDataLines.push(chosen.text);
     while (companionRecentDataLines.length > 4) companionRecentDataLines.shift();
     return chosen;
-  }
-
-  function companionRealDataLine(view = currentView) {
-    return companionRealDataObservation(view)?.text || '';
   }
 
   function walletExpenseSummaryForTransactions(expenses) {
@@ -5253,11 +5247,10 @@
     if (els.themeColorMeta) els.themeColorMeta.setAttribute('content', state.settings.theme === 'light' ? '#f1b5cc' : '#0d0e10');
     renderHeader();
     renderPrivacy();
-    renderHome();
-    renderActivity();
-    renderSettings();
-    populateAccounts();
-    renderSavings();
+    if (currentView === 'home') renderHome();
+    else if (currentView === 'activity') renderActivity();
+    else if (currentView === 'savings') renderSavings();
+    else renderSettings();
     if (els.globalHistoryDialog?.open) {
       populateGlobalHistoryFilters({ reset: false });
       renderGlobalHistory();
@@ -5473,7 +5466,7 @@
     document.querySelectorAll('[data-view-panel]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.viewPanel === view));
     document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((button) => button.classList.toggle('is-active', button.dataset.view === view));
     renderHeader();
-    if (view === 'home') stabilizeWalletCarousel(walletModeIndex);
+    if (view === 'home') renderHome();
     if (view === 'activity') renderActivity();
     if (view === 'savings') renderSavings();
     if (view === 'more') { renderSettings(); maybeRemindExternalBackup(); }
@@ -7773,7 +7766,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.10');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.11');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
@@ -7823,13 +7816,20 @@
       walletCarouselResizeObserver = new ResizeObserver(() => { if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex); });
       walletCarouselResizeObserver.observe(els.walletCarousel);
     }
+    savingsResponsivePageSize = savingsGoalsPerPage();
     window.addEventListener('resize', () => {
-      if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex);
-      if (currentView === 'savings') renderSavings();
-      if (els.allowanceHistoryDialog?.open) renderAllowanceHistory();
-      if (els.globalHistoryDialog?.open) renderGlobalHistory();
-      if (companionIsAvailable()) { const pos = companionSafePosition(true); companionPlace(pos.maxX, pos.maxY, true); }
-    });
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        if (currentView === 'home' && !walletCarouselResizeObserver) stabilizeWalletCarousel(walletModeIndex);
+        const nextSavingsPageSize = savingsGoalsPerPage();
+        if (currentView === 'savings' && nextSavingsPageSize !== savingsResponsivePageSize) renderSavings();
+        savingsResponsivePageSize = nextSavingsPageSize;
+        if (els.allowanceHistoryDialog?.open) renderAllowanceHistory();
+        if (els.globalHistoryDialog?.open) renderGlobalHistory();
+        if (companionIsAvailable()) { const pos = companionSafePosition(true); companionPlace(pos.maxX, pos.maxY, true); }
+      });
+    }, { passive: true });
     registerServiceWorker();
     requestStoragePersistence({ announce: false });
     if (bootStorageMessage) window.setTimeout(() => showToast(bootStorageMessage), 650);
