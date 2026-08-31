@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.8';
+  const APP_VERSION = '3.5.9';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -113,6 +113,7 @@
   let savingsWalletIndex = 0;
   let savingsGoalPage = 0;
   let allowanceHistoryPage = 0;
+  let globalHistoryPage = 0;
   let activityDate = localDateKey();
   let manageGoalsMode = false;
   let activitySwipeStartX = null;
@@ -3221,6 +3222,10 @@
     return [transactionTitle(entry), transactionSubtitle(entry, true), entry.note, entry.savingsNote, entry.withdrawalReason, entry.reconciliationReason, entry.reconciliationNote, wallets, goals, category, amountText].filter(Boolean).join(' ').toLowerCase();
   }
 
+  function globalHistoryPageSize() {
+    return window.innerWidth <= 560 ? 5 : 8;
+  }
+
   function renderGlobalHistory() {
     if (!els.globalHistoryResults) return;
     let entries = allLedgerEntries();
@@ -3250,16 +3255,32 @@
       if (query && !globalHistorySearchText(entry).includes(query)) return false;
       return true;
     });
+
+    const pageSize = globalHistoryPageSize();
+    const pages = Math.max(1, Math.ceil(entries.length / pageSize));
+    globalHistoryPage = Math.max(0, Math.min(globalHistoryPage, pages - 1));
+    const start = globalHistoryPage * pageSize;
+    const pageEntries = entries.slice(start, start + pageSize);
+    const end = Math.min(entries.length, start + pageEntries.length);
+
     els.globalHistoryCount.textContent = `${entries.length} record${entries.length === 1 ? '' : 's'}`;
-    els.globalHistoryResults.innerHTML = renderTransactionRows(entries.slice(0, 500), true, {
+    els.globalHistoryResults.innerHTML = renderTransactionRows(pageEntries, true, {
       includeDate: true,
       emptyTitle: 'No matching history',
       emptyCopy: 'Try clearing a filter or using a different search.'
     });
-    if (entries.length > 500) els.globalHistoryCount.textContent += ' · showing newest 500';
+
+    if (els.globalHistoryPager) {
+      const showPager = entries.length > pageSize;
+      els.globalHistoryPager.classList.toggle('is-hidden', !showPager);
+      els.globalHistoryPrev.disabled = globalHistoryPage <= 0;
+      els.globalHistoryNext.disabled = globalHistoryPage >= pages - 1;
+      els.globalHistoryPageLabel.textContent = entries.length ? `${start + 1}–${end} of ${entries.length}` : '0 records';
+    }
   }
 
   function clearGlobalHistoryFilters() {
+    globalHistoryPage = 0;
     els.globalHistorySearch.value = '';
     els.globalHistoryType.value = 'all';
     els.globalHistoryWallet.value = 'all';
@@ -3273,6 +3294,7 @@
   }
 
   function openGlobalHistory(preset = {}) {
+    globalHistoryPage = 0;
     const today = localDateKey();
     els.globalHistoryFrom.max = today;
     els.globalHistoryTo.max = today;
@@ -7156,6 +7178,8 @@
     if (action === 'open-allowance-history') openAllowanceHistory();
     if (action === 'allowance-history-prev') { allowanceHistoryPage = Math.max(0, allowanceHistoryPage - 1); renderAllowanceHistory(); }
     if (action === 'allowance-history-next') { allowanceHistoryPage += 1; renderAllowanceHistory(); }
+    if (action === 'global-history-prev') { globalHistoryPage = Math.max(0, globalHistoryPage - 1); renderGlobalHistory(); }
+    if (action === 'global-history-next') { globalHistoryPage += 1; renderGlobalHistory(); }
     if (action === 'savings-goal-prev') changeSavingsGoalPage(-1);
     if (action === 'savings-goal-next') changeSavingsGoalPage(1);
     if (action === 'open-goal-history') openGoalHistory(button.dataset.goalId);
@@ -7244,7 +7268,7 @@
       'savingsWithdrawDialog', 'savingsWithdrawForm', 'savingsWithdrawTitle', 'savingsWithdrawGoalId', 'savingsWithdrawSummary', 'savingsWithdrawAccount', 'savingsWithdrawAvailable', 'savingsWithdrawAmount', 'savingsWithdrawDate', 'savingsWithdrawReason', 'savingsWithdrawNote', 'savingsWithdrawSaveButton',
       'legacySavingsSourceDialog', 'legacySavingsSourceForm', 'legacySavingsGoalId', 'legacySavingsSourceTitle', 'legacySavingsSourceSummary', 'legacySavingsAccount',
       'walletPickerDialog', 'walletPickerTitle', 'walletPickerSubtitle', 'walletPickerList',
-      'globalHistoryDialog', 'globalHistorySearch', 'globalHistoryType', 'globalHistoryWallet', 'globalHistoryCategory', 'globalHistoryGoal', 'globalHistoryFrom', 'globalHistoryTo', 'globalHistoryMin', 'globalHistoryMax', 'globalHistoryCount', 'globalHistoryClear', 'globalHistoryResults',
+      'globalHistoryDialog', 'globalHistorySearch', 'globalHistoryType', 'globalHistoryWallet', 'globalHistoryCategory', 'globalHistoryGoal', 'globalHistoryFrom', 'globalHistoryTo', 'globalHistoryMin', 'globalHistoryMax', 'globalHistoryCount', 'globalHistoryClear', 'globalHistoryResults', 'globalHistoryPager', 'globalHistoryPrev', 'globalHistoryNext', 'globalHistoryPageLabel',
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
       'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
       'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
@@ -7499,7 +7523,7 @@
     });
     els.categoryManagerForm.addEventListener('submit', (event) => { event.preventDefault(); saveCategoryManagerForm(); });
     [els.globalHistorySearch, els.globalHistoryType, els.globalHistoryWallet, els.globalHistoryCategory, els.globalHistoryGoal, els.globalHistoryFrom, els.globalHistoryTo, els.globalHistoryMin, els.globalHistoryMax].forEach((control) => {
-      control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', renderGlobalHistory);
+      control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', () => { globalHistoryPage = 0; renderGlobalHistory(); });
     });
     els.globalHistoryClear.addEventListener('click', clearGlobalHistoryFilters);
     els.reconciliationCorrectionForm.addEventListener('submit', (event) => { event.preventDefault(); saveReconciliationCorrection(); });
@@ -7656,7 +7680,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.8');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.9');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
@@ -7710,6 +7734,7 @@
       if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex);
       if (currentView === 'savings') renderSavings();
       if (els.allowanceHistoryDialog?.open) renderAllowanceHistory();
+      if (els.globalHistoryDialog?.open) renderGlobalHistory();
       if (companionIsAvailable()) { const pos = companionSafePosition(true); companionPlace(pos.maxX, pos.maxY, true); }
     });
     registerServiceWorker();

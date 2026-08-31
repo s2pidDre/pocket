@@ -7006,3 +7006,77 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
   #view-savings .savings-recent-panel { display: none !important; }
   #view-savings.is-active { grid-template-rows: auto auto auto !important; }
 }
+
+
+/* Pocket v3.5.9 — stable paginated Global History rows. */
+.global-history-results.transaction-list.full {
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  align-items: stretch !important;
+  overflow: visible !important;
+}
+.global-history-results.transaction-list.full .transaction-row {
+  position: relative !important;
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 74px !important;
+  margin: 0 !important;
+  padding: 10px 0 11px !important;
+  border-top: 1px solid var(--line) !important;
+  overflow: visible !important;
+}
+.global-history-results.transaction-list.full .transaction-row:first-child {
+  border-top: 0 !important;
+}
+.global-history-results.transaction-list.full .transaction-row.has-actions {
+  min-height: 94px !important;
+}
+.global-history-results .transaction-copy,
+.global-history-results .transaction-amount,
+.global-history-results .transaction-actions {
+  position: relative !important;
+  inset: auto !important;
+}
+.global-history-pager {
+  flex: 0 0 auto;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.global-history-pager.is-hidden { display: none !important; }
+.global-history-pager > span {
+  text-align: center;
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.global-history-pager button {
+  min-height: 34px;
+  padding-inline: 11px;
+}
+
+@media (max-width: 560px) {
+  .global-history-results.transaction-list.full .transaction-row {
+    min-height: 68px !important;
+    padding: 9px 0 10px !important;
+  }
+  .global-history-results.transaction-list.full .transaction-row.has-actions {
+    min-height: 88px !important;
+  }
+  .global-history-pager {
+    grid-template-columns: auto 1fr auto;
+    gap: 6px;
+  }
+  .global-history-pager button {
+    min-height: 32px;
+    padding-inline: 9px;
+    font-size: 9px;
+  }
+}
