@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.5">
+  <link rel="stylesheet" href="css/style.css?v=3.5.6">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -212,12 +212,19 @@
           <div class="savings-goals-heading">
             <div><p class="eyebrow">Goals</p><h2>Your savings goals</h2></div>
             <div class="savings-goal-heading-actions">
-              <button class="button-secondary past-goals-button is-hidden" id="archivedGoalsButton" type="button" data-action="open-archived-goals" aria-haspopup="dialog" aria-controls="archivedGoalsDialog"><svg><use href="#i-activity"/></svg><span>Past</span><small id="archivedGoalsButtonCount">0</small></button>
+              <button class="button-secondary past-goals-button is-hidden" id="archivedGoalsButton" type="button" data-action="open-archived-goals" aria-haspopup="dialog" aria-controls="archivedGoalsDialog"><svg><use href="#i-activity"/></svg><span>Archived</span><small id="archivedGoalsButtonCount">0</small></button>
               <button class="button-secondary manage-goals-button" id="manageGoalsButton" type="button" data-action="toggle-manage-goals">Manage goals</button>
               <button class="button-primary" type="button" data-action="open-goal"><svg><use href="#i-plus"/></svg><span>New goal</span></button>
             </div>
           </div>
-          <div class="goals-carousel" id="goalsGrid" aria-label="Savings goals"></div>
+          <div class="savings-goals-stage">
+            <div class="goals-carousel" id="goalsGrid" aria-label="Savings goals"></div>
+            <div class="savings-goal-pager is-hidden" id="savingsGoalPager" aria-label="Savings goal pages">
+              <button class="icon-button" id="savingsGoalPrev" type="button" data-action="savings-goal-prev" aria-label="Previous savings goals"><svg><use href="#i-chevron"/></svg></button>
+              <span id="savingsGoalPageLabel">1 of 1</span>
+              <button class="icon-button" id="savingsGoalNext" type="button" data-action="savings-goal-next" aria-label="Next savings goals"><svg><use href="#i-chevron"/></svg></button>
+            </div>
+          </div>
         </section>
 
         <section class="view" id="view-more" data-view-panel="more" aria-labelledby="viewTitle">
@@ -306,7 +313,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.5</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.6</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -351,13 +358,14 @@
   <dialog id="archivedGoalsDialog" class="app-dialog history-dialog archived-goals-dialog">
     <div class="dialog-panel">
       <div class="dialog-header">
-        <div><p class="eyebrow">Savings history</p><h2>Past goals</h2><p class="dialog-subtitle">Archived goals you can review, restore, or delete.</p></div>
+        <div><p class="eyebrow">Savings history</p><h2>Archived goals</h2><p class="dialog-subtitle">Review, restore, or permanently delete an archived goal.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body history-dialog-body">
-        <div class="history-dialog-summary archived-goals-summary"><strong id="archivedGoalsCount">0 goals</strong><span>Archived only</span></div>
+        <div class="history-dialog-summary archived-goals-summary"><strong id="archivedGoalsCount">0 archived goals</strong><span>Saved goals kept out of your active list.</span></div>
         <div class="archived-goals-list" id="archivedGoalsList"></div>
       </div>
+      <div class="dialog-footer archived-goals-footer"><button class="button-primary" type="button" data-close-dialog>Done</button></div>
     </div>
   </dialog>
 
@@ -370,6 +378,11 @@
       <div class="dialog-body history-dialog-body">
         <div class="history-dialog-summary allowance-history-summary"><strong id="allowanceHistoryCount">0 entries</strong><span>Recent entries can still be edited or undone.</span></div>
         <div class="allowance-history-list" id="allowanceHistoryList"></div>
+        <div class="allowance-history-pager is-hidden" id="allowanceHistoryPager" aria-label="Allowance history pages">
+          <button class="button-secondary" id="allowanceHistoryPrev" type="button" data-action="allowance-history-prev">Previous</button>
+          <span id="allowanceHistoryPageLabel">1–1 of 1</span>
+          <button class="button-secondary" id="allowanceHistoryNext" type="button" data-action="allowance-history-next">Next</button>
+        </div>
       </div>
     </div>
   </dialog>
@@ -1115,6 +1128,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.5" defer></script>
+  <script src="js/app.js?v=3.5.6" defer></script>
 </body>
 </html>

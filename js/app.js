@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.5';
+  const APP_VERSION = '3.5.6';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -111,6 +111,8 @@
   let walletCarouselResizeObserver = null;
   let savingsMode = 'total';
   let savingsWalletIndex = 0;
+  let savingsGoalPage = 0;
+  let allowanceHistoryPage = 0;
   let activityDate = localDateKey();
   let manageGoalsMode = false;
   let activitySwipeStartX = null;
@@ -2721,8 +2723,21 @@
     const range = monthRange();
     const effective = effectiveTransactions().filter((tx) => tx.date >= range.start && tx.date <= range.end);
     const newSavedCents = effective.filter((tx) => tx.type === 'saving' && tx.savingsAction !== 'lifecycle_restore').reduce((sum, tx) => sum + toCents(tx.amount || 0), 0);
-    const withdrawnCents = effective.filter((tx) => tx.type === 'saving_return').reduce((sum, tx) => sum + toCents(tx.amount || 0), 0);
-    return { newSaved: fromCents(newSavedCents), withdrawn: fromCents(withdrawnCents) };
+    return { newSaved: fromCents(newSavedCents) };
+  }
+
+  function savingsGoalsPerPage() {
+    if (window.innerWidth <= 820) return 1;
+    if (window.innerWidth <= 1180) return 2;
+    return 3;
+  }
+
+  function changeSavingsGoalPage(delta) {
+    const goals = state.goals.filter((goal) => goalIsActive(goal));
+    const pageSize = savingsGoalsPerPage();
+    const pages = Math.max(1, Math.ceil(goals.length / pageSize));
+    savingsGoalPage = Math.max(0, Math.min(pages - 1, savingsGoalPage + delta));
+    renderSavings();
   }
 
   function renderSavings() {
@@ -2750,14 +2765,24 @@
     if (els.savingsInsights) {
       els.savingsInsights.innerHTML = isWalletMode
         ? `<div><small>From wallet</small><strong class="money-value">${privateCurrency(shownBalance)}</strong></div><div><small>All savings</small><strong class="money-value">${privateCurrency(totalSavings())}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div>`
-        : `<div><small>Active</small><strong class="money-value">${privateCurrency(activeSaved)}</strong></div><div><small>Archived</small><strong class="money-value">${privateCurrency(archivedSaved)}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div><div><small>Returned this month</small><strong class="money-value">${privateCurrency(monthStats.withdrawn)}</strong></div>`;
+        : `<div><small>Active</small><strong class="money-value">${privateCurrency(activeSaved)}</strong></div><div><small>Archived</small><strong class="money-value">${privateCurrency(archivedSaved)}</strong></div><div><small>New this month</small><strong class="money-value">${privateCurrency(monthStats.newSaved)}</strong></div>`;
     }
 
     const visibleGoals = state.goals.filter((goal) => goalIsActive(goal));
     const archivedGoals = state.goals.filter((goal) => goalIsArchived(goal));
-    const goalLayout = visibleGoals.length <= 1 ? 'single' : visibleGoals.length === 2 ? 'pair' : 'multi';
-    els.goalsGrid.dataset.goalLayout = goalLayout;
+    const goalPageSize = savingsGoalsPerPage();
+    const goalPages = Math.max(1, Math.ceil(visibleGoals.length / goalPageSize));
+    savingsGoalPage = Math.max(0, Math.min(savingsGoalPage, goalPages - 1));
+    const pageGoals = visibleGoals.slice(savingsGoalPage * goalPageSize, savingsGoalPage * goalPageSize + goalPageSize);
+    els.goalsGrid.dataset.pageSize = String(Math.max(1, Math.min(goalPageSize, pageGoals.length || 1)));
     els.goalsGrid.dataset.goalCount = String(visibleGoals.length);
+    if (els.savingsGoalPager) {
+      const showPager = visibleGoals.length > goalPageSize;
+      els.savingsGoalPager.classList.toggle('is-hidden', !showPager);
+      els.savingsGoalPrev.disabled = savingsGoalPage <= 0;
+      els.savingsGoalNext.disabled = savingsGoalPage >= goalPages - 1;
+      els.savingsGoalPageLabel.textContent = `${Math.min(savingsGoalPage + 1, goalPages)} of ${goalPages}`;
+    }
     els.manageGoalsButton.disabled = visibleGoals.length === 0;
     els.manageGoalsButton.textContent = manageGoalsMode ? 'Done' : 'Manage goals';
     els.goalsGrid.classList.toggle('is-managing', manageGoalsMode);
@@ -2770,7 +2795,7 @@
       document.getElementById('view-savings')?.classList.remove('is-managing-goals');
       els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No active savings goals</strong><span>Create a new goal or restore an archived one from Past goals.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
-      els.goalsGrid.innerHTML = visibleGoals.map((goal) => {
+      els.goalsGrid.innerHTML = pageGoals.map((goal) => {
         const totalCurrent = goalCurrent(goal);
         const target = Math.max(Number(goal.target || 1), 1);
         const percent = Math.min(100, totalCurrent / target * 100);
@@ -2981,11 +3006,28 @@
     }).join('');
   }
 
+  function allowanceHistoryPageSize() {
+    return window.innerWidth <= 560 ? 5 : 8;
+  }
+
   function renderAllowanceHistory() {
     if (!els.allowanceHistoryList) return;
     const history = allowanceHistoryTransactions();
+    const pageSize = allowanceHistoryPageSize();
+    const pages = Math.max(1, Math.ceil(history.length / pageSize));
+    allowanceHistoryPage = Math.max(0, Math.min(allowanceHistoryPage, pages - 1));
+    const start = allowanceHistoryPage * pageSize;
+    const pageEntries = history.slice(start, start + pageSize);
     els.allowanceHistoryCount.textContent = `${history.length} entr${history.length === 1 ? 'y' : 'ies'}`;
-    els.allowanceHistoryList.innerHTML = renderAllowanceHistoryRows(history);
+    els.allowanceHistoryList.innerHTML = renderAllowanceHistoryRows(pageEntries);
+    if (els.allowanceHistoryPager) {
+      const showPager = history.length > pageSize;
+      els.allowanceHistoryPager.classList.toggle('is-hidden', !showPager);
+      els.allowanceHistoryPrev.disabled = allowanceHistoryPage <= 0;
+      els.allowanceHistoryNext.disabled = allowanceHistoryPage >= pages - 1;
+      const end = Math.min(history.length, start + pageEntries.length);
+      els.allowanceHistoryPageLabel.textContent = history.length ? `${start + 1}–${end} of ${history.length}` : '0 entries';
+    }
     if (els.allowanceHistorySummary) {
       const latest = effectiveTransactions().filter((tx) => tx.type === 'income').sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)))[0];
       const latestDate = latest?.date ? DATE_LABEL.format(fromDateKey(latest.date)) : '';
@@ -3008,6 +3050,7 @@
   }
 
   function openAllowanceHistory() {
+    allowanceHistoryPage = 0;
     renderAllowanceHistory();
     openDialog(els.allowanceHistoryDialog);
     requestAnimationFrame(() => {
@@ -5236,7 +5279,7 @@
     els.contentScroll.classList.toggle('home-active', view === 'home');
     els.contentScroll.classList.toggle('activity-active', view === 'activity');
     els.contentScroll.classList.toggle('savings-active', view === 'savings');
-    els.contentScroll.classList.toggle('fixed-view-active', ['home', 'activity'].includes(view));
+    els.contentScroll.classList.toggle('fixed-view-active', ['home', 'activity', 'savings'].includes(view));
     document.querySelectorAll('[data-view-panel]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.viewPanel === view));
     document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((button) => button.classList.toggle('is-active', button.dataset.view === view));
     renderHeader();
@@ -5954,6 +5997,7 @@
     if (startingAmount > 0) state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: saveDate, note: name, goalId: goal.id, savingsAction: 'contribution', createdAt: new Date().toISOString() });
 
     milestoneEffectiveDateHint = saveDate;
+    savingsGoalPage = Math.max(0, Math.ceil(state.goals.filter((item) => goalIsActive(item)).length / savingsGoalsPerPage()) - 1);
     saveState();
     closeDialog(els.goalDialog);
     renderAll();
@@ -5979,6 +6023,7 @@
     if (!goal) return;
     goal.archivedAt = undefined;
     addGoalEvent(goal.id, 'restored', { note: 'Goal restored from archive' });
+    savingsGoalPage = Math.max(0, Math.ceil(state.goals.filter((item) => goalIsActive(item)).length / savingsGoalsPerPage()) - 1);
     saveState(); renderAll(); showToast(`“${goal.name}” restored to active goals.`);
   }
 
@@ -7031,6 +7076,10 @@
     }
     if (action === 'open-allowance') openDifferentAllowance();
     if (action === 'open-allowance-history') openAllowanceHistory();
+    if (action === 'allowance-history-prev') { allowanceHistoryPage = Math.max(0, allowanceHistoryPage - 1); renderAllowanceHistory(); }
+    if (action === 'allowance-history-next') { allowanceHistoryPage += 1; renderAllowanceHistory(); }
+    if (action === 'savings-goal-prev') changeSavingsGoalPage(-1);
+    if (action === 'savings-goal-next') changeSavingsGoalPage(1);
     if (action === 'open-goal-history') openGoalHistory(button.dataset.goalId);
     if (action === 'open-archived-goals') { renderSavings(); if (!els.archivedGoalsButton?.classList.contains('is-hidden')) openDialog(els.archivedGoalsDialog); }
     if (action === 'revert-goal-target') revertGoalTargetEvent(button.dataset.id);
@@ -7102,8 +7151,8 @@
       'todayLabel', 'viewTitle', 'contentScroll', 'walletModeCounter', 'walletCarousel',
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
-      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
-      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
+      'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'savingsGoalPager', 'savingsGoalPrev', 'savingsGoalNext', 'savingsGoalPageLabel', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
+      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'allowanceHistoryPager', 'allowanceHistoryPrev', 'allowanceHistoryNext', 'allowanceHistoryPageLabel', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDate', 'transferDate', 'goalSaveDate', 'goalTransferDate', 'contributeDate',
@@ -7177,6 +7226,7 @@
       const button = event.target.closest('[data-savings-mode]');
       if (!button) return;
       savingsMode = button.dataset.savingsMode === 'wallet' ? 'wallet' : 'total';
+      savingsGoalPage = 0;
       renderSavings();
       els.contentScroll.scrollTop = 0;
     });
@@ -7185,6 +7235,7 @@
       if (!button) return;
       savingsWalletIndex = Number(button.dataset.savingsWalletIndex || 0);
       savingsMode = 'wallet';
+      savingsGoalPage = 0;
       renderSavings();
       els.contentScroll.scrollTop = 0;
     });
@@ -7527,7 +7578,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.5');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.6');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
@@ -7579,6 +7630,8 @@
     }
     window.addEventListener('resize', () => {
       if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex);
+      if (currentView === 'savings') renderSavings();
+      if (els.allowanceHistoryDialog?.open) renderAllowanceHistory();
       if (companionIsAvailable()) { const pos = companionSafePosition(true); companionPlace(pos.maxX, pos.maxY, true); }
     });
     registerServiceWorker();
