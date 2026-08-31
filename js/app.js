@@ -2,8 +2,17 @@
   'use strict';
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
-  const SCHEMA_VERSION = 2;
-  const APP_VERSION = '3.3.0';
+  const UI_PREFS_KEY = 'pocket-ui-preferences-v1';
+  const STORAGE_SYNC_KEY = 'pocket-storage-sync-v1';
+  const EMERGENCY_STORAGE_KEY = 'pocket-emergency-recovery-v1';
+  const DB_NAME = 'pocket-student-tracker-db';
+  const DB_VERSION = 1;
+  const DB_STORE = 'records';
+  const DB_TRACKER_KEY = 'tracker';
+  const DB_SECRET_KEY = 'secret';
+  const DB_RECOVERY_KEY = 'recovery';
+  const SCHEMA_VERSION = 3;
+  const APP_VERSION = '3.4.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -46,6 +55,24 @@
 
   const els = {};
   let state;
+  let storageDb = null;
+  let storageBackend = 'initializing';
+  let storageDurability = 'checking';
+  let storageTrackerRevision = 0;
+  let storageSecretRevision = 0;
+  let storageWriteChain = Promise.resolve();
+  let secretWriteChain = Promise.resolve();
+  let storagePendingTrackerWrites = 0;
+  let storageHealth = { healthy: true, message: 'Checking data…', checkedAt: 0 };
+  let storageUsageBytes = 0;
+  let lastRecoveryAt = 0;
+  let lastCommittedStateSnapshot = null;
+  let storageReady = false;
+  let bootStorageMessage = '';
+  let backupReminderShown = false;
+  let storageChannel = null;
+  const STORAGE_TAB_ID = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  let uiPreferences = { theme: 'dark', lastExportAt: 0, lastBackupReminderAt: 0 };
   let toastTimer = 0;
     let pendingConfirm = null;
   let currentView = 'home';
@@ -268,12 +295,643 @@
     return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', companionDataSpeech: ['quiet','balanced','chatty','very-chatty'].includes(parsed.companionDataSpeech) ? parsed.companionDataSpeech : 'chatty', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
   }
 
+  class PocketStorageConflictError extends Error {
+    constructor(message = 'Pocket data changed in another open tab.') {
+      super(message);
+      this.name = 'PocketStorageConflictError';
+    }
+  }
+
+  function cloneStorageValue(value) {
+    if (typeof structuredClone === 'function') {
+      try { return structuredClone(value); } catch (error) { /* JSON fallback below. */ }
+    }
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function loadUiPreferences() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(UI_PREFS_KEY) || 'null');
+      const stored = raw && typeof raw === 'object';
+      return {
+        stored,
+        value: {
+          theme: raw?.theme === 'light' ? 'light' : 'dark',
+          lastExportAt: Math.max(0, Number(raw?.lastExportAt || 0)),
+          lastBackupReminderAt: Math.max(0, Number(raw?.lastBackupReminderAt || 0))
+        }
+      };
+    } catch (error) {
+      return { stored: false, value: { theme: 'dark', lastExportAt: 0, lastBackupReminderAt: 0 } };
+    }
+  }
+
+  function saveUiPreferences() {
+    try {
+      localStorage.setItem(UI_PREFS_KEY, JSON.stringify({
+        theme: uiPreferences.theme === 'light' ? 'light' : 'dark',
+        lastExportAt: Math.max(0, Number(uiPreferences.lastExportAt || 0)),
+        lastBackupReminderAt: Math.max(0, Number(uiPreferences.lastBackupReminderAt || 0))
+      }));
+    } catch (error) {
+      console.warn('Unable to save Pocket UI preferences.', error);
+    }
+  }
+
+  function persistCurrentTheme() {
+    uiPreferences.theme = state?.settings?.theme === 'light' ? 'light' : 'dark';
+    saveUiPreferences();
+  }
+
+  function trackerSnapshotForStorage(source = state) {
+    const snapshot = cloneStorageValue(source || seedState());
+    snapshot.version = SCHEMA_VERSION;
+    snapshot.settings ||= {};
+    delete snapshot.settings.theme;
+    delete snapshot.settings.demoData;
+    delete snapshot.checkins;
+    return snapshot;
+  }
+
+  function openPocketDatabase() {
+    return new Promise((resolve, reject) => {
+      if (!('indexedDB' in window)) return reject(new Error('IndexedDB is unavailable.'));
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'key' });
+      };
+      request.onsuccess = () => {
+        const db = request.result;
+        db.onversionchange = () => {
+          db.close();
+          if (storageDb === db) storageDb = null;
+          storageDurability = 'error';
+          renderStorageStatus();
+        };
+        resolve(db);
+      };
+      request.onerror = () => reject(request.error || new Error('Unable to open Pocket storage.'));
+      request.onblocked = () => reject(new Error('Pocket storage upgrade is blocked by another open tab.'));
+    });
+  }
+
+  function idbGetRecord(key) {
+    return new Promise((resolve, reject) => {
+      if (!storageDb) return resolve(null);
+      const tx = storageDb.transaction(DB_STORE, 'readonly');
+      const request = tx.objectStore(DB_STORE).get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error(`Unable to read ${key}.`));
+    });
+  }
+
+  function idbPutRecord(record) {
+    return new Promise((resolve, reject) => {
+      if (!storageDb) return reject(new Error('Pocket storage is not open.'));
+      const tx = storageDb.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).put(record);
+      tx.oncomplete = () => resolve(record);
+      tx.onerror = () => reject(tx.error || new Error('Unable to write Pocket storage.'));
+      tx.onabort = () => reject(tx.error || new Error('Pocket storage write was aborted.'));
+    });
+  }
+
+  async function withPocketStorageLock(callback) {
+    if (navigator.locks?.request) return navigator.locks.request('pocket-storage-write-v1', { mode: 'exclusive' }, callback);
+    return callback();
+  }
+
+  function idbCommitAppData({ tracker = null, secret = null, expectedTrackerRevision = null, expectedSecretRevision = null, force = false } = {}) {
+    return withPocketStorageLock(() => new Promise((resolve, reject) => {
+      if (!storageDb) return reject(new Error('Pocket storage is not open.'));
+      const tx = storageDb.transaction(DB_STORE, 'readwrite');
+      const store = tx.objectStore(DB_STORE);
+      let trackerRecord = null;
+      let secretRecord = null;
+      let trackerLoaded = tracker === null;
+      let secretLoaded = secret === null;
+      let planned = null;
+      let settled = false;
+
+      const failConflict = (message) => {
+        planned = { conflict: true, message };
+        try { tx.abort(); } catch (error) { /* handled below */ }
+      };
+
+      const planWrites = () => {
+        if (!trackerLoaded || !secretLoaded || planned) return;
+        const currentTrackerRevision = Number(trackerRecord?.revision || 0);
+        const currentSecretRevision = Number(secretRecord?.revision || 0);
+        if (!force && tracker !== null && expectedTrackerRevision !== null && currentTrackerRevision !== expectedTrackerRevision) {
+          return failConflict('Tracker data changed in another open Pocket tab.');
+        }
+        if (!force && secret !== null && expectedSecretRevision !== null && currentSecretRevision !== expectedSecretRevision) {
+          return failConflict('Secret Pocket settings changed in another open Pocket tab.');
+        }
+        const now = new Date().toISOString();
+        planned = {
+          trackerRevision: currentTrackerRevision,
+          secretRevision: currentSecretRevision
+        };
+        if (tracker !== null) {
+          planned.trackerRevision = currentTrackerRevision + 1;
+          store.put({ key: DB_TRACKER_KEY, revision: planned.trackerRevision, schemaVersion: SCHEMA_VERSION, updatedAt: now, data: tracker });
+        }
+        if (secret !== null) {
+          planned.secretRevision = currentSecretRevision + 1;
+          store.put({ key: DB_SECRET_KEY, revision: planned.secretRevision, updatedAt: now, data: secret });
+        }
+      };
+
+      if (tracker !== null) {
+        const request = store.get(DB_TRACKER_KEY);
+        request.onsuccess = () => { trackerRecord = request.result || null; trackerLoaded = true; planWrites(); };
+        request.onerror = () => { planned = { error: request.error || new Error('Unable to read current tracker revision.') }; try { tx.abort(); } catch (error) {} };
+      }
+      if (secret !== null) {
+        const request = store.get(DB_SECRET_KEY);
+        request.onsuccess = () => { secretRecord = request.result || null; secretLoaded = true; planWrites(); };
+        request.onerror = () => { planned = { error: request.error || new Error('Unable to read current Secret Pocket revision.') }; try { tx.abort(); } catch (error) {} };
+      }
+      planWrites();
+
+      tx.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        resolve(planned || { trackerRevision: storageTrackerRevision, secretRevision: storageSecretRevision });
+      };
+      tx.onabort = () => {
+        if (settled) return;
+        settled = true;
+        if (planned?.conflict) reject(new PocketStorageConflictError(planned.message));
+        else reject(planned?.error || tx.error || new Error('Pocket storage write was aborted.'));
+      };
+      tx.onerror = () => { /* onabort/oncomplete handles final settlement. */ };
+    }));
+  }
+
+  async function getRecoverySnapshots() {
+    if (storageBackend !== 'indexeddb' || !storageDb) return [];
+    const record = await idbGetRecord(DB_RECOVERY_KEY);
+    return Array.isArray(record?.snapshots) ? record.snapshots : [];
+  }
+
+  async function storeRecoverySnapshot(snapshot) {
+    if (storageBackend !== 'indexeddb' || !storageDb) return false;
+    return withPocketStorageLock(() => new Promise((resolve, reject) => {
+      const tx = storageDb.transaction(DB_STORE, 'readwrite');
+      const store = tx.objectStore(DB_STORE);
+      const request = store.get(DB_RECOVERY_KEY);
+      request.onsuccess = () => {
+        const current = Array.isArray(request.result?.snapshots) ? request.result.snapshots : [];
+        const snapshots = [snapshot, ...current.filter((item) => item?.id !== snapshot.id)].slice(0, 5);
+        store.put({ key: DB_RECOVERY_KEY, updatedAt: snapshot.createdAt, snapshots });
+      };
+      request.onerror = () => { try { tx.abort(); } catch (error) {} };
+      tx.oncomplete = () => { if (snapshot.restorable !== false) lastRecoveryAt = Math.max(lastRecoveryAt, Date.parse(snapshot.createdAt) || Date.now()); resolve(true); };
+      tx.onerror = () => reject(tx.error || new Error('Unable to save recovery point.'));
+      tx.onabort = () => reject(tx.error || new Error('Recovery point write was aborted.'));
+    }));
+  }
+
+  async function createRecoverySnapshot(reason = 'Automatic recovery point', options = {}) {
+    const tracker = cloneStorageValue(options.tracker || state || lastCommittedStateSnapshot || seedState());
+    const secretPocket = normalizeSecretConfig(cloneStorageValue(options.secretPocket || secretConfig || defaultSecretConfig()));
+    const snapshot = {
+      id: `recovery-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: new Date().toISOString(),
+      reason: String(reason || 'Recovery point').slice(0, 80),
+      schemaVersion: Number(tracker?.version || SCHEMA_VERSION),
+      restorable: true,
+      tracker,
+      secretPocket
+    };
+    if (storageBackend === 'indexeddb') {
+      await storeRecoverySnapshot(snapshot);
+      renderStorageStatus();
+      return snapshot;
+    }
+    try {
+      localStorage.setItem(EMERGENCY_STORAGE_KEY, JSON.stringify(snapshot));
+      lastRecoveryAt = Date.now();
+      renderStorageStatus();
+      return snapshot;
+    } catch (error) {
+      console.warn('Unable to save recovery point.', error);
+      return null;
+    }
+  }
+
+  async function maybeCreateAutomaticRecoveryPoint() {
+    if (storageBackend !== 'indexeddb' || !lastCommittedStateSnapshot) return;
+    if (!(lastCommittedStateSnapshot.transactions?.length || lastCommittedStateSnapshot.goals?.length || lastCommittedStateSnapshot.accounts?.length > 1)) return;
+    if (Date.now() - lastRecoveryAt < 24 * 60 * 60 * 1000) return;
+    try { await createRecoverySnapshot('Automatic daily recovery point', { tracker: lastCommittedStateSnapshot }); }
+    catch (error) { console.warn('Automatic recovery point could not be created.', error); }
+  }
+
+  function announceStorageChange(kind, revision) {
+    const message = { source: STORAGE_TAB_ID, kind, revision, at: Date.now() };
+    try { storageChannel?.postMessage(message); } catch (error) { /* fallback below */ }
+    try { localStorage.setItem(STORAGE_SYNC_KEY, JSON.stringify(message)); } catch (error) { /* best effort */ }
+  }
+
+  function ensureStorageChannel() {
+    if (!('BroadcastChannel' in window) || storageChannel) return;
+    try {
+      storageChannel = new BroadcastChannel('pocket-storage-sync-v1');
+      storageChannel.addEventListener('message', (event) => handleStorageSignal(event.data));
+    } catch (error) { storageChannel = null; }
+  }
+
+  async function reloadTrackerFromIndexedDb({ announce = true } = {}) {
+    if (storageBackend !== 'indexeddb' || !storageDb) return false;
+    try {
+      const record = await idbGetRecord(DB_TRACKER_KEY);
+      if (!record?.data || Number(record.revision || 0) <= storageTrackerRevision) return false;
+      const next = migrateStateSchema(record.data);
+      next.settings.theme = uiPreferences.theme;
+      validateNormalizedBackupIntegrity(next);
+      state = next;
+      storageTrackerRevision = Number(record.revision || 0);
+      lastCommittedStateSnapshot = cloneStorageValue(state);
+      storageHealth = { healthy: true, message: 'Healthy', checkedAt: Date.now() };
+      renderAll();
+      if (announce) showToast('Pocket refreshed changes from another open tab.');
+      return true;
+    } catch (error) {
+      console.warn('Unable to refresh Pocket data from storage.', error);
+      storageHealth = { healthy: false, message: 'Stored data needs attention', checkedAt: Date.now() };
+      renderStorageStatus();
+      return false;
+    }
+  }
+
+  async function reloadSecretFromIndexedDb() {
+    if (storageBackend !== 'indexeddb' || !storageDb) return false;
+    try {
+      const record = await idbGetRecord(DB_SECRET_KEY);
+      if (!record?.data || Number(record.revision || 0) <= storageSecretRevision) return false;
+      secretConfig = normalizeSecretConfig(record.data);
+      storageSecretRevision = Number(record.revision || 0);
+      renderSettings();
+      syncCompanion({ fast: true });
+      return true;
+    } catch (error) {
+      console.warn('Unable to refresh Secret Pocket settings.', error);
+      return false;
+    }
+  }
+
+  function handleStorageSignal(message) {
+    if (!message || message.source === STORAGE_TAB_ID || storageBackend !== 'indexeddb') return;
+    if (message.kind === 'tracker' && Number(message.revision || 0) > storageTrackerRevision) {
+      if (!storagePendingTrackerWrites) reloadTrackerFromIndexedDb({ announce: true });
+    }
+    if (message.kind === 'secret' && Number(message.revision || 0) > storageSecretRevision) reloadSecretFromIndexedDb();
+  }
+
+  function evaluateDataHealth(candidate = state) {
+    try {
+      validateNormalizedBackupIntegrity(candidate);
+      return { healthy: true, message: 'Healthy', checkedAt: Date.now() };
+    } catch (error) {
+      return { healthy: false, message: error?.message || 'Data integrity check failed.', checkedAt: Date.now() };
+    }
+  }
+
+  async function refreshStorageEstimate() {
+    if (!navigator.storage?.estimate) return;
+    try {
+      const estimate = await navigator.storage.estimate();
+      storageUsageBytes = Math.max(0, Number(estimate.usage || 0));
+    } catch (error) { storageUsageBytes = 0; }
+  }
+
+  async function requestStoragePersistence({ announce = false } = {}) {
+    if (storageBackend !== 'indexeddb') {
+      storageDurability = 'fallback';
+      renderStorageStatus();
+      if (announce) showToast('Pocket is using compatibility storage in this browser.');
+      return false;
+    }
+    if (!navigator.storage?.persisted) {
+      storageDurability = 'best-effort';
+      renderStorageStatus();
+      if (announce) showToast('This browser does not expose storage-protection status.');
+      return false;
+    }
+    try {
+      let persisted = await navigator.storage.persisted();
+      if (!persisted && navigator.storage.persist) persisted = await navigator.storage.persist();
+      storageDurability = persisted ? 'persistent' : 'best-effort';
+      await refreshStorageEstimate();
+      renderStorageStatus();
+      if (announce) showToast(persisted ? 'Pocket storage is protected from routine browser cleanup.' : 'Pocket requested protected storage, but this browser kept best-effort storage. Keep backups too.');
+      return persisted;
+    } catch (error) {
+      storageDurability = 'best-effort';
+      renderStorageStatus();
+      if (announce) showToast('Storage protection could not be changed in this browser.');
+      return false;
+    }
+  }
+
+  function emergencySave(snapshot, reason = 'Storage write failure') {
+    try {
+      localStorage.setItem(EMERGENCY_STORAGE_KEY, JSON.stringify({
+        id: `emergency-${Date.now().toString(36)}`,
+        createdAt: new Date().toISOString(),
+        reason,
+        schemaVersion: SCHEMA_VERSION,
+        tracker: snapshot,
+        secretPocket: secretConfig || defaultSecretConfig()
+      }));
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async function handleTrackerWriteConflict(attemptedSnapshot) {
+    try { await createRecoverySnapshot('Unsaved change from cross-tab conflict', { tracker: attemptedSnapshot }); } catch (error) {}
+    await reloadTrackerFromIndexedDb({ announce: false });
+    showToast('Another Pocket tab changed your data first. This tab reloaded the saved version; your unsaved version was kept as a recovery point.');
+  }
+
+  function saveState() {
+    if (!state) return Promise.resolve(false);
+    persistCurrentTheme();
+    const fullSnapshot = cloneStorageValue(state);
+    const health = evaluateDataHealth(fullSnapshot);
+    storageHealth = health;
+    renderStorageStatus();
+    if (!health.healthy) {
+      console.error('Pocket blocked an unsafe state write:', health.message);
+      if (lastCommittedStateSnapshot) {
+        const safe = cloneStorageValue(lastCommittedStateSnapshot);
+        safe.settings.theme = uiPreferences.theme;
+        queueMicrotask(() => { state = safe; renderAll(); showToast('Pocket blocked an unsafe data change and restored the last healthy state.'); });
+      }
+      return Promise.resolve(false);
+    }
+
+    const trackerSnapshot = trackerSnapshotForStorage(fullSnapshot);
+    if (!storageReady || storageBackend === 'localstorage') {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(trackerSnapshot));
+        lastCommittedStateSnapshot = fullSnapshot;
+        storageHealth = { healthy: true, message: 'Healthy', checkedAt: Date.now() };
+        return Promise.resolve(true);
+      } catch (error) {
+        storageHealth = { healthy: false, message: 'Storage write failed', checkedAt: Date.now() };
+        storageDurability = 'error';
+        emergencySave(fullSnapshot, 'Compatibility storage write failure');
+        renderStorageStatus();
+        showToast('Pocket could not save this change. Export a backup before closing the app.');
+        return Promise.resolve(false);
+      }
+    }
+
+    storagePendingTrackerWrites += 1;
+    storageWriteChain = storageWriteChain.then(async () => {
+      await maybeCreateAutomaticRecoveryPoint();
+      const result = await idbCommitAppData({ tracker: trackerSnapshot, expectedTrackerRevision: storageTrackerRevision });
+      storageTrackerRevision = Number(result.trackerRevision || storageTrackerRevision);
+      lastCommittedStateSnapshot = fullSnapshot;
+      storageHealth = { healthy: true, message: 'Healthy', checkedAt: Date.now() };
+      announceStorageChange('tracker', storageTrackerRevision);
+      try { localStorage.removeItem(EMERGENCY_STORAGE_KEY); } catch (error) {}
+      await refreshStorageEstimate();
+      renderStorageStatus();
+      return true;
+    }).catch(async (error) => {
+      if (error instanceof PocketStorageConflictError) {
+        await handleTrackerWriteConflict(fullSnapshot);
+        return false;
+      }
+      console.error('Pocket storage write failed.', error);
+      storageHealth = { healthy: false, message: 'Storage write failed', checkedAt: Date.now() };
+      storageDurability = 'error';
+      emergencySave(fullSnapshot, 'IndexedDB write failure');
+      renderStorageStatus();
+      showToast('Pocket could not save this change. A best-effort emergency copy was attempted; export a backup before closing.');
+      return false;
+    }).finally(() => { storagePendingTrackerWrites = Math.max(0, storagePendingTrackerWrites - 1); });
+    return storageWriteChain;
+  }
+
   function loadSecretConfig() {
+    if (secretConfig) return normalizeSecretConfig(secretConfig);
     try { return normalizeSecretConfig(JSON.parse(localStorage.getItem(SECRET_POCKET_KEY) || 'null')); }
     catch (error) { return defaultSecretConfig(); }
   }
 
-  function saveSecretConfig() { try { localStorage.setItem(SECRET_POCKET_KEY, JSON.stringify(secretConfig || defaultSecretConfig())); } catch (error) {} }
+  function saveSecretConfig() {
+    const snapshot = normalizeSecretConfig(secretConfig || defaultSecretConfig());
+    secretConfig = snapshot;
+    if (!storageReady || storageBackend === 'localstorage') {
+      try { localStorage.setItem(SECRET_POCKET_KEY, JSON.stringify(snapshot)); } catch (error) { console.warn('Unable to save Secret Pocket settings.', error); }
+      return Promise.resolve(true);
+    }
+    secretWriteChain = secretWriteChain.then(async () => {
+      const result = await idbCommitAppData({ secret: cloneStorageValue(snapshot), expectedSecretRevision: storageSecretRevision });
+      storageSecretRevision = Number(result.secretRevision || storageSecretRevision);
+      announceStorageChange('secret', storageSecretRevision);
+      return true;
+    }).catch(async (error) => {
+      if (error instanceof PocketStorageConflictError) {
+        await reloadSecretFromIndexedDb();
+        return false;
+      }
+      console.warn('Unable to save Secret Pocket settings.', error);
+      storageDurability = 'error';
+      emergencySave(cloneStorageValue(state || seedState()), 'Secret Pocket write failure');
+      try { localStorage.setItem(SECRET_POCKET_KEY, JSON.stringify(snapshot)); } catch (fallbackError) {}
+      renderStorageStatus();
+      return false;
+    });
+    return secretWriteChain;
+  }
+
+  function formatStorageBytes(bytes) {
+    const value = Math.max(0, Number(bytes || 0));
+    if (value < 1024) return `${Math.round(value)} B`;
+    if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+    return `${(value / (1024 * 1024)).toFixed(value < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  }
+
+  function renderStorageStatus() {
+    if (!els.storageProtectionSummary) return;
+    const indexed = storageBackend === 'indexeddb';
+    const usage = storageUsageBytes ? ` · ${formatStorageBytes(storageUsageBytes)} used` : '';
+    if (indexed && storageDurability === 'persistent') {
+      els.storageProtectionStatus.textContent = 'Protected';
+      els.storageProtectionStatus.className = 'status-pill success';
+      els.storageProtectionSummary.textContent = `IndexedDB · protected from routine browser cleanup${usage}`;
+    } else if (indexed && storageDurability === 'best-effort') {
+      els.storageProtectionStatus.textContent = 'Best effort';
+      els.storageProtectionStatus.className = 'status-pill warning';
+      els.storageProtectionSummary.textContent = `IndexedDB · browser-managed durability${usage}. Keep regular backups.`;
+    } else if (storageBackend === 'localstorage') {
+      els.storageProtectionStatus.textContent = 'Fallback';
+      els.storageProtectionStatus.className = 'status-pill warning';
+      els.storageProtectionSummary.textContent = 'Compatibility storage is active. Export backups regularly.';
+    } else if (storageDurability === 'error') {
+      els.storageProtectionStatus.textContent = 'Attention';
+      els.storageProtectionStatus.className = 'status-pill error';
+      els.storageProtectionSummary.textContent = 'A storage error occurred. Export a backup before closing Pocket.';
+    } else {
+      els.storageProtectionStatus.textContent = 'Checking';
+      els.storageProtectionStatus.className = 'status-pill neutral';
+      els.storageProtectionSummary.textContent = 'Checking browser storage protection…';
+    }
+
+    if (storageHealth.healthy) {
+      els.dataHealthStatus.textContent = 'Healthy';
+      els.dataHealthStatus.className = 'status-pill success';
+      els.dataHealthSummary.textContent = 'Wallets, ledger, goals, corrections, and allocations reconcile.';
+    } else {
+      els.dataHealthStatus.textContent = 'Attention';
+      els.dataHealthStatus.className = 'status-pill error';
+      els.dataHealthSummary.textContent = storageHealth.message || 'Pocket detected a data-integrity problem.';
+    }
+
+    if (els.exportBackupSummary) {
+      if (uiPreferences.lastExportAt) {
+        const exportDate = new Date(uiPreferences.lastExportAt);
+        els.exportBackupSummary.textContent = `Last external backup: ${DATE_LABEL.format(exportDate)} · ${TIME_LABEL.format(exportDate)}.`;
+      } else {
+        els.exportBackupSummary.textContent = 'No external backup recorded yet. Download one for protection outside this browser.';
+      }
+    }
+
+    if (lastRecoveryAt) {
+      const date = new Date(lastRecoveryAt);
+      els.recoveryPointSummary.textContent = `Latest protected snapshot: ${DATE_LABEL.format(date)} · ${TIME_LABEL.format(date)}`;
+      els.restoreRecoveryButton.hidden = false;
+      els.restoreRecoverySummary.textContent = `Restore the snapshot from ${DATE_LABEL.format(date)} at ${TIME_LABEL.format(date)}.`;
+    } else {
+      els.recoveryPointSummary.textContent = 'No recovery point yet. Pocket creates them before risky changes and at least daily while data changes.';
+      els.restoreRecoveryButton.hidden = true;
+    }
+  }
+
+  function runDataHealthCheck({ announce = true } = {}) {
+    storageHealth = evaluateDataHealth(state);
+    renderStorageStatus();
+    if (announce) showToast(storageHealth.healthy ? 'Data health check passed. Pocket is internally consistent.' : `Data health needs attention: ${storageHealth.message}`);
+    return storageHealth;
+  }
+
+  async function createManualRecoveryPoint() {
+    try {
+      const health = runDataHealthCheck({ announce: false });
+      if (!health.healthy) return showToast('Pocket will not create a normal recovery point until Data Health is healthy.');
+      await waitForStorageQueues();
+      const snapshot = await createRecoverySnapshot('Manual recovery point');
+      if (!snapshot) throw new Error('Recovery point could not be stored.');
+      showToast('Recovery point created.');
+    } catch (error) {
+      console.warn(error);
+      showToast('Pocket could not create a recovery point in this browser.');
+    }
+  }
+
+  async function waitForStorageQueues() {
+    try { await storageWriteChain; } catch (error) {}
+    try { await secretWriteChain; } catch (error) {}
+  }
+
+  async function commitAtomicReplacement(nextTracker, nextSecret, { force = false } = {}) {
+    const tracker = migrateStateSchema(nextTracker);
+    tracker.settings.theme = uiPreferences.theme;
+    validateNormalizedBackupIntegrity(tracker);
+    const secret = normalizeSecretConfig(nextSecret || secretConfig || defaultSecretConfig());
+
+    if (storageBackend !== 'indexeddb') {
+      const previousTracker = localStorage.getItem(STORAGE_KEY);
+      const previousSecret = localStorage.getItem(SECRET_POCKET_KEY);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(trackerSnapshotForStorage(tracker)));
+        localStorage.setItem(SECRET_POCKET_KEY, JSON.stringify(secret));
+      } catch (error) {
+        try {
+          if (previousTracker === null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, previousTracker);
+          if (previousSecret === null) localStorage.removeItem(SECRET_POCKET_KEY); else localStorage.setItem(SECRET_POCKET_KEY, previousSecret);
+        } catch (rollbackError) {}
+        throw error;
+      }
+      state = tracker;
+      secretConfig = secret;
+      lastCommittedStateSnapshot = cloneStorageValue(state);
+      storageHealth = evaluateDataHealth(state);
+      return true;
+    }
+
+    await waitForStorageQueues();
+    const result = await idbCommitAppData({
+      tracker: trackerSnapshotForStorage(tracker),
+      secret: cloneStorageValue(secret),
+      expectedTrackerRevision: storageTrackerRevision,
+      expectedSecretRevision: storageSecretRevision,
+      force
+    });
+    storageTrackerRevision = Number(result.trackerRevision || storageTrackerRevision);
+    storageSecretRevision = Number(result.secretRevision || storageSecretRevision);
+    state = tracker;
+    secretConfig = secret;
+    lastCommittedStateSnapshot = cloneStorageValue(state);
+    storageHealth = evaluateDataHealth(state);
+    announceStorageChange('tracker', storageTrackerRevision);
+    announceStorageChange('secret', storageSecretRevision);
+    try { localStorage.removeItem(EMERGENCY_STORAGE_KEY); } catch (error) {}
+    await refreshStorageEstimate();
+    return true;
+  }
+
+  async function restoreLatestRecoveryPoint() {
+    let snapshots = [];
+    try {
+      snapshots = storageBackend === 'indexeddb' ? await getRecoverySnapshots() : [JSON.parse(localStorage.getItem(EMERGENCY_STORAGE_KEY) || 'null')].filter(Boolean);
+    } catch (error) {}
+    let latest = null;
+    let preview = null;
+    for (const candidate of snapshots) {
+      if (!candidate?.tracker || candidate.restorable === false) continue;
+      try {
+        const migrated = migrateStateSchema(candidate.tracker);
+        validateNormalizedBackupIntegrity(migrated);
+        latest = candidate;
+        preview = migrated;
+        break;
+      } catch (error) { /* Try the next recovery point. */ }
+    }
+    if (!latest || !preview) return showToast('No healthy recovery point is available yet.');
+    const when = new Date(latest.createdAt || Date.now());
+    confirmAction('Restore latest recovery point?', `Return Pocket to ${DATE_LABEL.format(when)} at ${TIME_LABEL.format(when)} (${latest.reason || 'recovery point'}). Your current state will be protected first.`, 'Restore recovery', async () => {
+      try {
+        await waitForStorageQueues();
+        await createRecoverySnapshot('Before recovery-point restore');
+        uiPreferences.theme = 'dark';
+        saveUiPreferences();
+        const nextSecret = normalizeSecretConfig(latest.secretPocket || secretConfig);
+        nextSecret.remember = false;
+        await commitAtomicReplacement(preview, nextSecret);
+        try { sessionStorage.removeItem(SECRET_SESSION_KEY); localStorage.removeItem(SECRET_TRUST_KEY); } catch (error) {}
+        resetCompanionDataBaseline();
+        renderAll();
+        setView('home');
+        showToast('Recovery point restored. Secret Pocket was locked for safety.');
+      } catch (error) {
+        console.warn('Recovery restore failed.', error);
+        showToast(error instanceof PocketStorageConflictError ? 'Another Pocket tab changed data first. Recovery restore was cancelled safely.' : 'Pocket could not restore that recovery point. Current saved data was kept.');
+      }
+    });
+  }
+
+
   function isSecretPocketUnlocked() {
     try {
       if (sessionStorage.getItem(SECRET_SESSION_KEY) === '1') return true;
@@ -874,16 +1532,14 @@
       version: SCHEMA_VERSION,
       settings: {
         theme: 'dark',
-        privacy: false,
-        demoData: false
+        privacy: false
       },
       accounts: [
         { id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0, isPrimary: true, archivedAt: null }
       ],
       goals: [],
       goalTransfers: [],
-      transactions: [],
-      checkins: {}
+      transactions: []
     };
   }
 
@@ -983,6 +1639,26 @@
     });
   }
 
+  function migrateSchema1To2(candidate) {
+    const next = cloneStorageValue(candidate && typeof candidate === 'object' ? candidate : {});
+    next.version = 2;
+    next.settings ||= {};
+    delete next.allowanceRoutine;
+    delete next.allowancePlans;
+    return next;
+  }
+
+  function migrateSchema2To3(candidate) {
+    const next = cloneStorageValue(candidate && typeof candidate === 'object' ? candidate : {});
+    next.version = 3;
+    next.settings ||= {};
+    delete next.settings.demoData;
+    delete next.checkins;
+    delete next.allowanceRoutine;
+    delete next.allowancePlans;
+    return next;
+  }
+
   function normalizeState(candidate) {
     if (!candidate || typeof candidate !== 'object') return seedState();
     const accounts = normalizeAccounts(candidate.accounts);
@@ -992,42 +1668,219 @@
     return {
       version: SCHEMA_VERSION,
       settings: {
-        theme: candidate.settings?.theme === 'light' && isSecretPocketUnlocked() ? 'light' : 'dark',
-        privacy: Boolean(candidate.settings?.privacy),
-        demoData: Boolean(candidate.settings?.demoData)
+        theme: candidate.settings?.theme === 'light' ? 'light' : 'dark',
+        privacy: Boolean(candidate.settings?.privacy)
       },
       accounts,
       goals,
       goalTransfers,
-      transactions,
-      checkins: candidate.checkins && typeof candidate.checkins === 'object' ? candidate.checkins : {}
+      transactions
     };
   }
 
-  function loadState() {
+  function migrateStateSchema(candidate) {
+    if (!candidate || typeof candidate !== 'object') return seedState();
+    let working = cloneStorageValue(candidate);
+    let version = Math.max(1, Number(working.version || 1));
+    if (version > SCHEMA_VERSION) throw new Error('This Pocket data was created by a newer schema.');
+    while (version < SCHEMA_VERSION) {
+      if (version === 1) working = migrateSchema1To2(working);
+      else if (version === 2) working = migrateSchema2To3(working);
+      else throw new Error(`No migration path exists from Pocket schema ${version}.`);
+      version = Number(working.version || version + 1);
+    }
+    return normalizeState(working);
+  }
+
+  function legacyLocalTracker() {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return seedState();
-      const normalized = normalizeState(JSON.parse(stored));
-      if (normalized.settings.demoData) {
-        const clean = seedState();
-        clean.settings.theme = normalized.settings.theme;
-        clean.settings.privacy = normalized.settings.privacy;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
-        return clean;
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) { return null; }
+  }
+
+  function legacyLocalSecret() {
+    try {
+      const raw = localStorage.getItem(SECRET_POCKET_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) { return null; }
+  }
+
+  async function initializeIndexedDbRecords(tracker, secret, { force = true } = {}) {
+    const result = await idbCommitAppData({
+      tracker: trackerSnapshotForStorage(tracker),
+      secret: normalizeSecretConfig(secret),
+      expectedTrackerRevision: storageTrackerRevision,
+      expectedSecretRevision: storageSecretRevision,
+      force
+    });
+    storageTrackerRevision = Number(result.trackerRevision || 0);
+    storageSecretRevision = Number(result.secretRevision || 0);
+  }
+
+  async function recoverHealthySnapshot(snapshots, fallbackSecret) {
+    for (const snapshot of snapshots || []) {
+      try {
+        const tracker = migrateStateSchema(snapshot?.tracker);
+        tracker.settings.theme = uiPreferences.theme;
+        validateNormalizedBackupIntegrity(tracker);
+        return { tracker, secretPocket: normalizeSecretConfig(snapshot?.secretPocket || fallbackSecret), snapshot };
+      } catch (error) { /* Try the next recovery point. */ }
+    }
+    return null;
+  }
+
+  async function bootstrapPocketStorage() {
+    const prefs = loadUiPreferences();
+    uiPreferences = prefs.value;
+    ensureStorageChannel();
+
+    if (!('indexedDB' in window)) {
+      storageBackend = 'localstorage';
+      storageDurability = 'fallback';
+      secretConfig = normalizeSecretConfig(legacyLocalSecret());
+      const raw = legacyLocalTracker();
+      let tracker;
+      try { tracker = migrateStateSchema(raw || seedState()); validateNormalizedBackupIntegrity(tracker); }
+      catch (error) { tracker = seedState(); bootStorageMessage = 'Pocket started with fresh data because compatibility storage could not be validated.'; }
+      if (!prefs.stored) {
+        uiPreferences.theme = raw?.settings?.theme === 'light' && isSecretPocketUnlocked() ? 'light' : 'dark';
+        saveUiPreferences();
       }
-      // Persist the normalized schema immediately so legacy/dead fields do not linger between sessions.
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-      return normalized;
+      tracker.settings.theme = uiPreferences.theme;
+      state = tracker;
+      lastCommittedStateSnapshot = cloneStorageValue(state);
+      storageHealth = evaluateDataHealth(state);
+      storageReady = true;
+      return state;
+    }
+
+    try {
+      storageDb = await openPocketDatabase();
+      storageBackend = 'indexeddb';
+      const [trackerRecord, secretRecord, recoveryRecord] = await Promise.all([
+        idbGetRecord(DB_TRACKER_KEY), idbGetRecord(DB_SECRET_KEY), idbGetRecord(DB_RECOVERY_KEY)
+      ]);
+      storageTrackerRevision = Number(trackerRecord?.revision || 0);
+      storageSecretRevision = Number(secretRecord?.revision || 0);
+      const recoverySnapshots = Array.isArray(recoveryRecord?.snapshots) ? recoveryRecord.snapshots : [];
+      lastRecoveryAt = recoverySnapshots.filter((item) => item?.restorable !== false).reduce((max, item) => Math.max(max, Date.parse(item?.createdAt || '') || 0), 0);
+
+      let rawTracker = trackerRecord?.data || null;
+      let rawSecret = secretRecord?.data || null;
+      let migratedLegacy = false;
+      let recoveredEmergency = false;
+      const legacyTracker = legacyLocalTracker();
+      const legacySecret = legacyLocalSecret();
+
+      if (!rawTracker && legacyTracker) { rawTracker = legacyTracker; migratedLegacy = true; }
+      if (!rawSecret && legacySecret) { rawSecret = legacySecret; migratedLegacy = true; }
+
+      try {
+        const emergency = JSON.parse(localStorage.getItem(EMERGENCY_STORAGE_KEY) || 'null');
+        const emergencyAt = Date.parse(emergency?.createdAt || '') || 0;
+        const storedAt = Date.parse(trackerRecord?.updatedAt || '') || 0;
+        if (emergency?.tracker && (!trackerRecord || emergencyAt > storedAt)) {
+          const candidate = migrateStateSchema(emergency.tracker);
+          validateNormalizedBackupIntegrity(candidate);
+          rawTracker = emergency.tracker;
+          rawSecret = emergency.secretPocket || rawSecret;
+          bootStorageMessage = 'Pocket recovered a newer emergency copy after an earlier storage write problem.';
+          recoveredEmergency = true;
+        }
+      } catch (error) { /* Ignore an invalid or stale emergency copy. */ }
+
+      rawTracker ||= seedState();
+      rawSecret ||= defaultSecretConfig();
+      secretConfig = normalizeSecretConfig(rawSecret);
+
+      if (!prefs.stored) {
+        uiPreferences.theme = rawTracker?.settings?.theme === 'light' && isSecretPocketUnlocked() ? 'light' : 'dark';
+        saveUiPreferences();
+      }
+
+      let tracker = null;
+      let needsCommit = !trackerRecord || !secretRecord || migratedLegacy || recoveredEmergency || Number(rawTracker?.version || 1) !== SCHEMA_VERSION;
+      try {
+        tracker = migrateStateSchema(rawTracker);
+        tracker.settings.theme = uiPreferences.theme;
+        validateNormalizedBackupIntegrity(tracker);
+      } catch (error) {
+        console.warn('Stored Pocket data failed integrity validation.', error);
+        try {
+          await storeRecoverySnapshot({
+            id: `recovery-corrupt-${Date.now().toString(36)}`,
+            createdAt: new Date().toISOString(),
+            reason: 'Stored data before automatic integrity recovery',
+            schemaVersion: Number(rawTracker?.version || 1),
+            restorable: false,
+            tracker: cloneStorageValue(rawTracker),
+            secretPocket: cloneStorageValue(rawSecret)
+          });
+        } catch (snapshotError) {}
+        const recovered = await recoverHealthySnapshot(recoverySnapshots, rawSecret);
+        if (recovered) {
+          tracker = recovered.tracker;
+          secretConfig = recovered.secretPocket;
+          bootStorageMessage = `Pocket restored a healthy recovery point from ${DATE_LABEL.format(new Date(recovered.snapshot.createdAt))}.`;
+          needsCommit = true;
+        } else {
+          tracker = seedState();
+          tracker.settings.theme = uiPreferences.theme;
+          bootStorageMessage = 'Pocket isolated invalid stored data and opened a fresh tracker. The previous raw copy was kept as a recovery point.';
+          needsCommit = true;
+        }
+      }
+
+      if (needsCommit) {
+        if (migratedLegacy || recoveredEmergency || Number(rawTracker?.version || 1) !== SCHEMA_VERSION) {
+          try {
+            await storeRecoverySnapshot({
+              id: `recovery-migration-${Date.now().toString(36)}`,
+              createdAt: new Date().toISOString(),
+              reason: migratedLegacy ? 'Before IndexedDB migration' : recoveredEmergency ? 'Emergency copy before recovery commit' : `Before schema ${SCHEMA_VERSION} migration`,
+              schemaVersion: Number(rawTracker?.version || 1),
+              tracker: cloneStorageValue(rawTracker),
+              secretPocket: cloneStorageValue(rawSecret)
+            });
+          } catch (error) { console.warn('Migration recovery point could not be saved.', error); }
+        }
+        await initializeIndexedDbRecords(tracker, secretConfig, { force: true });
+      }
+
+      state = tracker;
+      lastCommittedStateSnapshot = cloneStorageValue(state);
+      storageHealth = evaluateDataHealth(state);
+      storageReady = true;
+
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(SECRET_POCKET_KEY);
+        if (recoveredEmergency) localStorage.removeItem(EMERGENCY_STORAGE_KEY);
+      } catch (error) { /* Legacy cleanup is best-effort. */ }
+
+      await refreshStorageEstimate();
+      return state;
     } catch (error) {
-      console.warn('Unable to load saved data.', error);
-      return seedState();
+      console.error('IndexedDB initialization failed; using compatibility storage.', error);
+      storageDb = null;
+      storageBackend = 'localstorage';
+      storageDurability = 'fallback';
+      secretConfig = normalizeSecretConfig(legacyLocalSecret());
+      let tracker;
+      const raw = legacyLocalTracker();
+      try { tracker = migrateStateSchema(raw || seedState()); validateNormalizedBackupIntegrity(tracker); }
+      catch (loadError) { tracker = seedState(); }
+      tracker.settings.theme = uiPreferences.theme;
+      state = tracker;
+      lastCommittedStateSnapshot = cloneStorageValue(state);
+      storageHealth = evaluateDataHealth(state);
+      storageReady = true;
+      bootStorageMessage = 'IndexedDB was unavailable, so Pocket is using compatibility storage. Keep regular backups.';
+      return state;
     }
   }
 
-  function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }
 
   function accountBalance(accountId) {
     return fromCents(accountBalanceCentsForState(state, accountId));
@@ -3486,6 +4339,7 @@
     renderSecretPocketSettings();
     renderAllowanceHistory();
     renderWallets();
+    renderStorageStatus();
   }
 
   function renderHeader() {
@@ -3703,6 +4557,21 @@
     setAllowanceAmountValue(applyAmountKey(els.allowanceAmount.value || '', key, { allowDecimal: false, maxWholeDigits: 7 }));
   }
 
+  function maybeRemindExternalBackup() {
+    if (backupReminderShown || !state) return;
+    const meaningful = state.transactions.length >= 10 || state.goals.some((goal) => !goal.removedAt) || state.accounts.length > 1;
+    if (!meaningful) return;
+    const now = Date.now();
+    const lastExport = Math.max(0, Number(uiPreferences.lastExportAt || 0));
+    const lastReminder = Math.max(0, Number(uiPreferences.lastBackupReminderAt || 0));
+    if (lastExport && now - lastExport < 14 * 24 * 60 * 60 * 1000) return;
+    if (lastReminder && now - lastReminder < 3 * 24 * 60 * 60 * 1000) return;
+    backupReminderShown = true;
+    uiPreferences.lastBackupReminderAt = now;
+    saveUiPreferences();
+    window.setTimeout(() => showToast('Your Pocket data has grown. Consider exporting an external backup for protection outside this browser.'), 450);
+  }
+
   function setView(view, updateHash = true) {
     if (!['home', 'activity', 'savings', 'more'].includes(view)) view = 'home';
     currentView = view;
@@ -3718,7 +4587,7 @@
     if (view === 'home') stabilizeWalletCarousel(walletModeIndex);
     if (view === 'activity') renderActivity();
     if (view === 'savings') renderSavings();
-    if (view === 'more') renderSettings();
+    if (view === 'more') { renderSettings(); maybeRemindExternalBackup(); }
     companionSetContext(view);
     syncSecretLightWorld({ force: true });
     if (updateHash) history.replaceState(null, '', `#${view}`);
@@ -3786,7 +4655,7 @@
   async function unlockLightTheme() {
     const pin=els.themePassword.value;
     if(pin.length!==4 || !(await verifySecretPin(pin))){ els.themePasswordError.textContent='That code did not unlock Secret Pocket.'; els.themePassword.classList.add('is-invalid'); els.themePassword.setAttribute('aria-invalid','true'); setSecretPinEntry(''); return; }
-    const firstReveal=!secretConfig.firstRevealSeen; secretConfig.discovered=true; secretConfig.firstRevealSeen=true; setSecretPocketUnlocked(true,els.secretRememberUnlock.checked); saveSecretConfig(); state.settings.theme='light'; saveState(); closeDialog(els.themeUnlockDialog); renderAll(); playSecretReveal(firstReveal); showToast(firstReveal?'Secret Pocket unlocked ♡':'Secret Pocket unlocked.');
+    const firstReveal=!secretConfig.firstRevealSeen; secretConfig.discovered=true; secretConfig.firstRevealSeen=true; setSecretPocketUnlocked(true,els.secretRememberUnlock.checked); saveSecretConfig(); state.settings.theme='light'; persistCurrentTheme(); closeDialog(els.themeUnlockDialog); renderAll(); playSecretReveal(firstReveal); showToast(firstReveal?'Secret Pocket unlocked ♡':'Secret Pocket unlocked.');
   }
   function renderSecretPocketSettings() {
     if(!els.secretPocketDialog) return; const unlocked=isSecretPocketUnlocked(); const lightMode=state.settings.theme==='light';
@@ -3809,7 +4678,7 @@
     if(!isSecretPocketUnlocked()) return openThemeUnlock();
     const nextTheme=theme==='light'?'light':'dark';
     state.settings.theme=nextTheme;
-    saveState();
+    persistCurrentTheme();
     closeDialog(els.secretPocketDialog);
     renderAll();
     syncSecretLightWorld({ force: true });
@@ -3821,8 +4690,8 @@
   function resetCompanionPosition() { if(!els.pocketCompanion) return; companionCancelTravel(); delete els.pocketCompanion.dataset.placed; companionPosition={x:null,y:null}; syncCompanion({fast:true}); showToast('Companion position reset.'); }
   function openChangeSecretPin() { els.changeSecretPinForm.reset(); els.changeSecretPinError.textContent=''; openDialog(els.changeSecretPinDialog); requestAnimationFrame(()=>els.newSecretPin.focus({preventScroll:true})); }
   async function changeSecretPin() { const pin=els.newSecretPin.value.replace(/\D/g,'').slice(0,4); const confirmPin=els.confirmSecretPin.value.replace(/\D/g,'').slice(0,4); if(pin.length!==4){ els.changeSecretPinError.textContent='Enter exactly four digits.'; return; } if(pin!==confirmPin){ els.changeSecretPinError.textContent='The two PINs do not match.'; return; } await storeSecretPin(pin); closeDialog(els.changeSecretPinDialog); showToast('Secret PIN changed.'); }
-  function lockSecretPocket() { setSecretPocketUnlocked(false,false); state.settings.theme='dark'; saveState(); closeDialog(els.secretPocketDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket locked.'); }
-  function resetSecretPocketAccess() { const companionProfile=companionProfileState(); secretConfig=defaultSecretConfig(); secretConfig.companionProfile=companionProfile; saveSecretConfig(); try{sessionStorage.removeItem(SECRET_SESSION_KEY);localStorage.removeItem(SECRET_TRUST_KEY);}catch(error){} state.settings.theme='dark'; saveState(); closeDialog(els.secretPocketDialog); closeDialog(els.companionRoomDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket access reset to the default code.'); }
+  function lockSecretPocket() { setSecretPocketUnlocked(false,false); state.settings.theme='dark'; persistCurrentTheme(); closeDialog(els.secretPocketDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket locked.'); }
+  function resetSecretPocketAccess() { const companionProfile=companionProfileState(); secretConfig=defaultSecretConfig(); secretConfig.companionProfile=companionProfile; saveSecretConfig(); try{sessionStorage.removeItem(SECRET_SESSION_KEY);localStorage.removeItem(SECRET_TRUST_KEY);}catch(error){} state.settings.theme='dark'; persistCurrentTheme(); closeDialog(els.secretPocketDialog); closeDialog(els.companionRoomDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket access reset to the default code.'); }
   function openSecretPocketRecovery() { confirmAction('Reset Secret Pocket access?','This resets only the secret PIN and hidden appearance preferences. Wallets, transactions, savings, and allowance history are not changed.','Reset access',resetSecretPocketAccess); }
   function handleSecretVersionTap() { if(secretResetTriggered){secretResetTriggered=false;return;} if(secretConfig?.discovered){ if(isSecretPocketUnlocked()) openSecretPocketSettings(); else openThemeUnlock(); return; } secretTapCount+=1; window.clearTimeout(secretTapTimer); secretTapTimer=window.setTimeout(()=>{secretTapCount=0;},SECRET_TRIGGER_WINDOW); if(secretTapCount>=SECRET_TRIGGER_TAPS){window.clearTimeout(secretTapTimer);secretTapCount=0;openThemeUnlock();} }
   function startSecretRecoveryHold() { secretResetTriggered=false; window.clearTimeout(secretResetTimer); secretResetTimer=window.setTimeout(()=>{secretResetTriggered=true;openSecretPocketRecovery();},SECRET_RESET_HOLD); }
@@ -3921,7 +4790,7 @@
     candidate.transactions.push(reversal, corrected);
     if (!validateCandidateBalances(candidate, 'That correction would make a wallet balance negative.')) return null;
     state = candidate;
-    state.settings.demoData = false;
+
     saveState();
     return corrected;
   }
@@ -3937,7 +4806,7 @@
       id: uid('tx'), type: 'income', amount: received, category: 'Allowance', accountId,
       date: receivedDate, note: 'Allowance received', createdAt: new Date().toISOString()
     });
-    state.settings.demoData = false;
+
     saveState();
     closeDialog(els.allowanceDialog);
     renderAll();
@@ -3962,7 +4831,7 @@
     Object.assign(next, { amount: moneyRound(amount), accountId, date: receivedDate, note: 'Allowance received', updatedAt: new Date().toISOString() });
     if (!validateCandidateBalances(candidate, 'That edit would make a wallet balance negative.')) return false;
     state = candidate;
-    state.settings.demoData = false;
+
     saveState();
     return true;
   }
@@ -4050,7 +4919,7 @@
       state.transactions.push(savedTransaction);
     }
 
-    state.settings.demoData = false;
+
     saveState();
     closeDialog(els.expenseDialog);
     renderAll();
@@ -4175,7 +5044,7 @@
       tx = { id: uid('tx'), type: 'transfer', category: 'Transfer', amount, fromAccountId, toAccountId, date, note, createdAt: new Date().toISOString() };
       state.transactions.push(tx);
     }
-    state.settings.demoData = false;
+
     saveState();
     closeDialog(els.transferDialog);
     renderAll();
@@ -4228,7 +5097,7 @@
     goal.name = name;
     goal.target = moneyRound(target);
     goal.updatedAt = new Date().toISOString();
-    state.settings.demoData = false;
+
     saveState();
     renderAll();
     setView('savings');
@@ -4268,7 +5137,7 @@
     const goal = { id: uid('goal'), name, target, openingSaved: 0, createdAt: localDateKey() };
     state.goals.push(goal);
     if (startingAmount > 0) state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: saveDate, note: name, goalId: goal.id, createdAt: new Date().toISOString() });
-    state.settings.demoData = false;
+
     saveState();
     closeDialog(els.goalDialog);
     renderAll();
@@ -4299,7 +5168,7 @@
       goal.removedAt = new Date().toISOString();
       goal.returnedToWallets = true;
       if (!state.goals.some((item) => !item.removedAt)) manageGoalsMode = false;
-      state.settings.demoData = false;
+
       saveState();
       renderAll();
       showToast(saved > 0 ? 'Goal deleted and savings returned to the original wallet.' : 'Savings goal deleted.');
@@ -4382,7 +5251,7 @@
     const allocatedCents = allocations.reduce((sum, item) => sum + toCents(item.amount || 0), 0);
     if (allocatedCents !== toCents(amount)) return showToast('Pocket could not preserve the wallet source for that transfer.');
     state.goalTransfers.push({ id: uid('goal-transfer'), fromGoalId: source.id, toGoalId: destination.id, amount, allocations, date, createdAt: new Date().toISOString() });
-    state.settings.demoData = false;
+
     saveState();
     closeDialog(els.goalTransferDialog);
     renderAll();
@@ -4450,7 +5319,7 @@
       return;
     }
     state.transactions.push({ id: uid('tx'), type: 'saving', amount, category: 'Savings', accountId, date, note: goal.name, goalId: goal.id, createdAt: new Date().toISOString() });
-    state.settings.demoData = false;
+
     saveState();
     closeDialog(els.contributeDialog);
     renderAll();
@@ -4532,7 +5401,7 @@
       candidate.transactions = candidate.transactions.filter((item) => !removeIds.has(item.id));
       if (!validateCandidateBalances(candidate, 'This transaction cannot be undone because later activity depends on that money.')) return;
       state = candidate;
-      state.settings.demoData = false;
+
       saveState();
       closeDialog(els.expenseReceiptDialog);
       renderAll();
@@ -4566,7 +5435,7 @@
     if (!name) return showToast('Give this wallet a name.');
     if (state.accounts.some((account) => account.name.toLowerCase() === name.toLowerCase())) return showToast(`${name} is already in your wallets.`);
     state.accounts.push({ id: uid('account'), name, type: preset === 'Other' ? 'other' : 'ewallet', openingBalance, isPrimary: false, archivedAt: null });
-    state.settings.demoData = false;
+
     saveState();
     closeDialog(els.walletDialog);
     renderAll();
@@ -4609,7 +5478,7 @@
     }
     if (!validateCandidateBalances(candidate, 'That reconciliation would make a wallet balance negative.')) return;
     state = candidate;
-    state.settings.demoData = false;
+
     saveState();
     closeDialog(els.walletManageDialog);
     currentWalletManageId = null;
@@ -4668,26 +5537,34 @@
     openDialog(els.confirmDialog);
   }
 
-  function resetAllData() {
-    const theme = state.settings.theme;
-    state = seedState();
-    state.settings.theme = theme;
-    saveState();
-    resetCompanionDataBaseline();
-    renderAll();
-    setView('home');
-    showToast('All tracker data cleared. Companion comparisons were reset too.');
+  async function resetAllData() {
+    const previousTheme = uiPreferences.theme;
+    try {
+      await waitForStorageQueues();
+      await createRecoverySnapshot('Before clearing all tracker data');
+      const next = seedState();
+      next.settings.theme = previousTheme;
+      await commitAtomicReplacement(next, secretConfig);
+      resetCompanionDataBaseline();
+      renderAll();
+      setView('home');
+      showToast('All tracker data cleared. A recovery point was kept, and companion comparisons were reset.');
+    } catch (error) {
+      console.warn('Unable to clear Pocket data safely.', error);
+      showToast(error instanceof PocketStorageConflictError ? 'Another Pocket tab changed data first. Clear data was cancelled safely.' : 'Pocket could not clear the tracker safely. No saved data was replaced.');
+    }
   }
 
   function pocketBackupPayload() {
     return {
       format: 'pocket-full-backup',
-      backupVersion: 2,
+      backupVersion: 3,
       appVersion: APP_VERSION,
       schemaVersion: SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       tracker: cloneStateSnapshot(state),
-      secretPocket: cloneStateSnapshot(secretConfig || loadSecretConfig())
+      secretPocket: cloneStateSnapshot(secretConfig || loadSecretConfig()),
+      storageArchitecture: storageBackend === 'indexeddb' ? 'indexeddb-v1' : 'compatibility-storage'
     };
   }
 
@@ -4702,6 +5579,9 @@
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+    uiPreferences.lastExportAt = Date.now();
+    saveUiPreferences();
+    renderStorageStatus();
     showToast('Full Pocket backup downloaded, including Secret Pocket and companion progress.');
   }
 
@@ -4782,14 +5662,14 @@
   function parsePocketBackup(raw) {
     if (!raw || typeof raw !== 'object') throw new Error('Backup must be a JSON object.');
     if (raw.format === 'pocket-full-backup') {
-      if (![1, 2].includes(Number(raw.backupVersion))) throw new Error('Unsupported Pocket backup version.');
+      if (![1, 2, 3].includes(Number(raw.backupVersion))) throw new Error('Unsupported Pocket backup version.');
       if (Number(raw.schemaVersion || 1) > SCHEMA_VERSION) throw new Error('This backup was created by a newer Pocket data schema.');
       if (!validateBackupTrackerShape(raw.tracker)) throw new Error('Pocket tracker data is incomplete.');
-      const tracker = validateNormalizedBackupIntegrity(normalizeState(raw.tracker));
+      const tracker = validateNormalizedBackupIntegrity(migrateStateSchema(raw.tracker));
       return { tracker, secretPocket: raw.secretPocket ? normalizeSecretConfig(raw.secretPocket) : null, full: true };
     }
     if (Number(raw.version || 1) > SCHEMA_VERSION) throw new Error('This legacy backup uses a newer Pocket data schema.');
-    if (validateBackupTrackerShape(raw)) return { tracker: validateNormalizedBackupIntegrity(normalizeState(raw)), secretPocket: null, full: false };
+    if (validateBackupTrackerShape(raw)) return { tracker: validateNormalizedBackupIntegrity(migrateStateSchema(raw)), secretPocket: null, full: false };
     throw new Error('Not a recognized Pocket backup.');
   }
 
@@ -4803,20 +5683,32 @@
       const goalCount = tracker.goals.filter((goal) => !goal.removedAt).length;
       const transactionCount = tracker.transactions.length;
       const companionCopy = parsed.full ? ' Companion profile and Secret Pocket settings are included.' : ' This is a legacy tracker-only backup; your current Secret Pocket profile will be kept.';
-      confirmAction('Restore this Pocket backup?', `${activeWalletCount} active wallet${activeWalletCount === 1 ? '' : 's'}, ${goalCount} active goal${goalCount === 1 ? '' : 's'}, and ${transactionCount} transaction${transactionCount === 1 ? '' : 's'} will replace the current tracker.${companionCopy}`, 'Restore data', () => {
-        state = tracker;
-        if (parsed.secretPocket) {
-          secretConfig = normalizeSecretConfig(parsed.secretPocket);
-          secretConfig.remember = false;
-          saveSecretConfig();
-          try { sessionStorage.removeItem(SECRET_SESSION_KEY); localStorage.removeItem(SECRET_TRUST_KEY); } catch (error) {}
-          state.settings.theme = 'dark';
+      confirmAction('Restore this Pocket backup?', `${activeWalletCount} active wallet${activeWalletCount === 1 ? '' : 's'}, ${goalCount} active goal${goalCount === 1 ? '' : 's'}, and ${transactionCount} transaction${transactionCount === 1 ? '' : 's'} will replace the current tracker.${companionCopy}`, 'Restore data', async () => {
+        const previousTheme = uiPreferences.theme;
+        try {
+          await waitForStorageQueues();
+          await createRecoverySnapshot('Before backup restore');
+          const nextSecret = parsed.secretPocket ? normalizeSecretConfig(parsed.secretPocket) : normalizeSecretConfig(secretConfig);
+          if (parsed.full) {
+            nextSecret.remember = false;
+            uiPreferences.theme = 'dark';
+          }
+          saveUiPreferences();
+          tracker.settings.theme = uiPreferences.theme;
+          await commitAtomicReplacement(tracker, nextSecret);
+          if (parsed.full) {
+            try { sessionStorage.removeItem(SECRET_SESSION_KEY); localStorage.removeItem(SECRET_TRUST_KEY); } catch (error) {}
+          }
+          resetCompanionDataBaseline();
+          renderAll();
+          setView('home');
+          showToast(parsed.full ? 'Full Pocket backup restored atomically. Secret Pocket is locked for safety.' : 'Legacy Pocket backup restored atomically.');
+        } catch (error) {
+          uiPreferences.theme = previousTheme;
+          saveUiPreferences();
+          console.warn('Pocket backup restore failed.', error);
+          showToast(error instanceof PocketStorageConflictError ? 'Another Pocket tab changed data first. Restore was cancelled safely.' : 'Pocket could not commit that restore. Your previous saved data was kept.');
         }
-        saveState();
-        resetCompanionDataBaseline();
-        renderAll();
-        setView('home');
-        showToast(parsed.full ? 'Full Pocket backup restored. Secret Pocket is locked for safety.' : 'Legacy Pocket backup restored successfully.');
       });
     } catch (error) {
       console.warn(error);
@@ -4840,7 +5732,8 @@
     els.updateBanner.setAttribute('aria-hidden', 'true');
   }
 
-  function applyAvailableUpdate() {
+  async function applyAvailableUpdate() {
+    await waitForStorageQueues();
     const worker = waitingServiceWorker || serviceWorkerRegistration?.waiting;
     if (!worker) {
       showToast('No downloaded update is waiting.');
@@ -4945,6 +5838,10 @@
     }
     if (action === 'export-data') exportData();
     if (action === 'import-data') els.importFile.click();
+    if (action === 'request-storage-persistence') requestStoragePersistence({ announce: true });
+    if (action === 'run-data-health') runDataHealthCheck({ announce: true });
+    if (action === 'create-recovery-point') createManualRecoveryPoint();
+    if (action === 'restore-recovery-point') restoreLatestRecoveryPoint();
     if (action === 'reset-data') confirmAction('Clear all data?', 'This removes transactions, allowance history, and savings goals stored on this device. This cannot be undone after you continue.', 'Clear data', resetAllData);
   }
 
@@ -4954,7 +5851,7 @@
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
       'activityCount', 'allTransactions', 'totalSavings', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
-      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
+      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDate', 'transferDate', 'goalSaveDate', 'goalTransferDate', 'contributeDate',
@@ -5294,13 +6191,32 @@
 
     window.addEventListener('hashchange', () => setView(location.hash.slice(1), false));
     window.addEventListener('storage', (event) => {
-      if (event.key === STORAGE_KEY) {
-        state = loadState();
-        renderAll();
+      if (event.key === STORAGE_SYNC_KEY && event.newValue) {
+        try { handleStorageSignal(JSON.parse(event.newValue)); } catch (error) {}
+        return;
+      }
+      if (event.key === UI_PREFS_KEY && event.newValue) {
+        const prefs = loadUiPreferences();
+        if (prefs.value.theme !== uiPreferences.theme) {
+          uiPreferences = prefs.value;
+          if (state) { state.settings.theme = uiPreferences.theme; renderAll(); }
+        } else uiPreferences = prefs.value;
+        return;
+      }
+      if (storageBackend === 'localstorage' && event.key === STORAGE_KEY && event.newValue) {
+        try {
+          const next = migrateStateSchema(JSON.parse(event.newValue));
+          next.settings.theme = uiPreferences.theme;
+          validateNormalizedBackupIntegrity(next);
+          state = next;
+          lastCommittedStateSnapshot = cloneStorageValue(state);
+          storageHealth = evaluateDataHealth(state);
+          renderAll();
+        } catch (error) { console.warn('Ignored an invalid cross-tab compatibility-storage update.', error); }
       }
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') { prepareCompanionProfile(); checkForUpdates(); syncCompanion({ welcome: companionReturnGap > 1000 * 60 * 45 }); }
+      if (document.visibilityState === 'visible') { reloadTrackerFromIndexedDb({ announce: false }); prepareCompanionProfile(); checkForUpdates(); syncCompanion({ welcome: companionReturnGap > 1000 * 60 * 45 }); }
       else { persistCompanionPresence(); clearCompanionTimers(); }
     });
     window.addEventListener('pagehide', persistCompanionPresence);
@@ -5315,7 +6231,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.3.0');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.4.0');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
@@ -5344,23 +6260,23 @@
     }
   }
 
-  function init() {
+  async function init() {
     cacheElements();
-    secretConfig = loadSecretConfig();
+    await bootstrapPocketStorage();
     try {
       if (sessionStorage.getItem(LEGACY_LIGHT_SESSION_KEY) === '1') {
         secretConfig.discovered = true;
         secretConfig.firstRevealSeen = true;
-        saveSecretConfig();
         sessionStorage.setItem(SECRET_SESSION_KEY, '1');
         sessionStorage.removeItem(LEGACY_LIGHT_SESSION_KEY);
+        await saveSecretConfig();
       }
     } catch (error) { /* Legacy session migration is best-effort. */ }
-    state = loadState();
     prepareCompanionProfile();
     bindEvents();
     renderAll();
     setView(location.hash.slice(1) || 'home', false);
+    runDataHealthCheck({ announce: false });
     if ('ResizeObserver' in window) {
       walletCarouselResizeObserver = new ResizeObserver(() => { if (currentView === 'home') stabilizeWalletCarousel(walletModeIndex); });
       walletCarouselResizeObserver.observe(els.walletCarousel);
@@ -5370,6 +6286,8 @@
       if (companionIsAvailable()) { const pos = companionSafePosition(true); companionPlace(pos.maxX, pos.maxY, true); }
     });
     registerServiceWorker();
+    requestStoragePersistence({ announce: false });
+    if (bootStorageMessage) window.setTimeout(() => showToast(bootStorageMessage), 650);
   }
 
   document.addEventListener('DOMContentLoaded', init);

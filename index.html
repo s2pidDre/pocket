@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.3.0">
+  <link rel="stylesheet" href="css/style.css?v=3.4.0">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -260,7 +260,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">Your data</p><h2>Backup and restore</h2></div></div>
               <button class="setting-row" type="button" data-action="export-data">
                 <span class="round-icon neutral-soft"><svg><use href="#i-download"/></svg></span>
-                <span><strong>Export backup</strong><small>Download tracker, Secret Pocket, and companion data.</small></span>
+                <span><strong>Export backup</strong><small id="exportBackupSummary">Download tracker, Secret Pocket, and companion data.</small></span>
                 <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
               <button class="setting-row" type="button" data-action="import-data">
@@ -271,11 +271,35 @@
               <input id="importFile" type="file" accept="application/json" hidden>
             </article>
 
+            <article class="card settings-card storage-recovery-card">
+              <div class="section-heading compact"><div><p class="eyebrow">Reliability</p><h2>Storage & recovery</h2></div></div>
+              <button class="setting-row" type="button" data-action="request-storage-persistence">
+                <span class="round-icon neutral-soft"><svg><use href="#i-lock"/></svg></span>
+                <span><strong>Storage protection</strong><small id="storageProtectionSummary">Checking browser storage…</small></span>
+                <span class="status-pill neutral" id="storageProtectionStatus">Checking</span>
+              </button>
+              <button class="setting-row" type="button" data-action="run-data-health">
+                <span class="round-icon green-soft"><svg><use href="#i-check"/></svg></span>
+                <span><strong>Data health</strong><small id="dataHealthSummary">Checking wallets, ledger, goals, and corrections.</small></span>
+                <span class="status-pill neutral" id="dataHealthStatus">Checking</span>
+              </button>
+              <button class="setting-row" type="button" data-action="create-recovery-point">
+                <span class="round-icon neutral-soft"><svg><use href="#i-download"/></svg></span>
+                <span><strong>Create recovery point</strong><small id="recoveryPointSummary">Pocket also creates recovery points automatically before risky changes.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+              <button class="setting-row" id="restoreRecoveryButton" type="button" data-action="restore-recovery-point" hidden>
+                <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
+                <span><strong>Restore latest recovery point</strong><small id="restoreRecoverySummary">Return to the most recent protected snapshot.</small></span>
+                <svg class="chevron"><use href="#i-chevron"/></svg>
+              </button>
+            </article>
+
             <article class="card settings-card">
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.3.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.4.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -953,6 +977,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.3.0" defer></script>
+  <script src="js/app.js?v=3.4.0" defer></script>
 </body>
 </html>

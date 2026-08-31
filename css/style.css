@@ -5833,3 +5833,11 @@ body,
 }
 .goal-history-row.is-corrected { opacity: .62; }
 .goal-history-row.is-corrected .goal-history-copy > strong { text-decoration: line-through; text-decoration-thickness: 1px; }
+
+
+/* Pocket v3.4.0 — storage, recovery, and data-health states. */
+.status-pill.warning { background: color-mix(in srgb, #d99b36 16%, var(--surface-3)); color: #b67a18; }
+.status-pill.error { background: color-mix(in srgb, var(--red) 14%, var(--surface-3)); color: var(--red); }
+.storage-recovery-card .setting-row[hidden] { display: none !important; }
+:root[data-theme="light"] .status-pill.warning { background: #fff0d2; color: #9b691a; }
+:root[data-theme="light"] .status-pill.error { background: #ffe7eb; color: #b7485d; }
