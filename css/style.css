@@ -5780,3 +5780,56 @@ body,
 @media (max-width: 560px) {
   .companion-awareness-note { padding: 10px 11px; }
 }
+
+/* Pocket v3.3.0 — integrity, correction, and wallet lifecycle controls. */
+.wallet-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.wallet-manage,
+.wallet-remove {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 760;
+  cursor: pointer;
+}
+.wallet-manage:hover,
+.wallet-remove:hover { border-color: var(--primary); color: var(--primary); }
+.wallet-row.is-archived { opacity: .72; }
+.wallet-row.is-archived .round-icon { filter: saturate(.35); }
+.wallet-row.is-archived > div > strong { color: var(--text-2); }
+.wallet-manage-dialog .dialog-panel { max-height: min(620px, calc(100dvh - 34px)); }
+.wallet-manage-footer { display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; }
+.wallet-archive-button { min-width: 86px; }
+.transaction-row.is-corrected,
+.allowance-history-row.is-corrected { opacity: .62; }
+.transaction-row.is-corrected .transaction-copy > strong,
+.allowance-history-row.is-corrected .allowance-history-copy > strong { text-decoration: line-through; text-decoration-thickness: 1px; }
+.corrected-status { white-space: nowrap; }
+.compact-history-action.correction { color: var(--primary); }
+.activity-cat-correction,
+.activity-cat-reconciliation { background: var(--surface-3); color: var(--text-2); }
+
+:root[data-theme="light"] .wallet-manage,
+:root[data-theme="light"] .wallet-remove {
+  background: rgba(255,255,255,.78);
+  border-color: rgba(224,190,207,.9);
+}
+
+@media (max-width: 560px) {
+  .wallet-row { grid-template-columns: 38px minmax(0,1fr); }
+  .wallet-row-actions { grid-column: 2; justify-content: flex-start; }
+  .wallet-manage-footer { grid-template-columns: 1fr 1fr; }
+  .wallet-manage-footer .wallet-archive-button { grid-column: 1 / -1; order: 3; }
+}
+.goal-history-row.is-corrected { opacity: .62; }
+.goal-history-row.is-corrected .goal-history-copy > strong { text-decoration: line-through; text-decoration-thickness: 1px; }

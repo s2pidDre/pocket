@@ -2,8 +2,8 @@
   'use strict';
 
   const STORAGE_KEY = 'pocket-student-tracker-v1';
-  const SCHEMA_VERSION = 1;
-  const APP_VERSION = '3.2.0';
+  const SCHEMA_VERSION = 2;
+  const APP_VERSION = '3.3.0';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -16,7 +16,7 @@
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: 'PHP',
-    minimumFractionDigits: 0,
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
   const WHOLE_CURRENCY = new Intl.NumberFormat('en-PH', {
@@ -39,14 +39,15 @@
     Allowance: { icon: 'i-arrow-down', tone: 'green-soft', className: 'activity-cat-allowance' },
     Savings: { icon: 'i-savings', tone: 'purple-soft', className: 'activity-cat-savings' },
     'Savings return': { icon: 'i-savings', tone: 'green-soft', className: 'activity-cat-savings-return' },
-    Transfer: { icon: 'i-transfer', tone: 'accent-soft', className: 'activity-cat-transfer' }
+    Transfer: { icon: 'i-transfer', tone: 'accent-soft', className: 'activity-cat-transfer' },
+    Correction: { icon: 'i-refresh', tone: 'neutral-soft', className: 'activity-cat-correction' },
+    Reconciliation: { icon: 'i-wallet', tone: 'neutral-soft', className: 'activity-cat-reconciliation' }
   };
 
   const els = {};
   let state;
   let toastTimer = 0;
-  let pendingUndo = null;
-  let pendingConfirm = null;
+    let pendingConfirm = null;
   let currentView = 'home';
   let serviceWorkerRegistration = null;
   let waitingServiceWorker = null;
@@ -55,6 +56,8 @@
   let currentExpenseEditId = null;
   let currentAllowanceEditId = null;
   let currentTransferEditId = null;
+  let currentCorrectionSourceId = null;
+  let currentWalletManageId = null;
   let walletModeIndex = 0;
   let walletCarouselFrame = 0;
   let walletCarouselResizeObserver = null;
@@ -259,13 +262,15 @@
     return { pinSalt: '', pinHash: '', remember: false, companionEnabled: true, companionSpeech: 'normal', companionMovement: 'normal', companionDataSpeech: 'chatty', discovered: false, firstRevealSeen: false, companionProfile: defaultCompanionProfile() };
   }
 
+  function normalizeSecretConfig(input) {
+    const parsed = input && typeof input === 'object' ? input : {};
+    const base = defaultSecretConfig();
+    return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', companionDataSpeech: ['quiet','balanced','chatty','very-chatty'].includes(parsed.companionDataSpeech) ? parsed.companionDataSpeech : 'chatty', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
+  }
+
   function loadSecretConfig() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(SECRET_POCKET_KEY) || 'null');
-      const base = defaultSecretConfig();
-      if (!parsed || typeof parsed !== 'object') return base;
-      return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', companionDataSpeech: ['quiet','balanced','chatty','very-chatty'].includes(parsed.companionDataSpeech) ? parsed.companionDataSpeech : 'chatty', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
-    } catch (error) { return defaultSecretConfig(); }
+    try { return normalizeSecretConfig(JSON.parse(localStorage.getItem(SECRET_POCKET_KEY) || 'null')); }
+    catch (error) { return defaultSecretConfig(); }
   }
 
   function saveSecretConfig() { try { localStorage.setItem(SECRET_POCKET_KEY, JSON.stringify(secretConfig || defaultSecretConfig())); } catch (error) {} }
@@ -368,11 +373,11 @@
     const goals = {};
     state.goals.filter((goal) => !goal.removedAt).forEach((goal) => {
       const target = Math.max(0, Number(goal.target || 0));
-      const current = Math.max(0, Number(goal.current || 0));
+      const current = goalCurrent(goal);
       goals[goal.id] = { current, target, percent: target > 0 ? Math.min(100, Math.round(current / target * 100)) : 0 };
     });
     const wallets = {};
-    state.accounts.forEach((account) => { wallets[account.id] = accountBalance(account.id); });
+    activeAccounts().forEach((account) => { wallets[account.id] = accountBalance(account.id); });
     return {
       capturedAt: Date.now(),
       savingsTotal: Math.max(0, totalSavings()),
@@ -658,9 +663,38 @@
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   }
 
-  function currency(value, whole = false) {
-    const number = Number(value) || 0;
-    return whole ? WHOLE_CURRENCY.format(number) : CURRENCY.format(number);
+  function toCents(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.round((number + Number.EPSILON) * 100) : 0;
+  }
+
+  function fromCents(cents) {
+    return Number(cents || 0) / 100;
+  }
+
+  function moneyRound(value) {
+    return fromCents(toCents(value));
+  }
+
+  function currency(value) {
+    const cents = toCents(value);
+    return cents % 100 === 0 ? WHOLE_CURRENCY.format(fromCents(cents)) : CURRENCY.format(fromCents(cents));
+  }
+
+  function privateCurrency(value) {
+    return state?.settings?.privacy ? '₱••••' : currency(value);
+  }
+
+  function validDateKey(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+  }
+
+  function activeAccounts(candidate = state) {
+    return (candidate?.accounts || []).filter((account) => !account.archivedAt);
+  }
+
+  function primaryAccount(candidate = state) {
+    return activeAccounts(candidate)[0] || candidate?.accounts?.[0] || null;
   }
 
   function escapeHtml(value = '') {
@@ -678,6 +712,99 @@
 
   function cloneStateSnapshot(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function transactionAmount(tx) {
+    return moneyRound(tx?.amount || 0);
+  }
+
+  function transactionEffectCents(tx, accountId) {
+    const amount = toCents(tx?.amount || 0);
+    if (!amount && tx?.type !== 'reconciliation') return 0;
+    if (tx.type === 'income' && tx.accountId === accountId) return amount;
+    if (tx.type === 'expense' && tx.accountId === accountId) return -amount;
+    if (tx.type === 'saving' && tx.accountId === accountId) return -amount;
+    if (tx.type === 'saving_return' && tx.accountId === accountId) return amount;
+    if (tx.type === 'reconciliation' && tx.accountId === accountId) return toCents(tx.amount || 0);
+    if (tx.type === 'transfer') {
+      if (tx.fromAccountId === accountId) return -amount;
+      if (tx.toAccountId === accountId) return amount;
+      return 0;
+    }
+    if (tx.type === 'correction_reversal') {
+      if (tx.originalType === 'income' && tx.accountId === accountId) return -amount;
+      if (tx.originalType === 'expense' && tx.accountId === accountId) return amount;
+      if (tx.originalType === 'saving' && tx.accountId === accountId) return amount;
+      if (tx.originalType === 'transfer') {
+        if (tx.fromAccountId === accountId) return amount;
+        if (tx.toAccountId === accountId) return -amount;
+      }
+    }
+    return 0;
+  }
+
+  function accountBalanceCentsForState(candidate, accountId) {
+    const account = (candidate?.accounts || []).find((item) => item.id === accountId);
+    if (!account) return 0;
+    return (candidate.transactions || []).reduce((balance, tx) => balance + transactionEffectCents(tx, accountId), toCents(account.openingBalance || 0));
+  }
+
+  function stateBalanceProblem(candidate) {
+    for (const account of candidate?.accounts || []) {
+      if (accountBalanceCentsForState(candidate, account.id) < 0) return account;
+    }
+    return null;
+  }
+
+  function validateCandidateBalances(candidate, message = 'That change would make a wallet balance negative.') {
+    const problem = stateBalanceProblem(candidate);
+    if (!problem) return true;
+    showToast(state.settings.privacy ? message : `${problem.name} does not have enough available money for that change.`);
+    return false;
+  }
+
+  function isSupersededTransaction(tx) {
+    return Boolean(tx?.correctedByGroupId);
+  }
+
+  function effectiveTransactions(candidate = state) {
+    return (candidate?.transactions || []).filter((tx) => tx.type !== 'correction_reversal' && !isSupersededTransaction(tx));
+  }
+
+  function goalLedgerBalanceCents(goalId, candidate = state) {
+    const txNet = (candidate?.transactions || []).reduce((sum, tx) => {
+      if (tx.goalId !== goalId) return sum;
+      if (tx.type === 'saving') return sum + toCents(tx.amount || 0);
+      if (tx.type === 'saving_return') return sum - toCents(tx.amount || 0);
+      if (tx.type === 'correction_reversal' && tx.originalType === 'saving') return sum - toCents(tx.amount || 0);
+      return sum;
+    }, 0);
+    const transferNet = (candidate?.goalTransfers || []).reduce((sum, item) => {
+      const amount = toCents(item.amount || 0);
+      if (item.toGoalId === goalId) return sum + amount;
+      if (item.fromGoalId === goalId) return sum - amount;
+      return sum;
+    }, 0);
+    return txNet + transferNet;
+  }
+
+  function goalCurrentCents(goal, candidate = state) {
+    if (!goal) return 0;
+    return Math.max(0, toCents(goal.openingSaved || 0) + goalLedgerBalanceCents(goal.id, candidate));
+  }
+
+  function goalCurrent(goal, candidate = state) {
+    return fromCents(goalCurrentCents(goal, candidate));
+  }
+
+  function resetCompanionDataBaseline() {
+    secretConfig ||= loadSecretConfig();
+    const profile = companionProfileState();
+    profile.dataSnapshot = captureCompanionDataSnapshot();
+    saveSecretConfig();
+    companionSessionBaseline = cloneStateSnapshot(profile.dataSnapshot);
+    companionRecentDataLines.length = 0;
+    pendingCompanionReaction = null;
   }
 
   function transactionTimestampMs(tx) {
@@ -699,11 +826,12 @@
   }
 
   function spendableAvailableForEntry(accountId, editingTransactionId = null) {
-    let available = Math.max(0, accountBalance(accountId));
-    if (!editingTransactionId) return available;
-    const original = state.transactions.find((tx) => tx.id === editingTransactionId && tx.type === 'expense');
-    if (original && original.accountId === accountId) available += Number(original.amount || 0);
-    return available;
+    let cents = Math.max(0, accountBalanceCentsForState(state, accountId));
+    if (editingTransactionId) {
+      const original = state.transactions.find((tx) => tx.id === editingTransactionId && tx.type === 'expense');
+      if (original && original.accountId === accountId) cents += toCents(original.amount || 0);
+    }
+    return fromCents(cents);
   }
 
   function applyAmountKey(currentValue, key, { allowDecimal = true, maxWholeDigits = 7 } = {}) {
@@ -750,80 +878,12 @@
         demoData: false
       },
       accounts: [
-        { id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0, isPrimary: true }
+        { id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0, isPrimary: true, archivedAt: null }
       ],
       goals: [],
       goalTransfers: [],
-      allowanceRoutine: null,
-      allowancePlans: [],
       transactions: [],
       checkins: {}
-    };
-  }
-
-  function frequencyLabel(frequency) {
-    return ({ daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', irregular: 'Irregular' })[frequency] || 'Weekly';
-  }
-
-  function nextDueDateForFrequency(frequency, fromKey = localDateKey()) {
-    if (frequency === 'daily') return addDays(fromKey, 1);
-    if (frequency === 'weekly') return addDays(fromKey, 7);
-    if (frequency === 'monthly') return addMonths(fromKey, 1);
-    return null;
-  }
-
-  function coverageEndForFrequency(frequency, startKey = localDateKey(), expectedNextDate = null) {
-    if (frequency === 'daily') return startKey;
-    if (frequency === 'weekly') return addDays(startKey, 6);
-    if (frequency === 'monthly') return addDays(addMonths(startKey, 1), -1);
-    if (frequency === 'irregular' && expectedNextDate && expectedNextDate > startKey) return addDays(expectedNextDate, -1);
-    if (frequency === 'irregular') return '9999-12-31';
-    return startKey;
-  }
-
-  function inferLegacyFrequency(plan) {
-    if (!plan?.startDate || !plan?.endDate) return 'weekly';
-    if (plan.endDate === '9999-12-31') return 'irregular';
-    const days = daysInclusive(plan.startDate, plan.endDate);
-    if (days <= 1) return 'daily';
-    if (days >= 27) return 'monthly';
-    if (days >= 6 && days <= 8) return 'weekly';
-    return 'irregular';
-  }
-
-  function normalizeAllowanceRoutine(routine, candidate = {}) {
-    const allowed = new Set(['daily', 'weekly', 'monthly', 'irregular']);
-    if (routine && typeof routine === 'object' && Number(routine.amount) > 0) {
-      const frequency = allowed.has(routine.frequency) ? routine.frequency : 'weekly';
-      const amount = Number(routine.amount);
-      return {
-        amount,
-        frequency,
-        autoSaveAmount: Math.min(amount, Math.max(0, Number(routine.autoSaveAmount) || 0)),
-        lastReceivedDate: /^\d{4}-\d{2}-\d{2}$/.test(routine.lastReceivedDate || '') ? routine.lastReceivedDate : null,
-        nextDueDate: /^\d{4}-\d{2}-\d{2}$/.test(routine.nextDueDate || '') ? routine.nextDueDate : null
-      };
-    }
-
-    const incomes = Array.isArray(candidate.transactions)
-      ? candidate.transactions.filter((tx) => tx?.type === 'income' && Number(tx.amount) > 0)
-      : [];
-    const latest = [...incomes].sort((a, b) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')))[0];
-    if (!latest) return null;
-
-    const plans = Array.isArray(candidate.allowancePlans) ? candidate.allowancePlans : [];
-    const plan = plans.find((item) => item?.id === latest.allowanceId) || [...plans].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
-    const frequency = inferLegacyFrequency(plan);
-    const receivedDate = /^\d{4}-\d{2}-\d{2}$/.test(latest.date || '') ? latest.date : localDateKey();
-    let nextDueDate = frequency === 'irregular' ? null : nextDueDateForFrequency(frequency, receivedDate);
-    if (plan?.endDate && plan.endDate >= receivedDate) nextDueDate = addDays(plan.endDate, 1);
-
-    return {
-      amount: Number(latest.amount),
-      frequency,
-      autoSaveAmount: 0,
-      lastReceivedDate: receivedDate,
-      nextDueDate
     };
   }
 
@@ -832,23 +892,103 @@
     const normalized = source
       .filter((account) => account && typeof account === 'object')
       .map((account, index) => ({
-        id: account.id || uid('account'),
+        id: typeof account.id === 'string' && account.id ? account.id : uid('account'),
         name: String(account.name || (index === 0 ? 'Cash' : 'Wallet')).trim().slice(0, 30) || (index === 0 ? 'Cash' : 'Wallet'),
         type: account.type || (index === 0 ? 'cash' : 'other'),
-        openingBalance: Math.max(0, Number(account.openingBalance || 0)),
-        isPrimary: index === 0
+        openingBalance: Math.max(0, moneyRound(account.openingBalance || 0)),
+        isPrimary: index === 0,
+        archivedAt: index === 0 ? null : (typeof account.archivedAt === 'string' && account.archivedAt ? account.archivedAt : null)
       }));
 
-    if (!normalized.length) return [{ id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0, isPrimary: true }];
+    if (!normalized.length) return [{ id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0, isPrimary: true, archivedAt: null }];
     if (normalized[0].name.toLowerCase() === 'wallet' && normalized[0].type === 'cash') normalized[0].name = 'Cash';
     normalized[0].type = normalized[0].type || 'cash';
     normalized[0].isPrimary = true;
+    normalized[0].archivedAt = null;
     normalized.slice(1).forEach((account) => { account.isPrimary = false; });
     return normalized;
   }
 
+  function normalizeTransaction(tx) {
+    if (!tx || typeof tx !== 'object') return null;
+    const knownTypes = new Set(['income', 'expense', 'saving', 'saving_return', 'transfer', 'reconciliation', 'correction_reversal']);
+    if (!knownTypes.has(tx.type)) return null;
+    const rawAmount = moneyRound(tx.amount || 0);
+    const amount = tx.type === 'reconciliation' ? rawAmount : Math.abs(rawAmount);
+    if (tx.type !== 'reconciliation' && amount <= 0) return null;
+    if (tx.type === 'reconciliation' && toCents(amount) === 0) return null;
+    const date = validDateKey(tx.date) ? tx.date : localDateKey(Number.isFinite(Date.parse(tx.createdAt || '')) ? new Date(tx.createdAt) : new Date());
+    return {
+      ...tx,
+      id: typeof tx.id === 'string' && tx.id ? tx.id : uid('tx'),
+      type: tx.type,
+      amount,
+      category: typeof tx.category === 'string' ? tx.category.slice(0, 40) : '',
+      accountId: typeof tx.accountId === 'string' ? tx.accountId : '',
+      fromAccountId: typeof tx.fromAccountId === 'string' ? tx.fromAccountId : '',
+      toAccountId: typeof tx.toAccountId === 'string' ? tx.toAccountId : '',
+      goalId: typeof tx.goalId === 'string' ? tx.goalId : '',
+      date,
+      note: typeof tx.note === 'string' ? tx.note.slice(0, 120) : '',
+      createdAt: Number.isFinite(Date.parse(tx.createdAt || '')) ? tx.createdAt : `${date}T12:00:00`,
+      updatedAt: Number.isFinite(Date.parse(tx.updatedAt || '')) ? tx.updatedAt : undefined,
+      originalType: ['income', 'expense', 'transfer', 'saving'].includes(tx.originalType) ? tx.originalType : undefined,
+      correctionGroupId: typeof tx.correctionGroupId === 'string' ? tx.correctionGroupId : undefined,
+      correctsTransactionId: typeof tx.correctsTransactionId === 'string' ? tx.correctsTransactionId : undefined,
+      correctedByGroupId: typeof tx.correctedByGroupId === 'string' ? tx.correctedByGroupId : undefined,
+      allowanceId: typeof tx.allowanceId === 'string' ? tx.allowanceId : undefined
+    };
+  }
+
+  function normalizeGoalTransfer(item) {
+    if (!item || typeof item !== 'object') return null;
+    const amount = Math.max(0, moneyRound(item.amount || 0));
+    if (!amount || !item.fromGoalId || !item.toGoalId || item.fromGoalId === item.toGoalId) return null;
+    const createdAt = Number.isFinite(Date.parse(item.createdAt || '')) ? item.createdAt : new Date().toISOString();
+    const allocations = Array.isArray(item.allocations)
+      ? item.allocations.map((allocation) => ({ accountId: String(allocation?.accountId || ''), amount: Math.max(0, moneyRound(allocation?.amount || 0)) })).filter((allocation) => allocation.accountId && allocation.amount > 0)
+      : [];
+    return {
+      ...item,
+      id: typeof item.id === 'string' && item.id ? item.id : uid('goal-transfer'),
+      fromGoalId: String(item.fromGoalId),
+      toGoalId: String(item.toGoalId),
+      amount,
+      allocations,
+      date: validDateKey(item.date) ? item.date : localDateKey(new Date(createdAt)),
+      createdAt
+    };
+  }
+
+  function normalizeGoals(goals, transactions, goalTransfers) {
+    const source = Array.isArray(goals) ? goals : [];
+    const tempState = { transactions, goalTransfers };
+    return source.filter((goal) => goal && typeof goal === 'object').map((goal) => {
+      const id = typeof goal.id === 'string' && goal.id ? goal.id : uid('goal');
+      const target = Math.max(0.01, moneyRound(goal.target || 0));
+      const legacyCurrent = Math.max(0, moneyRound(goal.current || 0));
+      const migratedOpening = goal.openingSaved !== undefined
+        ? Math.max(0, moneyRound(goal.openingSaved || 0))
+        : Math.max(0, fromCents(toCents(legacyCurrent) - goalLedgerBalanceCents(id, tempState)));
+      return {
+        id,
+        name: String(goal.name || 'Savings goal').trim().slice(0, 40) || 'Savings goal',
+        target,
+        openingSaved: migratedOpening,
+        createdAt: validDateKey(goal.createdAt) ? goal.createdAt : (Number.isFinite(Date.parse(goal.createdAt || '')) ? localDateKey(new Date(goal.createdAt)) : localDateKey()),
+        updatedAt: Number.isFinite(Date.parse(goal.updatedAt || '')) ? goal.updatedAt : undefined,
+        removedAt: Number.isFinite(Date.parse(goal.removedAt || '')) ? goal.removedAt : undefined,
+        returnedToWallets: Boolean(goal.returnedToWallets)
+      };
+    });
+  }
+
   function normalizeState(candidate) {
     if (!candidate || typeof candidate !== 'object') return seedState();
+    const accounts = normalizeAccounts(candidate.accounts);
+    const transactions = (Array.isArray(candidate.transactions) ? candidate.transactions : []).map(normalizeTransaction).filter(Boolean);
+    const goalTransfers = (Array.isArray(candidate.goalTransfers) ? candidate.goalTransfers : []).map(normalizeGoalTransfer).filter(Boolean);
+    const goals = normalizeGoals(candidate.goals, transactions, goalTransfers);
     return {
       version: SCHEMA_VERSION,
       settings: {
@@ -856,12 +996,10 @@
         privacy: Boolean(candidate.settings?.privacy),
         demoData: Boolean(candidate.settings?.demoData)
       },
-      accounts: normalizeAccounts(candidate.accounts),
-      goals: Array.isArray(candidate.goals) ? candidate.goals : [],
-      goalTransfers: Array.isArray(candidate.goalTransfers) ? candidate.goalTransfers : [],
-      allowanceRoutine: normalizeAllowanceRoutine(candidate.allowanceRoutine, candidate),
-      allowancePlans: Array.isArray(candidate.allowancePlans) ? candidate.allowancePlans : [],
-      transactions: Array.isArray(candidate.transactions) ? candidate.transactions : [],
+      accounts,
+      goals,
+      goalTransfers,
+      transactions,
       checkins: candidate.checkins && typeof candidate.checkins === 'object' ? candidate.checkins : {}
     };
   }
@@ -878,6 +1016,8 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
         return clean;
       }
+      // Persist the normalized schema immediately so legacy/dead fields do not linger between sessions.
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
       return normalized;
     } catch (error) {
       console.warn('Unable to load saved data.', error);
@@ -890,98 +1030,70 @@
   }
 
   function accountBalance(accountId) {
-    const account = state.accounts.find((item) => item.id === accountId);
-    if (!account) return 0;
-    return state.transactions.reduce((balance, tx) => {
-      if (tx.type === 'income' && tx.accountId === accountId) return balance + Number(tx.amount || 0);
-      if (tx.type === 'expense' && tx.accountId === accountId) return balance - Number(tx.amount || 0);
-      if (tx.type === 'saving' && tx.accountId === accountId) return balance - Number(tx.amount || 0);
-      if (tx.type === 'saving_return' && tx.accountId === accountId) return balance + Number(tx.amount || 0);
-      if (tx.type === 'transfer') {
-        if (tx.fromAccountId === accountId) return balance - Number(tx.amount || 0);
-        if (tx.toAccountId === accountId) return balance + Number(tx.amount || 0);
-      }
-      return balance;
-    }, Number(account.openingBalance || 0));
+    return fromCents(accountBalanceCentsForState(state, accountId));
+  }
+
+  function walletSavingsCentsForState(candidate, accountId) {
+    const primaryId = primaryAccount(candidate)?.id || '';
+    let cents = (candidate?.transactions || []).reduce((sum, tx) => {
+      if (tx.accountId !== accountId) return sum;
+      if (tx.type === 'saving') return sum + toCents(tx.amount || 0);
+      if (tx.type === 'saving_return') return sum - toCents(tx.amount || 0);
+      if (tx.type === 'correction_reversal' && tx.originalType === 'saving') return sum - toCents(tx.amount || 0);
+      return sum;
+    }, 0);
+    if (accountId === primaryId) {
+      cents += (candidate?.goals || []).reduce((sum, goal) => sum + toCents(goal.openingSaved || 0), 0);
+    }
+    return Math.max(0, cents);
   }
 
   function walletSavingsBalance(accountId) {
-    const saved = state.transactions
-      .filter((tx) => tx.type === 'saving' && tx.accountId === accountId)
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const returned = state.transactions
-      .filter((tx) => tx.type === 'saving_return' && tx.accountId === accountId)
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const attributedTotal = state.transactions
-      .filter((tx) => tx.type === 'saving')
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const returnedTotal = state.transactions
-      .filter((tx) => tx.type === 'saving_return')
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const legacyUnattributed = Math.max(0, totalSavings() - Math.max(0, attributedTotal - returnedTotal));
-    const account = state.accounts.find((item) => item.id === accountId);
-    return Math.max(0, saved - returned + (account?.isPrimary ? legacyUnattributed : 0));
+    return fromCents(walletSavingsCentsForState(state, accountId));
   }
 
   function goalWalletSavings(goal, accountId) {
     if (!goal || !accountId) return 0;
-    const attributed = state.transactions
-      .filter((tx) => tx.type === 'saving' && tx.goalId === goal.id && tx.accountId === accountId)
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const returned = state.transactions
-      .filter((tx) => tx.type === 'saving_return' && tx.goalId === goal.id && tx.accountId === accountId)
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const attributedGoalTotal = state.transactions
-      .filter((tx) => tx.type === 'saving' && tx.goalId === goal.id)
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const returnedGoalTotal = state.transactions
-      .filter((tx) => tx.type === 'saving_return' && tx.goalId === goal.id)
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const transferIn = state.goalTransfers
-      .filter((item) => item.toGoalId === goal.id)
-      .flatMap((item) => Array.isArray(item.allocations) ? item.allocations : [])
-      .filter((item) => item.accountId === accountId)
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const transferOut = state.goalTransfers
-      .filter((item) => item.fromGoalId === goal.id)
-      .flatMap((item) => Array.isArray(item.allocations) ? item.allocations : [])
-      .filter((item) => item.accountId === accountId)
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const transferredInTotal = state.goalTransfers
-      .filter((item) => item.toGoalId === goal.id)
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const transferredOutTotal = state.goalTransfers
-      .filter((item) => item.fromGoalId === goal.id)
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const baseNet = Math.max(0, attributedGoalTotal - returnedGoalTotal + transferredInTotal - transferredOutTotal);
-    const legacyUnattributed = Math.max(0, Number(goal.current || 0) - baseNet);
-    const account = state.accounts.find((item) => item.id === accountId);
-    return Math.max(0, attributed - returned + transferIn - transferOut + (account?.isPrimary ? legacyUnattributed : 0));
+    let cents = state.transactions.reduce((sum, tx) => {
+      if (tx.goalId !== goal.id || tx.accountId !== accountId) return sum;
+      if (tx.type === 'saving') return sum + toCents(tx.amount || 0);
+      if (tx.type === 'saving_return') return sum - toCents(tx.amount || 0);
+      if (tx.type === 'correction_reversal' && tx.originalType === 'saving') return sum - toCents(tx.amount || 0);
+      return sum;
+    }, 0);
+    cents += state.goalTransfers.reduce((sum, item) => {
+      const allocation = (Array.isArray(item.allocations) ? item.allocations : []).filter((entry) => entry.accountId === accountId).reduce((value, entry) => value + toCents(entry.amount || 0), 0);
+      if (item.toGoalId === goal.id) return sum + allocation;
+      if (item.fromGoalId === goal.id) return sum - allocation;
+      return sum;
+    }, 0);
+    if (accountId === primaryAccount(state)?.id) cents += toCents(goal.openingSaved || 0);
+    return fromCents(Math.max(0, cents));
   }
 
   function goalWalletBreakdown(goal) {
     return state.accounts
       .map((account) => ({ account, amount: goalWalletSavings(goal, account.id) }))
-      .filter((item) => item.amount > 0.0001);
+      .filter((item) => toCents(item.amount) > 0);
   }
 
   function totalBalance() {
-    return state.accounts.reduce((total, account) => total + accountBalance(account.id), 0);
+    return fromCents(activeAccounts().reduce((total, account) => total + accountBalanceCentsForState(state, account.id), 0));
   }
 
   function totalSavings() {
-    return state.goals.reduce((total, goal) => total + Number(goal.current || 0), 0);
+    return fromCents(state.goals.filter((goal) => !goal.removedAt).reduce((total, goal) => total + goalCurrentCents(goal), 0));
   }
-
 
   function transactionsForDate(dateKey) {
     return state.transactions.filter((tx) => tx.date === dateKey);
   }
 
   function sumTransactions(type, startDate, endDate) {
-    return state.transactions
+    const cents = effectiveTransactions()
       .filter((tx) => tx.type === type && tx.date >= startDate && tx.date <= endDate)
-      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+      .reduce((sum, tx) => sum + toCents(tx.amount || 0), 0);
+    return fromCents(cents);
   }
 
   function monthRange() {
@@ -993,7 +1105,28 @@
   }
 
 
+  function canCorrectTransaction(tx) {
+    if (!tx || canModifyTransaction(tx) || tx.correctedByGroupId) return false;
+    if (['expense', 'income', 'transfer'].includes(tx.type)) return true;
+    if (tx.type !== 'saving' || !tx.goalId) return false;
+    const goal = state.goals.find((item) => item.id === tx.goalId && !item.removedAt);
+    if (!goal) return false;
+    return !state.goalTransfers.some((item) => item.fromGoalId === tx.goalId || item.toGoalId === tx.goalId);
+  }
+
   function transactionTitle(tx) {
+    if (tx.correctsTransactionId && tx.type !== 'correction_reversal') {
+      if (tx.type === 'income') return 'Corrected allowance';
+      if (tx.type === 'transfer') return 'Corrected wallet transfer';
+      if (tx.type === 'saving') return `Corrected savings · ${tx.note || 'Savings goal'}`;
+      if (tx.type === 'expense') return `Corrected · ${tx.note || tx.category || 'Expense'}`;
+    }
+    if (tx.type === 'goal_transfer') {
+      const destination = state.goals.find((goal) => goal.id === tx.toGoalId)?.name || 'goal';
+      return `Savings transfer to ${destination}`;
+    }
+    if (tx.type === 'correction_reversal') return `Correction reversal · ${tx.originalType || 'transaction'}`;
+    if (tx.type === 'reconciliation') return tx.note || 'Wallet balance reconciliation';
     if (tx.type === 'income') return tx.note || 'Allowance received';
     if (tx.type === 'saving') return tx.note || 'Moved to savings';
     if (tx.type === 'saving_return') return tx.note || 'Savings returned';
@@ -1015,6 +1148,13 @@
     const date = includeDate && tx.date ? DATE_LABEL.format(fromDateKey(tx.date)) : '';
     const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Account';
     const withTiming = (base) => [base, date, time].filter(Boolean).join(' · ');
+    if (tx.type === 'goal_transfer') {
+      const from = state.goals.find((goal) => goal.id === tx.fromGoalId)?.name || 'Goal';
+      const to = state.goals.find((goal) => goal.id === tx.toGoalId)?.name || 'Goal';
+      return withTiming(`${from} → ${to}`);
+    }
+    if (tx.type === 'correction_reversal') return withTiming(`Audit reversal of ${tx.originalType || 'transaction'}`);
+    if (tx.type === 'reconciliation') return withTiming(`Balance adjustment · ${account}`);
     if (tx.type === 'saving') return withTiming(`Saved from ${account}`);
     if (tx.type === 'saving_return') return withTiming(`Returned to ${account}`);
     if (tx.type === 'transfer') {
@@ -1027,13 +1167,21 @@
   }
 
   function renderTransactionActions(tx) {
-    if (tx.type === 'saving_return') return '';
+    if (tx.type === 'goal_transfer' || tx.type === 'saving_return' || tx.type === 'correction_reversal' || tx.type === 'reconciliation') {
+      return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Audit record">${icon('i-lock')}</span></div>`;
+    }
+    if (tx.correctedByGroupId) {
+      return `<div class="transaction-actions is-locked"><span class="status-pill neutral">Corrected</span></div>`;
+    }
     if (tx.type === 'saving' && tx.goalId) {
       const goal = state.goals.find((item) => item.id === tx.goalId);
       const allocationChanged = Boolean(goal?.removedAt) || state.goalTransfers.some((item) => item.fromGoalId === tx.goalId || item.toGoalId === tx.goalId);
       if (allocationChanged) return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Locked">${icon('i-lock')}</span></div>`;
     }
     if (!canModifyTransaction(tx)) {
+      if (canCorrectTransaction(tx)) {
+        return `<div class="transaction-actions"><div class="transaction-actions-row"><button class="transaction-action" type="button" data-action="correct-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')} Correct</button></div></div>`;
+      }
       return `<div class="transaction-actions is-locked"><span class="transaction-lock-icon" aria-label="Locked">${icon('i-lock')}</span></div>`;
     }
     const actions = [];
@@ -1049,15 +1197,21 @@
     }
 
     return transactions.map((tx) => {
-      const categoryKey = tx.type === 'income' ? 'Allowance' : tx.type === 'saving_return' ? 'Savings return' : tx.type === 'saving' ? 'Savings' : tx.type === 'transfer' ? 'Transfer' : (tx.category || 'Other');
+      let categoryKey = tx.type === 'income' ? 'Allowance' : tx.type === 'saving_return' ? 'Savings return' : tx.type === 'saving' || tx.type === 'goal_transfer' ? 'Savings' : tx.type === 'transfer' ? 'Transfer' : tx.type === 'reconciliation' ? 'Reconciliation' : tx.type === 'correction_reversal' ? 'Correction' : (tx.category || 'Other');
       const meta = categoryMeta[categoryKey] || categoryMeta.Other;
-      const sign = tx.type === 'expense' ? '−' : tx.type === 'income' || tx.type === 'saving_return' ? '+' : '';
-      const amountLabel = `${sign}${currency(tx.amount, true)}`;
-      const amountKind = tx.type === 'saving_return' ? 'returned' : tx.type === 'saving' ? 'saved' : tx.type;
+      let shownAmount = Math.abs(transactionAmount(tx));
+      let sign = '';
+      if (tx.type === 'expense') sign = '−';
+      else if (tx.type === 'income' || tx.type === 'saving_return') sign = '+';
+      else if (tx.type === 'reconciliation') sign = Number(tx.amount || 0) >= 0 ? '+' : '−';
+      else if (tx.type === 'correction_reversal') sign = tx.originalType === 'income' ? '−' : ['expense', 'saving'].includes(tx.originalType) ? '+' : '↺ ';
+      const amountLabel = `${sign}${currency(shownAmount)}`;
+      const amountKind = tx.type === 'goal_transfer' ? 'goal transfer' : tx.type === 'correction_reversal' ? 'audit' : tx.type === 'reconciliation' ? 'adjustment' : tx.type === 'saving_return' ? 'returned' : tx.type === 'saving' ? 'saved' : tx.type;
       const actionMarkup = full ? renderTransactionActions(tx) : '';
       const actionClass = actionMarkup ? ' has-actions' : '';
+      const correctedClass = tx.correctedByGroupId ? ' is-corrected' : '';
       return `
-        <div class="transaction-row ${escapeHtml(tx.type)}${actionClass}" data-transaction-id="${escapeHtml(tx.id)}">
+        <div class="transaction-row ${escapeHtml(tx.type)}${actionClass}${correctedClass}" data-transaction-id="${escapeHtml(tx.id)}">
           <span class="round-icon ${meta.tone}">${icon(meta.icon)}</span>
           <div class="transaction-copy">
             <strong>${escapeHtml(transactionTitle(tx))}</strong>
@@ -1085,19 +1239,21 @@
   }
 
   function selectedWalletAccount() {
-    return state.accounts[walletModeIndex] || state.accounts[0] || null;
+    const accounts = activeAccounts();
+    return accounts[walletModeIndex] || accounts[0] || null;
   }
 
   function walletExpenseSummary(accountId, startDate, endDate) {
-    const expenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.accountId === accountId && tx.date >= startDate && tx.date <= endDate);
-    const spent = expenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const expenses = effectiveTransactions().filter((tx) => tx.type === 'expense' && tx.accountId === accountId && tx.date >= startDate && tx.date <= endDate);
+    const spentCents = expenses.reduce((sum, tx) => sum + toCents(tx.amount || 0), 0);
     const categories = expenses.reduce((map, tx) => {
       const name = tx.category || 'Other';
-      map[name] = (map[name] || 0) + Number(tx.amount || 0);
+      map[name] = (map[name] || 0) + toCents(tx.amount || 0);
       return map;
     }, {});
-    const top = Object.entries(categories).sort((a, b) => b[1] - a[1])[0] || null;
-    return { expenses, spent, top };
+    const topCents = Object.entries(categories).sort((a, b) => b[1] - a[1])[0] || null;
+    const top = topCents ? [topCents[0], fromCents(topCents[1])] : null;
+    return { expenses, spent: fromCents(spentCents), top };
   }
 
   function expenseCategoryClass(category) {
@@ -1112,14 +1268,15 @@
 
   function expenseCategoryBreakdown(summary) {
     if (!summary?.spent) return [];
+    const spentCents = Math.max(1, toCents(summary.spent));
     const totals = summary.expenses.reduce((map, tx) => {
       const name = tx.category || 'Other';
-      map[name] = (map[name] || 0) + Number(tx.amount || 0);
+      map[name] = (map[name] || 0) + toCents(tx.amount || 0);
       return map;
     }, {});
     return Object.entries(totals)
       .sort((a, b) => b[1] - a[1])
-      .map(([category, amount]) => ({ category, amount, percent: (amount / summary.spent) * 100 }));
+      .map(([category, cents]) => ({ category, amount: fromCents(cents), percent: (cents / spentCents) * 100 }));
   }
 
   function renderExpenseCategoryBar(summary) {
@@ -1141,7 +1298,7 @@
   }
 
   function renderHomeWalletDetails(index = walletModeIndex) {
-    const account = state.accounts[index];
+    const account = activeAccounts()[index];
     if (!account || !els.homeWalletTodaySpent) return;
     const today = localDateKey();
     const month = monthRange();
@@ -1161,7 +1318,7 @@
   }
 
   function updateWalletModeHeader(index) {
-    const count = state.accounts.length;
+    const count = activeAccounts().length;
     if (!count) return;
     walletModeIndex = Math.max(0, Math.min(index, count - 1));
     els.walletModeCounter.textContent = `${walletModeIndex + 1} / ${count}`;
@@ -1237,16 +1394,16 @@
   }
 
   function renderHome() {
-    const accounts = state.accounts;
+    const accounts = activeAccounts();
     walletModeIndex = Math.max(0, Math.min(walletModeIndex, Math.max(0, accounts.length - 1)));
     const today = localDateKey();
 
     els.walletCarousel.innerHTML = accounts.map((account, index) => {
       const balance = state.settings.privacy ? '₱••••' : currency(accountBalance(account.id));
       const savings = state.settings.privacy ? '₱••••' : currency(walletSavingsBalance(account.id));
-      const todaySpent = state.transactions
+      const todaySpent = fromCents(effectiveTransactions()
         .filter((tx) => tx.type === 'expense' && tx.accountId === account.id && tx.date === today)
-        .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+        .reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
       const todayLabel = state.settings.privacy ? '₱••••' : (todaySpent > 0 ? `−${currency(todaySpent, true)}` : currency(0, true));
       const iconId = account.type === 'cash' ? 'i-wallet' : 'i-phone';
       return `
@@ -1288,12 +1445,37 @@
     return new Intl.DateTimeFormat('en-PH', { weekday: 'long' }).format(fromDateKey(dateKey));
   }
 
+  function activityLedgerEntriesForDate(dateKey) {
+    const transactions = state.transactions
+      .filter((tx) => tx.date === dateKey)
+      .map((tx) => ({ ...tx }));
+    const goalTransfers = state.goalTransfers
+      .filter((item) => (item.date || localDateKey(new Date(item.createdAt || Date.now()))) === dateKey)
+      .map((item) => ({
+        id: `activity-${item.id}`,
+        type: 'goal_transfer',
+        amount: item.amount,
+        fromGoalId: item.fromGoalId,
+        toGoalId: item.toGoalId,
+        date: item.date || dateKey,
+        createdAt: item.createdAt
+      }));
+    return [...transactions, ...goalTransfers].sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
+  }
+
+  function activityFilterMatches(tx, type) {
+    if (type === 'all') return true;
+    if (type === 'income') return tx.type === 'income';
+    if (type === 'expense') return tx.type === 'expense';
+    if (type === 'transfer') return tx.type === 'transfer';
+    if (type === 'savings') return ['saving', 'saving_return', 'goal_transfer'].includes(tx.type);
+    if (type === 'correction') return ['correction_reversal', 'reconciliation'].includes(tx.type) || Boolean(tx.correctsTransactionId) || Boolean(tx.correctedByGroupId);
+    return tx.type === type;
+  }
+
   function filteredActivity() {
     const type = els.activityType.value;
-    return [...state.transactions]
-      .filter((tx) => tx.date === activityDate && (tx.type === 'expense' || tx.type === 'transfer'))
-      .filter((tx) => type === 'all' || tx.type === type)
-      .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
+    return activityLedgerEntriesForDate(activityDate).filter((tx) => activityFilterMatches(tx, type));
   }
 
   function moveActivityDay(days) {
@@ -1314,20 +1496,20 @@
     els.activityHistoryTitle.textContent = activityDate === today ? 'Today’s transactions' : `${activityDayName(activityDate)} transactions`;
     els.activityNextDay.disabled = activityDate >= today;
 
-    els.monthSpent.textContent = currency(sumTransactions('expense', activityDate, activityDate), true);
-    els.monthTransferred.textContent = currency(sumTransactions('transfer', activityDate, activityDate), true);
+    els.monthSpent.textContent = currency(sumTransactions('expense', activityDate, activityDate));
+    els.monthTransferred.textContent = currency(sumTransactions('transfer', activityDate, activityDate));
     const filtered = filteredActivity();
     els.activityCount.textContent = `${filtered.length} entr${filtered.length === 1 ? 'y' : 'ies'}`;
     els.allTransactions.innerHTML = renderTransactionRows(filtered, true, {
-      emptyTitle: 'No spending activity',
-      emptyCopy: 'Expenses and wallet transfers for this day will appear here.'
+      emptyTitle: 'No activity for this day',
+      emptyCopy: 'Income, expenses, savings, transfers, and corrections will appear here.'
     });
-    const hasActivity = state.transactions.some((tx) => tx.type === 'expense' || tx.type === 'transfer');
+    const hasActivity = state.transactions.length > 0 || state.goalTransfers.length > 0;
     els.activitySwipeHint.classList.toggle('is-hidden', !hasActivity);
   }
 
   function renderSavings() {
-    const accounts = state.accounts;
+    const accounts = activeAccounts();
     savingsWalletIndex = Math.max(0, Math.min(savingsWalletIndex, Math.max(0, accounts.length - 1)));
     const selectedAccount = accounts[savingsWalletIndex] || accounts[0];
     const isWalletMode = savingsMode === 'wallet' && selectedAccount;
@@ -1365,7 +1547,7 @@
       els.goalsGrid.innerHTML = `<article class="card goal-card empty-goal-card"><div class="empty-state"><span class="round-icon purple-soft">${icon('i-target')}</span><strong>No savings goals yet</strong><span>Create a goal and choose which wallet the money comes from.</span><br><button class="button-primary" type="button" data-action="open-goal">Create goal</button></div></article>`;
     } else {
       els.goalsGrid.innerHTML = visibleGoals.map((goal) => {
-        const totalCurrent = Number(goal.current || 0);
+        const totalCurrent = goalCurrent(goal);
         const target = Math.max(Number(goal.target || 1), 1);
         const percent = Math.min(100, totalCurrent / target * 100);
         const walletCurrent = isWalletMode ? goalWalletSavings(goal, selectedAccount.id) : totalCurrent;
@@ -1429,9 +1611,9 @@
     const otherGoal = state.goals.find((item) => item.id === otherGoalId);
     const otherName = otherGoal?.name || 'another goal';
     const parsed = Date.parse(transfer.createdAt || '');
-    const timing = Number.isFinite(parsed)
-      ? `${DATE_LABEL.format(new Date(parsed))} · ${TIME_LABEL.format(new Date(parsed))}`
-      : '';
+    const transferDate = transfer.date && validDateKey(transfer.date) ? DATE_LABEL.format(fromDateKey(transfer.date)) : (Number.isFinite(parsed) ? DATE_LABEL.format(new Date(parsed)) : '');
+    const transferTime = Number.isFinite(parsed) ? TIME_LABEL.format(new Date(parsed)) : '';
+    const timing = [transferDate, transferTime].filter(Boolean).join(' · ');
     const amount = `${incoming ? '+' : '−'}${currency(transfer.amount, true)}`;
     return `
       <div class="goal-history-row goal-transfer-history-row">
@@ -1452,15 +1634,18 @@
     const date = tx.date ? DATE_LABEL.format(fromDateKey(tx.date)) : '';
     const timing = [account, date, time].filter(Boolean).join(' · ');
     const amount = `${isReturn ? '−' : '+'}${currency(tx.amount, true)}`;
-    const canUndo = !isReturn && canModifyTransaction(tx) && !state.goalTransfers.some((item) => item.fromGoalId === goal.id || item.toGoalId === goal.id);
-    const status = canUndo
-      ? `<button class="compact-history-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')}<span>Undo</span></button>`
-      : `<span class="inline-lock" aria-label="Locked">${icon('i-lock')}</span>`;
+    const allocationChanged = state.goalTransfers.some((item) => item.fromGoalId === goal.id || item.toGoalId === goal.id);
+    const canUndo = !isReturn && !tx.correctedByGroupId && canModifyTransaction(tx) && !allocationChanged;
+    let status = `<span class="inline-lock" aria-label="Locked">${icon('i-lock')}</span>`;
+    if (tx.correctedByGroupId) status = `<span class="status-pill neutral">Corrected</span>`;
+    else if (canUndo) status = `<button class="compact-history-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')}<span>Undo</span></button>`;
+    else if (!isReturn && canCorrectTransaction(tx)) status = `<button class="compact-history-action correction" type="button" data-action="correct-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')}<span>Correct</span></button>`;
+    const title = isReturn ? 'Savings returned' : tx.correctsTransactionId ? 'Savings correction' : 'Savings added';
     return `
-      <div class="goal-history-row ${escapeHtml(tx.type)}">
+      <div class="goal-history-row ${escapeHtml(tx.type)}${tx.correctedByGroupId ? ' is-corrected' : ''}">
         <span class="round-icon ${isReturn ? 'green-soft' : 'purple-soft'}">${icon('i-savings')}</span>
         <div class="goal-history-copy">
-          <strong>${isReturn ? 'Savings returned' : 'Savings added'}</strong>
+          <strong>${title}</strong>
           <small>${escapeHtml(timing)}</small>
         </div>
         <div class="goal-history-amount"><strong class="money-value">${amount}</strong>${status}</div>
@@ -1499,14 +1684,23 @@
       const date = tx.date ? DATE_LABEL.format(fromDateKey(tx.date)) : '';
       const time = transactionTimeLabel(tx);
       const timing = [account, date, time].filter(Boolean).join(' · ');
-      const modifiable = canModifyTransaction(tx);
-      const actions = modifiable
-        ? `<div class="allowance-history-actions">${canEditTransaction(tx) ? `<button class="compact-history-action" type="button" data-action="edit-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')}<span>Edit</span></button>` : ''}<button class="compact-history-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')}<span>Undo</span></button></div>`
-        : `<span class="inline-lock allowance-inline-lock" aria-label="Locked">${icon('i-lock')}<span>Locked</span></span>`;
+      const modifiable = canModifyTransaction(tx) && !tx.correctedByGroupId;
+      const correctable = canCorrectTransaction(tx);
+      let actions = '';
+      if (tx.correctedByGroupId) {
+        actions = `<span class="inline-lock allowance-inline-lock corrected-status" aria-label="Corrected"><span>Corrected</span></span>`;
+      } else if (modifiable) {
+        actions = `<div class="allowance-history-actions">${canEditTransaction(tx) ? `<button class="compact-history-action" type="button" data-action="edit-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')}<span>Edit</span></button>` : ''}<button class="compact-history-action undo" type="button" data-action="undo-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-refresh')}<span>Undo</span></button></div>`;
+      } else if (correctable) {
+        actions = `<button class="compact-history-action correction" type="button" data-action="correct-transaction" data-id="${escapeHtml(tx.id)}">${icon('i-edit')}<span>Correct</span></button>`;
+      } else {
+        actions = `<span class="inline-lock allowance-inline-lock" aria-label="Locked">${icon('i-lock')}<span>Locked</span></span>`;
+      }
+      const title = tx.correctsTransactionId ? 'Allowance correction' : 'Allowance received';
       return `
-        <div class="allowance-history-row">
+        <div class="allowance-history-row${tx.correctedByGroupId ? ' is-corrected' : ''}">
           <span class="round-icon green-soft">${icon('i-arrow-down')}</span>
-          <div class="allowance-history-copy"><strong>Allowance received</strong><small>${escapeHtml(timing)}</small>${modifiable ? actions : ''}</div>
+          <div class="allowance-history-copy"><strong>${title}</strong><small>${escapeHtml(timing)}</small>${modifiable ? actions : ''}</div>
           <div class="allowance-history-amount"><strong class="money-value">+${currency(tx.amount, true)}</strong>${modifiable ? '' : actions}</div>
         </div>`;
     }).join('');
@@ -1518,7 +1712,7 @@
     els.allowanceHistoryCount.textContent = `${history.length} entr${history.length === 1 ? 'y' : 'ies'}`;
     els.allowanceHistoryList.innerHTML = renderAllowanceHistoryRows(history);
     if (els.allowanceHistorySummary) {
-      const latest = history[0];
+      const latest = effectiveTransactions().filter((tx) => tx.type === 'income').sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)))[0];
       const latestDate = latest?.date ? DATE_LABEL.format(fromDateKey(latest.date)) : '';
       els.allowanceHistorySummary.textContent = latest
         ? `${history.length} entr${history.length === 1 ? 'y' : 'ies'}${latestDate ? ` · Latest ${latestDate}` : ''}`
@@ -1549,21 +1743,24 @@
 
   function renderWallets() {
     if (!els.walletsList) return;
-    const accounts = state.accounts || [];
+    const accounts = [...(state.accounts || [])].sort((a, b) => Number(Boolean(a.archivedAt)) - Number(Boolean(b.archivedAt)));
     if (!accounts.length) {
       els.walletsList.innerHTML = '<div class="wallet-list-empty">No wallets found. Cash will be restored after refresh.</div>';
       return;
     }
-    els.walletsList.innerHTML = accounts.map((account, index) => {
-      const balance = state.settings.privacy ? '₱••••' : currency(accountBalance(account.id), true);
-      const savings = state.settings.privacy ? '₱••••' : currency(walletSavingsBalance(account.id), true);
+    els.walletsList.innerHTML = accounts.map((account) => {
+      const balance = privateCurrency(accountBalance(account.id));
+      const savings = privateCurrency(walletSavingsBalance(account.id));
       const used = state.transactions.some((tx) => tx.accountId === account.id || tx.fromAccountId === account.id || tx.toAccountId === account.id);
-      const remove = index === 0
-        ? '<span class="status-pill neutral">Main</span>'
-        : used
-          ? '<span class="wallet-used-label">In use</span>'
-          : `<button class="wallet-remove" type="button" data-action="remove-wallet" data-id="${escapeHtml(account.id)}">Remove</button>`;
-      return `<div class="wallet-row"><span class="round-icon ${index === 0 ? 'accent-soft' : 'neutral-soft'}">${icon(index === 0 ? 'i-wallet' : 'i-phone')}</span><div><strong>${escapeHtml(account.name)}</strong><small><span class="money-value">${balance}</span> available · <span class="money-value">${savings}</span> saved</small></div>${remove}</div>`;
+      let actions = '';
+      if (account.archivedAt) {
+        actions = `<div class="wallet-row-actions"><span class="status-pill neutral">Archived</span><button class="wallet-manage" type="button" data-action="restore-wallet" data-id="${escapeHtml(account.id)}">Restore</button></div>`;
+      } else {
+        const remove = !account.isPrimary && !used ? `<button class="wallet-remove" type="button" data-action="remove-wallet" data-id="${escapeHtml(account.id)}">Remove</button>` : '';
+        actions = `<div class="wallet-row-actions"><button class="wallet-manage" type="button" data-action="manage-wallet" data-id="${escapeHtml(account.id)}">Manage</button>${remove}</div>`;
+      }
+      const archiveCopy = account.archivedAt ? 'Archived · ' : '';
+      return `<div class="wallet-row${account.archivedAt ? ' is-archived' : ''}"><span class="round-icon ${account.isPrimary ? 'accent-soft' : 'neutral-soft'}">${icon(account.isPrimary ? 'i-wallet' : 'i-phone')}</span><div><strong>${escapeHtml(account.name)}</strong><small>${archiveCopy}<span class="money-value">${escapeHtml(balance)}</span> available · <span class="money-value">${escapeHtml(savings)}</span> saved</small></div>${actions}</div>`;
     }).join('');
   }
 
@@ -2635,12 +2832,13 @@
     const yesterday = addDays(today, -1);
     const month = monthRange();
     const activeGoals = state.goals.filter((goal) => !goal.removedAt);
-    const todayExpenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.date === today);
-    const yesterdayExpenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.date === yesterday);
-    const todaySpent = todayExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const yesterdaySpent = yesterdayExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-    const monthExpenses = state.transactions.filter((tx) => tx.type === 'expense' && tx.date >= month.start && tx.date <= month.end);
-    const monthSpent = monthExpenses.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const dataTransactions = effectiveTransactions();
+    const todayExpenses = dataTransactions.filter((tx) => tx.type === 'expense' && tx.date === today);
+    const yesterdayExpenses = dataTransactions.filter((tx) => tx.type === 'expense' && tx.date === yesterday);
+    const todaySpent = fromCents(todayExpenses.reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
+    const yesterdaySpent = fromCents(yesterdayExpenses.reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
+    const monthExpenses = dataTransactions.filter((tx) => tx.type === 'expense' && tx.date >= month.start && tx.date <= month.end);
+    const monthSpent = fromCents(monthExpenses.reduce((sum, tx) => sum + toCents(tx.amount || 0), 0));
     const baseline = companionSessionBaseline?.capturedAt ? companionSessionBaseline : null;
     const candidates = [];
 
@@ -2681,7 +2879,7 @@
         }
       }
       const balance = Math.max(0, totalBalance());
-      add(!privacy && state.accounts.length > 1, `Across your wallets, you have ${currency(balance, true)} available.`, homeTarget, { prop: 'pouch' });
+      add(!privacy && activeAccounts().length > 1, `Across your wallets, you have ${currency(balance)} available.`, homeTarget, { prop: 'pouch' });
     }
 
     if (view === 'activity') {
@@ -2728,10 +2926,10 @@
       }
 
       const incomplete = activeGoals
-        .filter((goal) => Number(goal.target || 0) > 0 && Number(goal.current || 0) < Number(goal.target || 0))
+        .filter((goal) => Number(goal.target || 0) > 0 && goalCurrent(goal) < Number(goal.target || 0))
         .map((goal) => {
           const target = Math.max(Number(goal.target || 0), 1);
-          const current = Math.max(0, Number(goal.current || 0));
+          const current = goalCurrent(goal);
           return { goal, current, target, percent: Math.min(100, Math.round(current / target * 100)), remaining: Math.max(0, target - current) };
         })
         .sort((a, b) => b.percent - a.percent);
@@ -2746,7 +2944,7 @@
       for (const goal of activeGoals) {
         const target = Math.max(0, Number(goal.target || 0));
         if (!target) continue;
-        const currentPercent = Math.min(100, Math.round(Math.max(0, Number(goal.current || 0)) / target * 100));
+        const currentPercent = Math.min(100, Math.round(goalCurrent(goal) / target * 100));
         const previousPercent = baseline?.goals?.[goal.id]?.percent;
         if (Number.isFinite(previousPercent) && currentPercent > previousPercent) {
           const goalTarget = companionGoalTarget(goal.id) || savingsTarget;
@@ -2754,15 +2952,15 @@
         }
       }
 
-      const completed = activeGoals.filter((goal) => Number(goal.target || 0) > 0 && Number(goal.current || 0) >= Number(goal.target || 0));
+      const completed = activeGoals.filter((goal) => Number(goal.target || 0) > 0 && goalCurrent(goal) >= Number(goal.target || 0));
       add(completed.length > 0, `You’ve completed ${completed.length} savings goal${completed.length === 1 ? '' : 's'} here. That’s real progress ♡`, completed.length === 1 ? companionGoalTarget(completed[0].id) || savingsTarget : savingsTarget, { prop: 'flower' });
     }
 
     if (view === 'more') {
       const settingsTarget = companionVisibleTarget(['.settings-card']);
       const allowanceTarget = companionVisibleTarget(['.allowance-settings-card']) || settingsTarget;
-      add(state.accounts.length > 1, `You’re keeping ${state.accounts.length} wallets organized in Pocket.`, settingsTarget, { prop: 'pouch' });
-      const latestAllowance = state.transactions
+      add(activeAccounts().length > 1, `You’re keeping ${activeAccounts().length} active wallets organized in Pocket.`, settingsTarget, { prop: 'pouch' });
+      const latestAllowance = effectiveTransactions()
         .filter((tx) => tx.type === 'income')
         .sort((a, b) => Date.parse(b.createdAt || b.date || '') - Date.parse(a.createdAt || a.date || ''))[0];
       if (latestAllowance) {
@@ -2792,11 +2990,11 @@
   function walletExpenseSummaryForTransactions(expenses) {
     const categories = expenses.reduce((map, tx) => {
       const name = tx.category || 'Other';
-      map[name] = (map[name] || 0) + Number(tx.amount || 0);
+      map[name] = (map[name] || 0) + toCents(tx.amount || 0);
       return map;
     }, {});
-    const top = Object.entries(categories).sort((a, b) => b[1] - a[1])[0] || null;
-    return { top };
+    const topCents = Object.entries(categories).sort((a, b) => b[1] - a[1])[0] || null;
+    return { top: topCents ? [topCents[0], fromCents(topCents[1])] : null };
   }
 
   function companionPickHeartCompliment() {
@@ -3330,19 +3528,20 @@
   }
 
   function populateAccounts() {
+    const accounts = activeAccounts();
     const expenseCurrent = els.expenseAccount.value;
     const allowanceCurrent = els.allowanceAccount.value;
-    const goalCurrent = els.goalAccount.value;
+    const goalAccountCurrent = els.goalAccount.value;
     const contributionCurrent = els.contributeAccount.value;
-    const options = state.accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)} · ${state.settings.privacy ? '₱••••' : currency(accountBalance(account.id), true)}</option>`).join('');
+    const options = accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)} · ${privateCurrency(accountBalance(account.id))}</option>`).join('');
     els.expenseAccount.innerHTML = options;
     els.allowanceAccount.innerHTML = options;
     els.goalAccount.innerHTML = options;
     els.contributeAccount.innerHTML = options;
-    if (state.accounts.some((account) => account.id === expenseCurrent)) els.expenseAccount.value = expenseCurrent;
-    if (state.accounts.some((account) => account.id === allowanceCurrent)) els.allowanceAccount.value = allowanceCurrent;
-    if (state.accounts.some((account) => account.id === goalCurrent)) els.goalAccount.value = goalCurrent;
-    if (state.accounts.some((account) => account.id === contributionCurrent)) els.contributeAccount.value = contributionCurrent;
+    if (accounts.some((account) => account.id === expenseCurrent)) els.expenseAccount.value = expenseCurrent;
+    if (accounts.some((account) => account.id === allowanceCurrent)) els.allowanceAccount.value = allowanceCurrent;
+    if (accounts.some((account) => account.id === goalAccountCurrent)) els.goalAccount.value = goalAccountCurrent;
+    if (accounts.some((account) => account.id === contributionCurrent)) els.contributeAccount.value = contributionCurrent;
     syncWalletPickerTriggers();
   }
 
@@ -3361,9 +3560,9 @@
   function walletPickerAccounts(targetId) {
     if (targetId === 'transferToAccount') {
       const fromId = els.transferFromAccount?.value || '';
-      return state.accounts.filter((account) => account.id !== fromId);
+      return activeAccounts().filter((account) => account.id !== fromId);
     }
-    return state.accounts;
+    return activeAccounts();
   }
 
   function walletPickerBalanceCopy(account) {
@@ -3387,7 +3586,7 @@
     document.querySelectorAll('[data-wallet-select]').forEach((button) => {
       const select = document.getElementById(button.dataset.walletSelect);
       if (!select) return;
-      const account = state.accounts.find((item) => item.id === select.value) || state.accounts[0];
+      const account = activeAccounts().find((item) => item.id === select.value) || activeAccounts()[0];
       const copy = button.querySelector('.wallet-picker-trigger-copy');
       const iconHolder = button.querySelector('.wallet-picker-trigger-icon');
       if (copy) {
@@ -3424,7 +3623,7 @@
 
   function openWalletPicker(targetId) {
     const select = document.getElementById(targetId);
-    if (!select || !state.accounts.length) return;
+    if (!select || !activeAccounts().length) return;
     activeWalletPickerTarget = targetId;
     const [title, subtitle] = walletPickerContext(targetId);
     els.walletPickerTitle.textContent = title;
@@ -3438,7 +3637,7 @@
 
   function chooseWalletFromPicker(accountId) {
     const select = document.getElementById(activeWalletPickerTarget);
-    if (!select || !state.accounts.some((account) => account.id === accountId)) return;
+    if (!select || !activeAccounts().some((account) => account.id === accountId)) return;
     select.value = accountId;
     select.dispatchEvent(new Event('change', { bubbles: true }));
     syncWalletPickerTriggers();
@@ -3448,11 +3647,11 @@
 
   function updateExpenseEntry() {
     const amount = Number(els.expenseAmount.value || 0);
-    const accountId = els.expenseAccount.value || state.accounts[0]?.id;
+    const accountId = els.expenseAccount.value || activeAccounts()[0]?.id;
     const account = state.accounts.find((item) => item.id === accountId);
-    const available = spendableAvailableForEntry(accountId, currentExpenseEditId);
+    const available = spendableAvailableForEntry(accountId, currentExpenseEditId || currentCorrectionSourceId);
     const isValid = Number.isFinite(amount) && amount > 0;
-    const isOver = isValid && amount > available;
+    const isOver = isValid && toCents(amount) > toCents(available);
 
     els.expenseAvailable.textContent = state.settings.privacy ? 'Available ₱••••' : `Available ${currency(available, true)}`;
     els.expenseAmountCard.classList.toggle('is-over-limit', isOver);
@@ -3469,7 +3668,7 @@
 
     els.expenseNextButton.disabled = !isValid || isOver;
     els.expenseSaveButton.disabled = !isValid || isOver;
-    els.expenseSaveButton.textContent = isValid ? `${currentExpenseEditId ? 'Update' : 'Save'} ${currency(amount, true)}` : (currentExpenseEditId ? 'Update expense' : 'Save expense');
+    els.expenseSaveButton.textContent = isValid ? `${currentCorrectionSourceId ? 'Correct' : currentExpenseEditId ? 'Update' : 'Save'} ${currency(amount)}` : (currentCorrectionSourceId ? 'Save correction' : currentExpenseEditId ? 'Update expense' : 'Save expense');
   }
 
   function showExpenseStep(step) {
@@ -3629,18 +3828,30 @@
   function startSecretRecoveryHold() { secretResetTriggered=false; window.clearTimeout(secretResetTimer); secretResetTimer=window.setTimeout(()=>{secretResetTriggered=true;openSecretPocketRecovery();},SECRET_RESET_HOLD); }
   function cancelSecretRecoveryHold() { window.clearTimeout(secretResetTimer); secretResetTimer=0; }
 
+  function entryDateIsValid(date) {
+    return validDateKey(date) && date <= localDateKey();
+  }
+
+  function archivedAccountUsedByTransaction(tx) {
+    const ids = [tx?.accountId, tx?.fromAccountId, tx?.toAccountId].filter(Boolean);
+    return ids.some((id) => state.accounts.find((account) => account.id === id)?.archivedAt);
+  }
+
   function openExpense(prefill = {}) {
     currentExpenseEditId = prefill.id || null;
+    currentCorrectionSourceId = prefill.correctionOf || null;
     els.expenseForm.reset();
-    els.expenseDialogTitle.textContent = currentExpenseEditId ? 'Edit expense' : 'Add expense';
+    els.expenseDialogTitle.textContent = currentCorrectionSourceId ? 'Correct expense' : currentExpenseEditId ? 'Edit expense' : 'Add expense';
     els.expenseAmount.value = prefill.amount || '';
     if (prefill.category) {
       const radio = els.expenseForm.querySelector(`input[name="expenseCategory"][value="${CSS.escape(prefill.category)}"]`);
       if (radio) radio.checked = true;
     }
     els.expenseNote.value = prefill.note || '';
+    els.expenseDate.max = localDateKey();
+    els.expenseDate.value = prefill.date || localDateKey();
     populateAccounts();
-    if (prefill.accountId && state.accounts.some((account) => account.id === prefill.accountId)) els.expenseAccount.value = prefill.accountId;
+    if (prefill.accountId && activeAccounts().some((account) => account.id === prefill.accountId)) els.expenseAccount.value = prefill.accountId;
     syncWalletPickerTriggers();
     updateExpenseEntry();
     showExpenseStep('amount');
@@ -3650,93 +3861,128 @@
 
   function openDifferentAllowance(prefill = {}) {
     currentAllowanceEditId = prefill.id || null;
+    currentCorrectionSourceId = prefill.correctionOf || null;
     els.allowanceForm.reset();
-    els.allowanceDialogTitle.textContent = currentAllowanceEditId ? 'Edit allowance' : 'Add allowance';
+    els.allowanceDialogTitle.textContent = currentCorrectionSourceId ? 'Correct allowance' : currentAllowanceEditId ? 'Edit allowance' : 'Add allowance';
     setAllowanceAmountValue(prefill.amount || '');
     populateAccounts();
     els.allowanceReceivedDate.max = localDateKey();
     els.allowanceReceivedDate.value = prefill.date || localDateKey();
-    const targetAccount = prefill.accountId || state.accounts[0]?.id;
-    if (targetAccount && state.accounts.some((account) => account.id === targetAccount)) els.allowanceAccount.value = targetAccount;
+    const targetAccount = prefill.accountId || activeAccounts()[0]?.id;
+    if (targetAccount && activeAccounts().some((account) => account.id === targetAccount)) els.allowanceAccount.value = targetAccount;
     syncWalletPickerTriggers();
     els.allowanceKeypad.classList.add('is-hidden');
     els.allowanceCustomAmountButton.textContent = 'Custom amount';
-    els.allowanceSaveButton.textContent = currentAllowanceEditId ? 'Update allowance' : 'Add allowance';
+    els.allowanceSaveButton.textContent = currentCorrectionSourceId ? 'Save correction' : currentAllowanceEditId ? 'Update allowance' : 'Add allowance';
     els.allowanceSaveButton.disabled = !(Number(els.allowanceAmount.value || 0) > 0);
     openDialog(els.allowanceDialog);
     requestAnimationFrame(() => els.allowanceDialog.focus());
   }
 
-  function receiveAllowance(amount, receivedDate = localDateKey(), accountId = state.accounts[0]?.id) {
-    const received = Number(amount);
-    const today = localDateKey();
-    if (!Number.isFinite(received) || received <= 0 || !accountId) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate) || receivedDate > today) {
+  function correctionReversalFor(original, groupId) {
+    return {
+      id: uid('tx'),
+      type: 'correction_reversal',
+      originalType: original.type,
+      amount: Math.abs(transactionAmount(original)),
+      category: 'Correction',
+      accountId: original.accountId || '',
+      goalId: original.goalId || '',
+      fromAccountId: original.fromAccountId || '',
+      toAccountId: original.toAccountId || '',
+      date: original.date || localDateKey(),
+      note: `Audit reversal of ${transactionTitle(original)}`,
+      correctionGroupId: groupId,
+      correctsTransactionId: original.id,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  function createCorrectionPair(originalId, replacement) {
+    const original = state.transactions.find((tx) => tx.id === originalId);
+    if (!original || !canCorrectTransaction(original) || original.correctedByGroupId) {
+      showToast('This entry cannot be corrected from its current state.');
+      return null;
+    }
+    const groupId = uid('correction');
+    const candidate = cloneStateSnapshot(state);
+    const source = candidate.transactions.find((tx) => tx.id === originalId);
+    source.correctedByGroupId = groupId;
+    const reversal = correctionReversalFor(source, groupId);
+    const corrected = {
+      ...replacement,
+      id: uid('tx'),
+      type: original.type,
+      category: replacement.category || original.category || '',
+      correctionGroupId: groupId,
+      correctsTransactionId: original.id,
+      createdAt: new Date(Date.now() + 1).toISOString()
+    };
+    candidate.transactions.push(reversal, corrected);
+    if (!validateCandidateBalances(candidate, 'That correction would make a wallet balance negative.')) return null;
+    state = candidate;
+    state.settings.demoData = false;
+    saveState();
+    return corrected;
+  }
+
+  function receiveAllowance(amount, receivedDate = localDateKey(), accountId = activeAccounts()[0]?.id) {
+    const received = moneyRound(amount);
+    if (!received || !accountId) return;
+    if (!entryDateIsValid(receivedDate)) {
       showToast('Choose today or a past date for the allowance.');
       return;
     }
-
     state.transactions.push({
-      id: uid('tx'),
-      type: 'income',
-      amount: received,
-      category: 'Allowance',
-      accountId,
-      date: receivedDate,
-      note: 'Allowance received',
-      createdAt: new Date().toISOString()
+      id: uid('tx'), type: 'income', amount: received, category: 'Allowance', accountId,
+      date: receivedDate, note: 'Allowance received', createdAt: new Date().toISOString()
     });
-
     state.settings.demoData = false;
     saveState();
     closeDialog(els.allowanceDialog);
     renderAll();
-
     const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
-    const dateText = receivedDate === today ? 'today' : DATE_LABEL.format(fromDateKey(receivedDate));
-    showToast(state.settings.privacy ? `Allowance added to ${walletName}.` : `${currency(received, true)} added to ${walletName} for ${dateText}.`);
+    const dateText = receivedDate === localDateKey() ? 'today' : DATE_LABEL.format(fromDateKey(receivedDate));
+    showToast(state.settings.privacy ? `Allowance added to ${walletName}.` : `${currency(received)} added to ${walletName} for ${dateText}.`);
     companionReact('allowance');
   }
 
   function updateAllowanceTransaction(id, amount, receivedDate, accountId) {
     const income = state.transactions.find((tx) => tx.id === id && tx.type === 'income');
     if (!income || !canModifyTransaction(income)) {
-      showToast('This allowance entry is locked.');
+      showToast('This allowance entry is locked. Use Correct for an auditable adjustment.');
       return false;
     }
-    const today = localDateKey();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate) || receivedDate > today) {
+    if (!entryDateIsValid(receivedDate)) {
       showToast('Choose today or a past date for the allowance.');
       return false;
     }
-
-    income.amount = Number(amount);
-    income.accountId = accountId;
-    income.date = receivedDate;
-    income.note = 'Allowance received';
-    income.updatedAt = new Date().toISOString();
-
-    const linkedSavings = state.transactions.filter((tx) => tx.allowanceId && tx.allowanceId === income.allowanceId && tx.type === 'saving');
-    linkedSavings.forEach((saving) => {
-      saving.accountId = accountId;
-      saving.date = receivedDate;
-      saving.updatedAt = new Date().toISOString();
-    });
-    const legacyPlan = income.allowanceId ? state.allowancePlans.find((item) => item.id === income.allowanceId) : null;
-    if (legacyPlan) {
-      legacyPlan.amount = Number(amount);
-      legacyPlan.startDate = receivedDate;
-    }
+    const candidate = cloneStateSnapshot(state);
+    const next = candidate.transactions.find((tx) => tx.id === id);
+    Object.assign(next, { amount: moneyRound(amount), accountId, date: receivedDate, note: 'Allowance received', updatedAt: new Date().toISOString() });
+    if (!validateCandidateBalances(candidate, 'That edit would make a wallet balance negative.')) return false;
+    state = candidate;
     state.settings.demoData = false;
     saveState();
     return true;
   }
 
   function addAllowance() {
-    const amount = Number(els.allowanceAmount.value);
-    if (!Number.isFinite(amount) || amount <= 0) return;
+    const amount = moneyRound(els.allowanceAmount.value);
+    if (amount <= 0) return;
     const date = els.allowanceReceivedDate.value || localDateKey();
-    const accountId = els.allowanceAccount.value || state.accounts[0]?.id;
+    const accountId = els.allowanceAccount.value || activeAccounts()[0]?.id;
+    if (!entryDateIsValid(date) || !accountId) return showToast('Choose a valid received date and wallet.');
+    if (currentCorrectionSourceId) {
+      const corrected = createCorrectionPair(currentCorrectionSourceId, { amount, accountId, date, note: 'Allowance received' });
+      if (!corrected) return;
+      closeDialog(els.allowanceDialog);
+      currentCorrectionSourceId = null;
+      renderAll();
+      showToast('Allowance correction recorded without changing the original history.');
+      companionReact('allowance');
+      return;
+    }
     if (currentAllowanceEditId) {
       if (!updateAllowanceTransaction(currentAllowanceEditId, amount, date, accountId)) return;
       closeDialog(els.allowanceDialog);
@@ -3750,7 +3996,7 @@
 
   function renderExpenseReceipt(tx, edited = false) {
     const account = state.accounts.find((item) => item.id === tx.accountId)?.name || 'Wallet';
-    const savedLabel = edited ? 'Updated' : 'Saved';
+    const savedLabel = edited ? 'Updated' : tx.correctsTransactionId ? 'Corrected' : 'Saved';
     els.expenseReceiptDialog.dataset.transactionId = tx.id;
     lastReceiptTransactionId = tx.id;
     els.expenseReceiptContent.innerHTML = `
@@ -3758,7 +4004,7 @@
         <div><small class="eyebrow">Pocket receipt</small><strong>${escapeHtml(tx.category || 'Expense')}</strong></div>
         <span class="receipt-stamp">${savedLabel}</span>
       </div>
-      <div class="receipt-amount money-value">${currency(tx.amount, true)}</div>
+      <div class="receipt-amount money-value">${currency(tx.amount)}</div>
       <div class="receipt-divider"></div>
       <div class="receipt-lines">
         <div class="receipt-line"><span>Paid from</span><strong>${escapeHtml(account)}</strong></div>
@@ -3769,44 +4015,38 @@
   }
 
   function addExpense() {
-    const amount = Number(els.expenseAmount.value);
-    if (!Number.isFinite(amount) || amount <= 0) return;
+    const amount = moneyRound(els.expenseAmount.value);
+    if (amount <= 0) return;
     const category = els.expenseForm.elements.expenseCategory.value;
-    const accountId = els.expenseAccount.value || state.accounts[0]?.id;
-    const existingExpense = currentExpenseEditId ? state.transactions.find((tx) => tx.id === currentExpenseEditId && tx.type === 'expense') : null;
-    const date = existingExpense?.date || localDateKey();
+    const accountId = els.expenseAccount.value || activeAccounts()[0]?.id;
+    const date = els.expenseDate.value || localDateKey();
     const note = els.expenseNote.value.trim();
-    const available = spendableAvailableForEntry(accountId, currentExpenseEditId);
-    if (amount > available) {
-      const accountName = state.accounts.find((account) => account.id === accountId)?.name || 'this account';
-      showToast(`Only ${currency(Math.max(0, available), true)} is available in ${accountName}. Savings stays separate.`);
+    if (!entryDateIsValid(date) || !accountId) return showToast('Choose a valid expense date and wallet.');
+    const sourceId = currentExpenseEditId || currentCorrectionSourceId;
+    const available = spendableAvailableForEntry(accountId, sourceId);
+    if (toCents(amount) > toCents(available)) {
+      const accountName = state.accounts.find((account) => account.id === accountId)?.name || 'this wallet';
+      showToast(state.settings.privacy ? `${accountName} does not have enough available money.` : `Only ${currency(Math.max(0, available))} is available in ${accountName}. Savings stays separate.`);
       return;
     }
 
     let savedTransaction;
-    const editing = Boolean(currentExpenseEditId);
-    if (editing) {
+    let edited = false;
+    if (currentCorrectionSourceId) {
+      savedTransaction = createCorrectionPair(currentCorrectionSourceId, { amount, category, accountId, date, note });
+      if (!savedTransaction) return;
+    } else if (currentExpenseEditId) {
       const tx = state.transactions.find((item) => item.id === currentExpenseEditId && item.type === 'expense');
-      if (!tx) return;
-      if (!canModifyTransaction(tx)) {
-        showToast('This transaction is locked.');
-        currentExpenseEditId = null;
-        closeDialog(els.expenseDialog);
-        return;
-      }
-      Object.assign(tx, { amount, category, accountId, date, note, updatedAt: new Date().toISOString() });
-      savedTransaction = tx;
+      if (!tx || !canModifyTransaction(tx)) return showToast('This transaction is locked. Use Correct instead.');
+      const candidate = cloneStateSnapshot(state);
+      const next = candidate.transactions.find((item) => item.id === currentExpenseEditId);
+      Object.assign(next, { amount, category, accountId, date, note, updatedAt: new Date().toISOString() });
+      if (!validateCandidateBalances(candidate, 'That expense edit would make a wallet balance negative.')) return;
+      state = candidate;
+      savedTransaction = state.transactions.find((item) => item.id === currentExpenseEditId);
+      edited = true;
     } else {
-      savedTransaction = {
-        id: uid('tx'),
-        type: 'expense',
-        amount,
-        category,
-        accountId,
-        date,
-        note,
-        createdAt: new Date().toISOString()
-      };
+      savedTransaction = { id: uid('tx'), type: 'expense', amount, category, accountId, date, note, createdAt: new Date().toISOString() };
       state.transactions.push(savedTransaction);
     }
 
@@ -3814,21 +4054,27 @@
     saveState();
     closeDialog(els.expenseDialog);
     renderAll();
-    renderExpenseReceipt(savedTransaction, editing);
-    pendingCompanionReaction = { kind: 'expense', message: editing ? 'Updated and tidy again ♡' : '' };
+    renderExpenseReceipt(savedTransaction, edited);
+    pendingCompanionReaction = { kind: 'expense', message: edited ? 'Updated and tidy again ♡' : savedTransaction.correctsTransactionId ? 'Correction saved and history kept tidy ♡' : '' };
     currentExpenseEditId = null;
+    currentCorrectionSourceId = null;
   }
 
   function transferAvailableBalance(accountId, editingTransferId = null) {
-    let available = Math.max(0, accountBalance(accountId));
-    if (!editingTransferId) return available;
+    let cents = accountBalanceCentsForState(state, accountId);
+    if (!editingTransferId) return fromCents(Math.max(0, cents));
     const original = state.transactions.find((tx) => tx.id === editingTransferId && tx.type === 'transfer');
-    if (original && original.fromAccountId === accountId) available += Number(original.amount || 0);
-    return available;
+    if (original) {
+      const amountCents = toCents(original.amount || 0);
+      // Calculate the balance as if the original transfer were removed first.
+      if (original.fromAccountId === accountId) cents += amountCents;
+      if (original.toAccountId === accountId) cents -= amountCents;
+    }
+    return fromCents(Math.max(0, cents));
   }
 
   function populateTransferAccounts(preferredFrom = '', preferredTo = '') {
-    const accounts = state.accounts || [];
+    const accounts = activeAccounts();
     const fromCurrent = preferredFrom || els.transferFromAccount.value || accounts[0]?.id || '';
     const toCurrent = preferredTo || els.transferToAccount.value || '';
     const optionHtml = accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join('');
@@ -3855,108 +4101,112 @@
     if (!els.transferFromAccount) return;
     const fromId = els.transferFromAccount.value;
     const toId = els.transferToAccount.value;
-    const amount = Number(els.transferAmount.value || 0);
+    const amount = moneyRound(els.transferAmount.value || 0);
     const from = state.accounts.find((account) => account.id === fromId);
     const to = state.accounts.find((account) => account.id === toId);
-    const available = transferAvailableBalance(fromId, currentTransferEditId);
+    const sourceId = currentTransferEditId || currentCorrectionSourceId;
+    const available = transferAvailableBalance(fromId, sourceId);
     const sameWallet = !fromId || !toId || fromId === toId;
-    const valid = Number.isFinite(amount) && amount > 0 && !sameWallet;
-    const over = valid && amount > available;
-
-    els.transferAvailable.textContent = state.settings.privacy ? 'Available ₱••••' : `Available ${currency(available, true)}`;
+    const valid = amount > 0 && !sameWallet;
+    const over = valid && toCents(amount) > toCents(available);
+    els.transferAvailable.textContent = state.settings.privacy ? 'Available ₱••••' : `Available ${currency(available)}`;
     els.transferAmountCard.classList.toggle('is-over-limit', over || sameWallet);
-    if (sameWallet) {
-      els.transferAmountHint.textContent = 'Choose two different wallets.';
-    } else if (available <= 0) {
-      els.transferAmountHint.textContent = `${from?.name || 'This wallet'} has no spendable money to transfer.`;
-    } else if (over) {
-      els.transferAmountHint.textContent = state.settings.privacy ? 'This is more than the source wallet has available.' : `${currency(amount - available, true)} over the available ${from?.name || 'wallet'} balance.`;
-    } else if (valid) {
-      els.transferAmountHint.textContent = state.settings.privacy ? `Money will move from ${from?.name || 'source'} to ${to?.name || 'destination'}.` : `${currency(available - amount, true)} will remain in ${from?.name || 'the source wallet'}.`;
-    } else {
-      els.transferAmountHint.textContent = `Move money from ${from?.name || 'one wallet'} to ${to?.name || 'another wallet'}.`;
-    }
+    if (sameWallet) els.transferAmountHint.textContent = 'Choose two different wallets.';
+    else if (available <= 0) els.transferAmountHint.textContent = `${from?.name || 'This wallet'} has no spendable money to transfer.`;
+    else if (over) els.transferAmountHint.textContent = state.settings.privacy ? 'This is more than the source wallet has available.' : `${currency(amount - available)} over the available ${from?.name || 'wallet'} balance.`;
+    else if (valid) els.transferAmountHint.textContent = state.settings.privacy ? `Money will move from ${from?.name || 'source'} to ${to?.name || 'destination'}.` : `${currency(available - amount)} will remain in ${from?.name || 'the source wallet'}.`;
+    else els.transferAmountHint.textContent = `Move money from ${from?.name || 'one wallet'} to ${to?.name || 'another wallet'}.`;
     els.transferSaveButton.disabled = !valid || over;
-    els.transferSaveButton.textContent = valid ? `${currentTransferEditId ? 'Update' : 'Transfer'} ${currency(amount, true)}` : (currentTransferEditId ? 'Update transfer' : 'Transfer');
+    els.transferSaveButton.textContent = valid ? `${currentCorrectionSourceId ? 'Correct' : currentTransferEditId ? 'Update' : 'Transfer'} ${currency(amount)}` : (currentCorrectionSourceId ? 'Save correction' : currentTransferEditId ? 'Update transfer' : 'Transfer');
   }
 
   function openTransfer(prefill = {}) {
-    if (state.accounts.length < 2) {
+    if (activeAccounts().length < 2) {
       setView('more');
-      showToast('Add another wallet first, then you can transfer between wallets.');
+      showToast('Add another active wallet first, then you can transfer between wallets.');
       openWallet();
       return;
     }
     currentTransferEditId = prefill.id || null;
+    currentCorrectionSourceId = prefill.correctionOf || null;
     els.transferForm.reset();
-    els.transferDialogTitle.textContent = currentTransferEditId ? 'Edit transfer' : 'Move money';
+    els.transferDialogTitle.textContent = currentCorrectionSourceId ? 'Correct transfer' : currentTransferEditId ? 'Edit transfer' : 'Move money';
     populateTransferAccounts(prefill.fromAccountId || selectedWalletAccount()?.id || '', prefill.toAccountId || '');
     els.transferNote.value = prefill.note || '';
     els.transferAmount.value = prefill.amount || '';
+    els.transferDate.max = localDateKey();
+    els.transferDate.value = prefill.date || localDateKey();
     updateTransferEntry();
     openDialog(els.transferDialog);
     requestAnimationFrame(() => els.transferDialog.focus());
   }
 
   function saveTransfer() {
-    const amount = Number(els.transferAmount.value || 0);
+    const amount = moneyRound(els.transferAmount.value || 0);
     const fromAccountId = els.transferFromAccount.value;
     const toAccountId = els.transferToAccount.value;
-    const existingTransfer = currentTransferEditId ? state.transactions.find((tx) => tx.id === currentTransferEditId && tx.type === 'transfer') : null;
-    const date = existingTransfer?.date || localDateKey();
+    const date = els.transferDate.value || localDateKey();
     const note = els.transferNote.value.trim();
-    if (!Number.isFinite(amount) || amount <= 0 || !fromAccountId || !toAccountId || fromAccountId === toAccountId) return;
-    const available = transferAvailableBalance(fromAccountId, currentTransferEditId);
-    if (amount > available) {
+    if (amount <= 0 || !fromAccountId || !toAccountId || fromAccountId === toAccountId || !entryDateIsValid(date)) return;
+    const sourceId = currentTransferEditId || currentCorrectionSourceId;
+    const available = transferAvailableBalance(fromAccountId, sourceId);
+    if (toCents(amount) > toCents(available)) {
       const name = state.accounts.find((account) => account.id === fromAccountId)?.name || 'source wallet';
-      showToast(`Only ${currency(Math.max(0, available), true)} is available in ${name}.`);
+      showToast(state.settings.privacy ? `${name} does not have enough available money.` : `Only ${currency(Math.max(0, available))} is available in ${name}.`);
       return;
     }
 
-    const editing = Boolean(currentTransferEditId);
     let tx;
-    if (editing) {
-      tx = state.transactions.find((item) => item.id === currentTransferEditId && item.type === 'transfer');
-      if (!tx || !canModifyTransaction(tx)) {
-        showToast('This transfer is locked.');
-        closeDialog(els.transferDialog);
-        currentTransferEditId = null;
-        return;
-      }
-      Object.assign(tx, { amount, fromAccountId, toAccountId, date, note, category: 'Transfer', updatedAt: new Date().toISOString() });
+    let edited = false;
+    if (currentCorrectionSourceId) {
+      tx = createCorrectionPair(currentCorrectionSourceId, { amount, fromAccountId, toAccountId, date, note, category: 'Transfer' });
+      if (!tx) return;
+    } else if (currentTransferEditId) {
+      const original = state.transactions.find((item) => item.id === currentTransferEditId && item.type === 'transfer');
+      if (!original || !canModifyTransaction(original)) return showToast('This transfer is locked. Use Correct instead.');
+      const candidate = cloneStateSnapshot(state);
+      const next = candidate.transactions.find((item) => item.id === currentTransferEditId);
+      Object.assign(next, { amount, fromAccountId, toAccountId, date, note, category: 'Transfer', updatedAt: new Date().toISOString() });
+      if (!validateCandidateBalances(candidate, 'That transfer edit would make a wallet balance negative.')) return;
+      state = candidate;
+      tx = state.transactions.find((item) => item.id === currentTransferEditId);
+      edited = true;
     } else {
-      tx = {
-        id: uid('tx'), type: 'transfer', category: 'Transfer', amount, fromAccountId, toAccountId,
-        date, note, createdAt: new Date().toISOString()
-      };
+      tx = { id: uid('tx'), type: 'transfer', category: 'Transfer', amount, fromAccountId, toAccountId, date, note, createdAt: new Date().toISOString() };
       state.transactions.push(tx);
     }
     state.settings.demoData = false;
     saveState();
     closeDialog(els.transferDialog);
-    currentTransferEditId = null;
     renderAll();
     const from = state.accounts.find((account) => account.id === fromAccountId)?.name || 'wallet';
     const to = state.accounts.find((account) => account.id === toAccountId)?.name || 'wallet';
-    showToast(state.settings.privacy ? (editing ? 'Transfer updated.' : 'Transfer completed.') : `${currency(amount, true)} ${editing ? 'updated' : 'moved'} from ${from} to ${to}.`);
-    window.setTimeout(() => companionReact('transfer', editing ? 'Transfer updated and tidy again ♡' : ''), 240);
+    showToast(state.settings.privacy ? (currentCorrectionSourceId ? 'Transfer correction recorded.' : edited ? 'Transfer updated.' : 'Transfer completed.') : `${currency(amount)} ${currentCorrectionSourceId ? 'corrected' : edited ? 'updated' : 'moved'} from ${from} to ${to}.`);
+    currentTransferEditId = null;
+    currentCorrectionSourceId = null;
+    companionReact('transfer');
   }
 
   function setGoalDialogMode(mode, goal = null) {
-    const editing = mode === 'edit' && goal;
+    const editing = Boolean(mode === 'edit' && goal);
     currentGoalEditId = editing ? goal.id : null;
     els.goalDialogTitle.textContent = editing ? 'Edit goal' : 'Create a goal';
     els.goalSubmitButton.textContent = editing ? 'Save changes' : 'Create goal';
-    els.goalDialog.querySelectorAll('.goal-create-only').forEach((element) => element.classList.toggle('is-hidden', Boolean(editing)));
+    els.goalDialog.querySelectorAll('.goal-create-only').forEach((element) => {
+      element.classList.toggle('is-hidden', editing);
+      element.querySelectorAll('input, select, button').forEach((control) => { control.disabled = editing; });
+    });
   }
 
   function openGoal(preferredAccountId = '') {
     els.goalForm.reset();
     els.goalCurrent.value = '0';
+    els.goalSaveDate.max = localDateKey();
+    els.goalSaveDate.value = localDateKey();
     setGoalDialogMode('create');
     populateAccounts();
-    const preferredGoalAccount = preferredAccountId || (savingsMode === 'wallet' ? state.accounts[savingsWalletIndex]?.id : state.accounts[0]?.id);
-    if (preferredGoalAccount && state.accounts.some((account) => account.id === preferredGoalAccount)) els.goalAccount.value = preferredGoalAccount;
+    const preferredGoalAccount = preferredAccountId || (savingsMode === 'wallet' ? activeAccounts()[savingsWalletIndex]?.id : activeAccounts()[0]?.id);
+    if (preferredGoalAccount && activeAccounts().some((account) => account.id === preferredGoalAccount)) els.goalAccount.value = preferredGoalAccount;
     syncWalletPickerTriggers();
     openDialog(els.goalDialog);
   }
@@ -3968,7 +4218,7 @@
     populateAccounts();
     setGoalDialogMode('edit', goal);
     els.goalName.value = goal.name || '';
-    els.goalTarget.value = String(Math.max(1, Number(goal.target || 1)));
+    els.goalTarget.value = String(Math.max(0.01, Number(goal.target || 0.01)));
     els.goalCurrent.value = '0';
     syncWalletPickerTriggers();
     openDialog(els.goalDialog);
@@ -3976,7 +4226,7 @@
 
   function applyGoalEdit(goal, name, target) {
     goal.name = name;
-    goal.target = target;
+    goal.target = moneyRound(target);
     goal.updatedAt = new Date().toISOString();
     state.settings.demoData = false;
     saveState();
@@ -3987,74 +4237,65 @@
 
   function saveGoalForm() {
     const name = els.goalName.value.trim();
-    const target = Number(els.goalTarget.value);
-    if (!name || !Number.isFinite(target) || target <= 0) return;
-
+    const target = moneyRound(els.goalTarget.value);
+    if (!name || target <= 0) return;
     if (currentGoalEditId) {
       const goal = state.goals.find((item) => item.id === currentGoalEditId && !item.removedAt);
       if (!goal) return;
-      const saved = Math.max(0, Number(goal.current || 0));
+      const saved = goalCurrent(goal);
       closeDialog(els.goalDialog);
       currentGoalEditId = null;
-      if (target < saved) {
+      if (toCents(target) < toCents(saved)) {
         const message = state.settings.privacy
           ? 'The new target is below the amount already saved. Your saved money will stay untouched and the goal will show as completed.'
-          : `The new ${currency(target, true)} target is below ${currency(saved, true)} already saved. Your savings will stay untouched and the goal will show as completed.`;
+          : `The new ${currency(target)} target is below ${currency(saved)} already saved. Your savings will stay untouched and the goal will show as completed.`;
         confirmAction('Lower this goal target?', message, 'Save lower target', () => applyGoalEdit(goal, name, target));
-      } else {
-        applyGoalEdit(goal, name, target);
-      }
+      } else applyGoalEdit(goal, name, target);
       return;
     }
 
-    const current = Math.max(0, Number(els.goalCurrent.value || 0));
-    const accountId = els.goalAccount.value || state.accounts[0]?.id;
-    if (!accountId) return;
-    const startingAmount = Math.min(current, target);
+    const requested = Math.max(0, moneyRound(els.goalCurrent.value || 0));
+    const accountId = els.goalAccount.value || activeAccounts()[0]?.id;
+    const saveDate = els.goalSaveDate.value || localDateKey();
+    if (!accountId || !entryDateIsValid(saveDate)) return showToast('Choose a valid savings date and wallet.');
+    const startingAmount = Math.min(requested, target);
     const available = accountBalance(accountId);
-    if (startingAmount > available) {
+    if (toCents(startingAmount) > toCents(available)) {
       const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
-      showToast(`You only have ${currency(Math.max(0, available), true)} available in ${walletName}.`);
+      showToast(state.settings.privacy ? `${walletName} does not have enough available money.` : `You only have ${currency(Math.max(0, available))} available in ${walletName}.`);
       return;
     }
-    const goal = { id: uid('goal'), name, target, current: startingAmount, createdAt: localDateKey() };
+    const goal = { id: uid('goal'), name, target, openingSaved: 0, createdAt: localDateKey() };
     state.goals.push(goal);
-    if (startingAmount > 0) {
-      state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: localDateKey(), note: name, goalId: goal.id, createdAt: new Date().toISOString() });
-    }
+    if (startingAmount > 0) state.transactions.push({ id: uid('tx'), type: 'saving', amount: startingAmount, category: 'Savings', accountId, date: saveDate, note: name, goalId: goal.id, createdAt: new Date().toISOString() });
     state.settings.demoData = false;
     saveState();
     closeDialog(els.goalDialog);
     renderAll();
     setView('savings');
     if (startingAmount > 0) celebrateSavings();
-    companionReact(startingAmount >= target && target > 0 ? 'complete' : 'goal');
+    companionReact(toCents(startingAmount) >= toCents(target) ? 'complete' : 'goal');
     showToast(`“${name}” goal created.`);
   }
 
   function removeGoal(goalId) {
     const goal = state.goals.find((item) => item.id === goalId && !item.removedAt);
     if (!goal) return;
-    const saved = Math.max(0, Number(goal.current || 0));
+    const saved = goalCurrent(goal);
     const breakdown = goalWalletBreakdown(goal);
-    const returnCopy = breakdown.map(({ account, amount }) => `${currency(amount, true)} → ${account.name}`).join(' · ');
+    const returnCopy = breakdown.map(({ account, amount }) => `${currency(amount)} → ${account.name}`).join(' · ');
     const message = saved > 0
       ? state.settings.privacy
         ? 'All money in this goal will return to the wallets it originally came from before the goal is removed.'
-        : `${currency(saved, true)} will return to its original wallet${breakdown.length === 1 ? '' : 's'}: ${returnCopy}.`
+        : `${currency(saved)} will return to its original wallet${breakdown.length === 1 ? '' : 's'}: ${returnCopy}.`
       : 'This goal has no saved money. Only the goal will be removed.';
 
     confirmAction(`Delete “${goal.name}”?`, message, 'Return money & delete', () => {
       const now = Date.now();
       breakdown.forEach(({ account, amount }, index) => {
-        if (amount <= 0) return;
-        state.transactions.push({
-          id: uid('tx'), type: 'saving_return', amount, category: 'Savings return', accountId: account.id,
-          goalId: goal.id, date: localDateKey(), note: `Returned from ${goal.name}`,
-          createdAt: new Date(now + index).toISOString()
-        });
+        if (toCents(amount) <= 0) return;
+        state.transactions.push({ id: uid('tx'), type: 'saving_return', amount: moneyRound(amount), category: 'Savings return', accountId: account.id, goalId: goal.id, date: localDateKey(), note: `Returned from ${goal.name}`, createdAt: new Date(now + index).toISOString() });
       });
-      goal.current = 0;
       goal.removedAt = new Date().toISOString();
       goal.returnedToWallets = true;
       if (!state.goals.some((item) => !item.removedAt)) manageGoalsMode = false;
@@ -4066,55 +4307,44 @@
   }
 
   function allocateGoalTransferByWallet(goal, amount) {
-    const pools = goalWalletBreakdown(goal).map(({ account, amount: walletAmount }) => ({
-      accountId: account.id,
-      cents: Math.max(0, Math.round(walletAmount * 100))
-    })).filter((item) => item.cents > 0);
+    const pools = goalWalletBreakdown(goal).map(({ account, amount: walletAmount }) => ({ accountId: account.id, cents: Math.max(0, toCents(walletAmount)) })).filter((item) => item.cents > 0);
     const totalCents = pools.reduce((sum, item) => sum + item.cents, 0);
-    const requestedCents = Math.max(0, Math.round(Number(amount || 0) * 100));
+    const requestedCents = Math.max(0, toCents(amount));
     if (!requestedCents || requestedCents > totalCents) return [];
-
     let remaining = requestedCents;
     const allocations = pools.map((pool, index) => {
       if (index === pools.length - 1) {
-        const cents = Math.min(pool.cents, remaining);
-        remaining -= cents;
-        return { accountId: pool.accountId, cents };
+        const cents = Math.min(pool.cents, remaining); remaining -= cents; return { accountId: pool.accountId, cents };
       }
       const proportional = Math.floor(requestedCents * (pool.cents / totalCents));
-      const cents = Math.min(pool.cents, proportional, remaining);
-      remaining -= cents;
-      return { accountId: pool.accountId, cents };
+      const cents = Math.min(pool.cents, proportional, remaining); remaining -= cents; return { accountId: pool.accountId, cents };
     });
-
     while (remaining > 0) {
       let moved = false;
       for (const allocation of allocations) {
         if (remaining <= 0) break;
         const pool = pools.find((item) => item.accountId === allocation.accountId);
         if (!pool || allocation.cents >= pool.cents) continue;
-        allocation.cents += 1;
-        remaining -= 1;
-        moved = true;
+        allocation.cents += 1; remaining -= 1; moved = true;
       }
       if (!moved) break;
     }
-    return allocations.filter((item) => item.cents > 0).map((item) => ({ accountId: item.accountId, amount: item.cents / 100 }));
+    return allocations.filter((item) => item.cents > 0).map((item) => ({ accountId: item.accountId, amount: fromCents(item.cents) }));
   }
 
   function updateGoalTransferEntry() {
     const source = state.goals.find((item) => item.id === els.goalTransferFromGoalId.value && !item.removedAt);
-    const amount = Number(els.goalTransferAmount.value || 0);
-    const available = Math.max(0, Number(source?.current || 0));
+    const amount = moneyRound(els.goalTransferAmount.value || 0);
+    const available = goalCurrent(source);
     const destination = els.goalTransferDestinations.querySelector('input[name="goalTransferDestination"]:checked')?.value || '';
-    const valid = Boolean(source && destination && amount > 0 && amount <= available);
-    els.goalTransferAvailable.textContent = state.settings.privacy ? 'Available ₱••••' : `Available ${currency(available, true)}`;
-    els.goalTransferAmountCard.classList.toggle('is-over-limit', amount > available && amount > 0);
+    const valid = Boolean(source && destination && amount > 0 && toCents(amount) <= toCents(available));
+    els.goalTransferAvailable.textContent = state.settings.privacy ? 'Available ₱••••' : `Available ${currency(available)}`;
+    els.goalTransferAmountCard.classList.toggle('is-over-limit', toCents(amount) > toCents(available) && amount > 0);
     if (!amount) els.goalTransferHint.textContent = 'Wallet origin stays attached to the savings.';
-    else if (amount > available) els.goalTransferHint.textContent = state.settings.privacy ? 'That is more than this goal contains.' : `${currency(amount - available, true)} over this goal’s savings.`;
+    else if (toCents(amount) > toCents(available)) els.goalTransferHint.textContent = state.settings.privacy ? 'That is more than this goal contains.' : `${currency(amount - available)} over this goal’s savings.`;
     else els.goalTransferHint.textContent = 'This stays in Savings and keeps its original wallet source.';
     els.goalTransferSaveButton.disabled = !valid;
-    els.goalTransferSaveButton.textContent = amount > 0 ? `Transfer ${currency(amount, true)}` : 'Transfer savings';
+    els.goalTransferSaveButton.textContent = amount > 0 ? `Transfer ${currency(amount)}` : 'Transfer savings';
   }
 
   function handleGoalTransferKey(key) {
@@ -4126,17 +4356,16 @@
     const source = state.goals.find((item) => item.id === goalId && !item.removedAt);
     if (!source) return;
     const destinations = state.goals.filter((item) => !item.removedAt && item.id !== source.id);
-    if (!destinations.length) {
-      showToast('Create another savings goal before transferring savings.');
-      return;
-    }
+    if (!destinations.length) return showToast('Create another savings goal before transferring savings.');
     els.goalTransferForm.reset();
     els.goalTransferFromGoalId.value = source.id;
     els.goalTransferAmount.value = '';
+    els.goalTransferDate.max = localDateKey();
+    els.goalTransferDate.value = localDateKey();
     const sourceBreakdown = goalWalletBreakdown(source);
-    const sourceDetail = sourceBreakdown.map(({ account, amount }) => `${account.name} ${state.settings.privacy ? '₱••••' : currency(amount, true)}`).join(' · ');
+    const sourceDetail = sourceBreakdown.map(({ account, amount }) => `${account.name} ${state.settings.privacy ? '₱••••' : currency(amount)}`).join(' · ');
     els.goalTransferSource.innerHTML = `<span class="round-icon purple-soft">${icon('i-savings')}</span><div><small>From</small><strong>${escapeHtml(source.name)}</strong><p>${escapeHtml(sourceDetail || 'No savings available')}</p></div>`;
-    els.goalTransferDestinations.innerHTML = `<legend>Move to</legend>${destinations.map((goal, index) => `<label><input type="radio" name="goalTransferDestination" value="${escapeHtml(goal.id)}"${index === 0 ? ' checked' : ''}><span>${icon('i-target')}<b>${escapeHtml(goal.name)}</b><small>${state.settings.privacy ? '₱•••• saved' : `${currency(goal.current, true)} saved`}</small></span></label>`).join('')}`;
+    els.goalTransferDestinations.innerHTML = `<legend>Move to</legend>${destinations.map((goal, index) => `<label><input type="radio" name="goalTransferDestination" value="${escapeHtml(goal.id)}"${index === 0 ? ' checked' : ''}><span>${icon('i-target')}<b>${escapeHtml(goal.name)}</b><small>${state.settings.privacy ? '₱•••• saved' : `${currency(goalCurrent(goal))} saved`}</small></span></label>`).join('')}`;
     updateGoalTransferEntry();
     openDialog(els.goalTransferDialog);
     requestAnimationFrame(() => els.goalTransferDialog.focus());
@@ -4146,37 +4375,36 @@
     const source = state.goals.find((item) => item.id === els.goalTransferFromGoalId.value && !item.removedAt);
     const destinationId = els.goalTransferDestinations.querySelector('input[name="goalTransferDestination"]:checked')?.value || '';
     const destination = state.goals.find((item) => item.id === destinationId && !item.removedAt);
-    const amount = Number(els.goalTransferAmount.value || 0);
-    if (!source || !destination || source.id === destination.id || !Number.isFinite(amount) || amount <= 0 || amount > Number(source.current || 0)) return;
+    const amount = moneyRound(els.goalTransferAmount.value || 0);
+    const date = els.goalTransferDate.value || localDateKey();
+    if (!source || !destination || source.id === destination.id || amount <= 0 || toCents(amount) > goalCurrentCents(source) || !entryDateIsValid(date)) return;
     const allocations = allocateGoalTransferByWallet(source, amount);
-    const allocated = allocations.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    if (Math.abs(allocated - amount) > 0.011) {
-      showToast('Pocket could not preserve the wallet source for that transfer.');
-      return;
-    }
-    source.current = Math.max(0, Number(source.current || 0) - amount);
-    destination.current = Number(destination.current || 0) + amount;
-    state.goalTransfers.push({
-      id: uid('goal-transfer'), fromGoalId: source.id, toGoalId: destination.id, amount, allocations,
-      createdAt: new Date().toISOString()
-    });
+    const allocatedCents = allocations.reduce((sum, item) => sum + toCents(item.amount || 0), 0);
+    if (allocatedCents !== toCents(amount)) return showToast('Pocket could not preserve the wallet source for that transfer.');
+    state.goalTransfers.push({ id: uid('goal-transfer'), fromGoalId: source.id, toGoalId: destination.id, amount, allocations, date, createdAt: new Date().toISOString() });
     state.settings.demoData = false;
     saveState();
     closeDialog(els.goalTransferDialog);
     renderAll();
     setView('savings');
-    showToast(state.settings.privacy ? 'Savings transferred between goals.' : `${currency(amount, true)} moved from “${source.name}” to “${destination.name}”.`);
+    showToast(state.settings.privacy ? 'Savings transferred between goals.' : `${currency(amount)} moved from “${source.name}” to “${destination.name}”.`);
   }
 
-  function openContribution(goalId, suggestedAmount = '', accountId = '') {
-    const goal = state.goals.find((item) => item.id === goalId);
+  function openContribution(goalId, suggestedAmount = '', accountId = '', options = {}) {
+    const goal = state.goals.find((item) => item.id === goalId && !item.removedAt);
     if (!goal) return;
+    currentCorrectionSourceId = options.correctionOf || null;
+    els.contributeForm.reset();
     els.contributeGoalId.value = goal.id;
-    els.contributeTitle.textContent = goal.name;
+    els.contributeTitle.textContent = currentCorrectionSourceId ? `Correct · ${goal.name}` : goal.name;
     els.contributeAmount.value = suggestedAmount || '';
+    els.contributeDate.max = localDateKey();
+    els.contributeDate.value = options.date || localDateKey();
     populateAccounts();
-    const preferredAccount = accountId || (savingsMode === 'wallet' ? state.accounts[savingsWalletIndex]?.id : '') || state.accounts[0]?.id;
-    if (preferredAccount && state.accounts.some((account) => account.id === preferredAccount)) els.contributeAccount.value = preferredAccount;
+    const preferredAccount = accountId || (savingsMode === 'wallet' ? activeAccounts()[savingsWalletIndex]?.id : '') || activeAccounts()[0]?.id;
+    if (preferredAccount && activeAccounts().some((account) => account.id === preferredAccount)) els.contributeAccount.value = preferredAccount;
+    const submit = els.contributeForm.querySelector('button[type="submit"]');
+    if (submit) submit.textContent = currentCorrectionSourceId ? 'Save correction' : 'Add savings';
     syncWalletPickerTriggers();
     updateContributionWalletHint();
     openDialog(els.contributeDialog);
@@ -4184,31 +4412,44 @@
   }
 
   function updateContributionWalletHint() {
-    const account = state.accounts.find((item) => item.id === els.contributeAccount.value) || state.accounts[0];
+    const account = state.accounts.find((item) => item.id === els.contributeAccount.value) || activeAccounts()[0];
     const balance = account ? accountBalance(account.id) : 0;
     els.contributeWalletHint.textContent = state.settings.privacy
       ? `Savings will move out of ${account?.name || 'the selected wallet'}.`
-      : `${currency(Math.max(0, balance), true)} is currently available in ${account?.name || 'the selected wallet'}.`;
+      : `${currency(Math.max(0, balance))} is currently available in ${account?.name || 'the selected wallet'}.`;
   }
 
   function addContribution() {
-    const goal = state.goals.find((item) => item.id === els.contributeGoalId.value);
-    const amount = Number(els.contributeAmount.value);
-    const accountId = els.contributeAccount.value || state.accounts[0]?.id;
-    if (!goal || !Number.isFinite(amount) || amount <= 0 || !accountId) return;
-    const available = accountBalance(accountId);
-    if (amount > available) {
+    const goal = state.goals.find((item) => item.id === els.contributeGoalId.value && !item.removedAt);
+    const amount = moneyRound(els.contributeAmount.value);
+    const accountId = els.contributeAccount.value || activeAccounts()[0]?.id;
+    const date = els.contributeDate.value || localDateKey();
+    if (!goal || amount <= 0 || !accountId || !entryDateIsValid(date)) return;
+    let availableCents = accountBalanceCentsForState(state, accountId);
+    if (currentCorrectionSourceId) {
+      const original = state.transactions.find((tx) => tx.id === currentCorrectionSourceId && tx.type === 'saving');
+      if (original?.accountId === accountId) availableCents += toCents(original.amount || 0);
+    }
+    const available = fromCents(Math.max(0, availableCents));
+    if (toCents(amount) > toCents(available)) {
       const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
-      showToast(`You only have ${currency(Math.max(0, available), true)} available in ${walletName}.`);
+      showToast(state.settings.privacy ? `${walletName} does not have enough available money.` : `You only have ${currency(Math.max(0, available))} available in ${walletName}.`);
       return;
     }
-    const previousGoalAmount = Number(goal.current || 0);
-    goal.current = previousGoalAmount + amount;
-    const completedNow = previousGoalAmount < Number(goal.target || 0) && goal.current >= Number(goal.target || 0);
-    state.transactions.push({
-      id: uid('tx'), type: 'saving', amount, category: 'Savings', accountId,
-      date: localDateKey(), note: goal.name, goalId: goal.id, createdAt: new Date().toISOString()
-    });
+    const previousGoalAmount = goalCurrent(goal);
+    const completedNow = toCents(previousGoalAmount) < toCents(goal.target || 0) && toCents(previousGoalAmount) + toCents(amount) >= toCents(goal.target || 0);
+    if (currentCorrectionSourceId) {
+      const corrected = createCorrectionPair(currentCorrectionSourceId, { amount, category: 'Savings', accountId, date, note: goal.name, goalId: goal.id });
+      if (!corrected) return;
+      closeDialog(els.contributeDialog);
+      currentCorrectionSourceId = null;
+      renderAll();
+      resetCompanionDataBaseline();
+      showToast('Savings correction recorded. The original entry remains in the audit history.');
+      companionReact('savings');
+      return;
+    }
+    state.transactions.push({ id: uid('tx'), type: 'saving', amount, category: 'Savings', accountId, date, note: goal.name, goalId: goal.id, createdAt: new Date().toISOString() });
     state.settings.demoData = false;
     saveState();
     closeDialog(els.contributeDialog);
@@ -4216,87 +4457,90 @@
     celebrateSavings();
     companionReact(completedNow ? 'complete' : 'savings');
     const walletName = state.accounts.find((account) => account.id === accountId)?.name || 'wallet';
-    showToast(`${currency(amount, true)} saved from ${walletName} for ${goal.name}.`);
-  }
-
-  function syncAllowanceRoutineFromHistory() {
-    const routine = state.allowanceRoutine;
-    if (!routine) return;
-    const latest = [...state.transactions]
-      .filter((tx) => tx.type === 'income' && Number(tx.amount) > 0)
-      .sort((a, b) => `${b.date || ''}|${b.createdAt || ''}`.localeCompare(`${a.date || ''}|${a.createdAt || ''}`))[0];
-    if (!latest) {
-      routine.lastReceivedDate = null;
-      routine.nextDueDate = null;
-      return;
-    }
-    routine.lastReceivedDate = latest.date || localDateKey();
-    routine.nextDueDate = routine.frequency === 'irregular' ? null : nextDueDateForFrequency(routine.frequency, routine.lastReceivedDate);
+    showToast(state.settings.privacy ? `Savings added from ${walletName}.` : `${currency(amount)} saved from ${walletName} for ${goal.name}.`);
   }
 
   function editTransaction(id) {
     const tx = state.transactions.find((item) => item.id === id);
     if (!tx) return;
-    if (!canModifyTransaction(tx)) {
-      showToast('This transaction is locked.');
-      return;
-    }
+    if (!canModifyTransaction(tx)) return showToast('This transaction is locked. Use Correct to create an auditable adjustment.');
+    if (archivedAccountUsedByTransaction(tx)) return showToast('Restore the archived wallet before editing this transaction.');
     closeDialog(els.expenseReceiptDialog);
-    if (tx.type === 'expense') {
-      openExpense({ id: tx.id, amount: String(tx.amount), category: tx.category, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
-      return;
-    }
-    if (tx.type === 'income') {
-      closeDialog(els.allowanceHistoryDialog);
-      setView('more');
-      openDifferentAllowance({ id: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date });
-      return;
-    }
-    if (tx.type === 'transfer') {
-      openTransfer({ id: tx.id, amount: String(tx.amount), fromAccountId: tx.fromAccountId, toAccountId: tx.toAccountId, date: tx.date, note: tx.note || '' });
-      return;
-    }
-    showToast('Savings entries can be undone while they are still editable, but are not edited separately.');
+    currentCorrectionSourceId = null;
+    if (tx.type === 'expense') return openExpense({ id: tx.id, amount: String(tx.amount), category: tx.category, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
+    if (tx.type === 'income') { closeDialog(els.allowanceHistoryDialog); setView('more'); return openDifferentAllowance({ id: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date }); }
+    if (tx.type === 'transfer') return openTransfer({ id: tx.id, amount: String(tx.amount), fromAccountId: tx.fromAccountId, toAccountId: tx.toAccountId, date: tx.date, note: tx.note || '' });
+    showToast('Savings entries can be undone while editable, but are not edited separately.');
+  }
+
+  function correctTransaction(id) {
+    const tx = state.transactions.find((item) => item.id === id);
+    if (!tx || !canCorrectTransaction(tx)) return showToast('This transaction is not available for correction.');
+    if (archivedAccountUsedByTransaction(tx)) return showToast('Restore the archived wallet before correcting this transaction.');
+    closeDialog(els.expenseReceiptDialog);
+    if (tx.type === 'expense') return openExpense({ correctionOf: tx.id, amount: String(tx.amount), category: tx.category, accountId: tx.accountId, date: tx.date, note: tx.note || '' });
+    if (tx.type === 'income') { closeDialog(els.allowanceHistoryDialog); setView('more'); return openDifferentAllowance({ correctionOf: tx.id, amount: String(tx.amount), accountId: tx.accountId, date: tx.date }); }
+    if (tx.type === 'transfer') return openTransfer({ correctionOf: tx.id, amount: String(tx.amount), fromAccountId: tx.fromAccountId, toAccountId: tx.toAccountId, date: tx.date, note: tx.note || '' });
+    if (tx.type === 'saving') { if (els.goalHistoryDialog?.open) closeDialog(els.goalHistoryDialog); return openContribution(tx.goalId, String(tx.amount), tx.accountId, { correctionOf: tx.id, date: tx.date }); }
+  }
+
+  function transactionUndoGroup(tx, candidate = state) {
+    if (tx.correctionGroupId) return candidate.transactions.filter((item) => item.correctionGroupId === tx.correctionGroupId);
+    if (tx.type === 'income' && tx.allowanceId) return candidate.transactions.filter((item) => item.allowanceId === tx.allowanceId);
+    return candidate.transactions.filter((item) => item.id === tx.id);
+  }
+
+  function restoreUndoPacket(packet) {
+    if (!packet?.transactions?.length) return;
+    const candidate = cloneStateSnapshot(state);
+    const existing = new Set(candidate.transactions.map((tx) => tx.id));
+    if (packet.transactions.some((tx) => existing.has(tx.id))) return showToast('That transaction is already present.');
+    candidate.transactions.push(...cloneStateSnapshot(packet.transactions));
+    (packet.markers || []).forEach((marker) => {
+      const tx = candidate.transactions.find((item) => item.id === marker.id);
+      if (!tx) return;
+      if (marker.correctedByGroupId) tx.correctedByGroupId = marker.correctedByGroupId;
+      else delete tx.correctedByGroupId;
+    });
+    if (!validateCandidateBalances(candidate, 'Restore is no longer safe because some of that wallet money has been used.')) return;
+    state = candidate;
+    saveState();
+    renderAll();
+    resetCompanionDataBaseline();
+    showToast('Transaction restored.');
   }
 
   function undoTransaction(id) {
     const tx = state.transactions.find((item) => item.id === id);
     if (!tx) return;
-    if (!canModifyTransaction(tx)) {
-      showToast('This transaction is locked.');
-      return;
-    }
-
-    confirmAction('Undo this transaction?', 'This will remove the selected transaction now.', 'Undo transaction', () => {
-      const snapshot = cloneStateSnapshot(state);
-      const groupId = tx.allowanceId || null;
-      const removed = groupId ? state.transactions.filter((item) => item.allowanceId === groupId) : state.transactions.filter((item) => item.id === id);
-
-      removed.forEach((item) => {
-        if (item.type === 'saving' && item.goalId) {
-          const goal = state.goals.find((goalItem) => goalItem.id === item.goalId);
-          if (goal) goal.current = Math.max(0, Number(goal.current || 0) - Number(item.amount || 0));
+    if (!canModifyTransaction(tx)) return showToast('This transaction is locked. Use Correct for historical changes.');
+    confirmAction('Undo this transaction?', 'Pocket will remove only this transaction (or its linked correction group) and keep any newer changes intact.', 'Undo transaction', () => {
+      const candidate = cloneStateSnapshot(state);
+      const candidateTx = candidate.transactions.find((item) => item.id === id);
+      const removed = transactionUndoGroup(candidateTx, candidate);
+      const removeIds = new Set(removed.map((item) => item.id));
+      const markers = [];
+      if (candidateTx.correctionGroupId) {
+        const sourceId = removed.find((item) => item.correctsTransactionId)?.correctsTransactionId;
+        const source = candidate.transactions.find((item) => item.id === sourceId);
+        if (source) {
+          const before = state.transactions.find((item) => item.id === source.id);
+          markers.push({ id: source.id, correctedByGroupId: before?.correctedByGroupId || '' });
+          delete source.correctedByGroupId;
         }
-      });
-
-      state.transactions = state.transactions.filter((item) => groupId ? item.allowanceId !== groupId : item.id !== id);
-      if (groupId) {
-        const plan = state.allowancePlans.find((item) => item.id === groupId);
-        if (plan) plan.status = 'deleted';
-        syncAllowanceRoutineFromHistory();
       }
-
+      candidate.transactions = candidate.transactions.filter((item) => !removeIds.has(item.id));
+      if (!validateCandidateBalances(candidate, 'This transaction cannot be undone because later activity depends on that money.')) return;
+      state = candidate;
       state.settings.demoData = false;
       saveState();
       closeDialog(els.expenseReceiptDialog);
       renderAll();
-      showToast('Transaction undone.', 'Restore', () => {
-        state = cloneStateSnapshot(snapshot);
-        saveState();
-        renderAll();
-      });
+      const packet = { transactions: cloneStateSnapshot(removed), markers };
+      showToast('Transaction undone.', 'Restore', () => restoreUndoPacket(packet));
     });
   }
+
 
   function setWalletOpeningBalanceValue(value) {
     els.walletOpeningBalance.value = value;
@@ -4318,13 +4562,10 @@
   function addWallet() {
     const preset = els.walletForm.elements.walletPreset.value;
     const name = preset === 'Other' ? els.walletCustomName.value.trim() : preset;
-    const openingBalance = Math.max(0, Number(els.walletOpeningBalance.value || 0));
-    if (!name) { showToast('Give this wallet a name.'); return; }
-    if (state.accounts.some((account) => account.name.toLowerCase() === name.toLowerCase())) {
-      showToast(`${name} is already in your wallets.`);
-      return;
-    }
-    state.accounts.push({ id: uid('account'), name, type: preset === 'Other' ? 'other' : 'ewallet', openingBalance, isPrimary: false });
+    const openingBalance = Math.max(0, moneyRound(els.walletOpeningBalance.value || 0));
+    if (!name) return showToast('Give this wallet a name.');
+    if (state.accounts.some((account) => account.name.toLowerCase() === name.toLowerCase())) return showToast(`${name} is already in your wallets.`);
+    state.accounts.push({ id: uid('account'), name, type: preset === 'Other' ? 'other' : 'ewallet', openingBalance, isPrimary: false, archivedAt: null });
     state.settings.demoData = false;
     saveState();
     closeDialog(els.walletDialog);
@@ -4332,13 +4573,86 @@
     showToast(`${name} added.`);
   }
 
+  function openWalletManage(id) {
+    const account = state.accounts.find((item) => item.id === id && !item.archivedAt);
+    if (!account) return;
+    currentWalletManageId = account.id;
+    els.walletManageForm.reset();
+    els.walletManageTitle.textContent = account.name;
+    els.walletManageName.value = account.name;
+    els.walletManageBalance.value = String(Math.max(0, moneyRound(accountBalance(account.id))));
+    els.walletArchiveButton.hidden = Boolean(account.isPrimary);
+    openDialog(els.walletManageDialog);
+    requestAnimationFrame(() => els.walletManageName.focus({ preventScroll: true }));
+  }
+
+  function saveWalletManagement() {
+    const account = state.accounts.find((item) => item.id === currentWalletManageId && !item.archivedAt);
+    if (!account) return;
+    const name = els.walletManageName.value.trim().slice(0, 30);
+    const actualBalance = Math.max(0, moneyRound(els.walletManageBalance.value || 0));
+    if (!name) return showToast('Give this wallet a name.');
+    if (state.accounts.some((item) => item.id !== account.id && item.name.toLowerCase() === name.toLowerCase())) return showToast(`${name} is already in your wallets.`);
+
+    const candidate = cloneStateSnapshot(state);
+    const nextAccount = candidate.accounts.find((item) => item.id === account.id);
+    nextAccount.name = name;
+    const currentBalanceCents = accountBalanceCentsForState(candidate, account.id);
+    const targetCents = toCents(actualBalance);
+    const differenceCents = targetCents - currentBalanceCents;
+    if (differenceCents !== 0) {
+      candidate.transactions.push({
+        id: uid('tx'), type: 'reconciliation', category: 'Reconciliation', accountId: account.id,
+        amount: fromCents(differenceCents), date: localDateKey(), note: `Balance reconciled for ${name}`,
+        createdAt: new Date().toISOString()
+      });
+    }
+    if (!validateCandidateBalances(candidate, 'That reconciliation would make a wallet balance negative.')) return;
+    state = candidate;
+    state.settings.demoData = false;
+    saveState();
+    closeDialog(els.walletManageDialog);
+    currentWalletManageId = null;
+    renderAll();
+    showToast(differenceCents === 0 ? `${name} updated.` : state.settings.privacy ? `${name} balance reconciled.` : `${name} reconciled to ${currency(actualBalance)}.`);
+  }
+
+  function archiveWallet(id = currentWalletManageId) {
+    const account = state.accounts.find((item) => item.id === id && !item.archivedAt);
+    if (!account || account.isPrimary) return;
+    const balanceCents = accountBalanceCentsForState(state, account.id);
+    const savingsCents = toCents(walletSavingsBalance(account.id));
+    if (balanceCents !== 0) return showToast('Reconcile this wallet to ₱0 before archiving it.');
+    if (savingsCents !== 0) return showToast('This wallet still has money attributed to Savings. Return that savings before archiving it.');
+    confirmAction(`Archive ${account.name}?`, 'The wallet will disappear from normal transaction pickers but its historical records will remain.', 'Archive wallet', () => {
+      account.archivedAt = new Date().toISOString();
+      saveState();
+      closeDialog(els.walletManageDialog);
+      currentWalletManageId = null;
+      walletModeIndex = 0;
+      savingsWalletIndex = 0;
+      renderAll();
+      showToast(`${account.name} archived.`);
+    });
+  }
+
+  function restoreWallet(id) {
+    const account = state.accounts.find((item) => item.id === id && item.archivedAt);
+    if (!account) return;
+    account.archivedAt = null;
+    saveState();
+    renderAll();
+    showToast(`${account.name} restored.`);
+  }
+
   function removeWallet(id) {
     const index = state.accounts.findIndex((account) => account.id === id);
     if (index <= 0) return;
     const account = state.accounts[index];
+    if (!account || account.archivedAt) return;
     const used = state.transactions.some((tx) => tx.accountId === id || tx.fromAccountId === id || tx.toAccountId === id);
-    if (used) { showToast('This wallet has transaction history and cannot be removed.'); return; }
-    confirmAction(`Remove ${account.name}?`, `${state.settings.privacy ? 'This wallet' : currency(accountBalance(id), true)} will be removed from your available total. This wallet has no transaction history.`, 'Remove wallet', () => {
+    if (used) return showToast('This wallet has transaction history. Archive it after reconciling instead.');
+    confirmAction(`Remove ${account.name}?`, `${state.settings.privacy ? 'This wallet' : currency(accountBalance(id))} will be removed from your available total. This wallet has no transaction history.`, 'Remove wallet', () => {
       state.accounts.splice(index, 1);
       saveState();
       renderAll();
@@ -4355,50 +4669,158 @@
   }
 
   function resetAllData() {
-    state = {
-      version: SCHEMA_VERSION,
-      settings: { theme: state.settings.theme, privacy: false, demoData: false },
-      accounts: [{ id: uid('account'), name: 'Cash', type: 'cash', openingBalance: 0, isPrimary: true }],
-      goals: [],
-      goalTransfers: [],
-      allowanceRoutine: null,
-      allowancePlans: [],
-      transactions: [],
-      checkins: {}
-    };
+    const theme = state.settings.theme;
+    state = seedState();
+    state.settings.theme = theme;
     saveState();
+    resetCompanionDataBaseline();
     renderAll();
     setView('home');
-    showToast('All tracker data cleared.');
+    showToast('All tracker data cleared. Companion comparisons were reset too.');
+  }
+
+  function pocketBackupPayload() {
+    return {
+      format: 'pocket-full-backup',
+      backupVersion: 2,
+      appVersion: APP_VERSION,
+      schemaVersion: SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      tracker: cloneStateSnapshot(state),
+      secretPocket: cloneStateSnapshot(secretConfig || loadSecretConfig())
+    };
   }
 
   function exportData() {
-    const file = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const payload = pocketBackupPayload();
+    const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(file);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `pocket-backup-${localDateKey()}.json`;
+    anchor.download = `pocket-full-backup-${localDateKey()}.json`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    showToast('Backup downloaded.');
+    showToast('Full Pocket backup downloaded, including Secret Pocket and companion progress.');
+  }
+
+  function validateBackupTrackerShape(value) {
+    if (!value || typeof value !== 'object') return false;
+    if (!Array.isArray(value.accounts) || !Array.isArray(value.transactions) || !Array.isArray(value.goals || [])) return false;
+    if (!value.accounts.length || value.accounts.length > 100) return false;
+    if (value.transactions.length > 100000 || (value.goals || []).length > 1000 || (value.goalTransfers || []).length > 100000) return false;
+    if (!value.accounts.every((account) => account && typeof account === 'object' && typeof account.name === 'string' && account.name.trim())) return false;
+    const knownTypes = new Set(['income', 'expense', 'saving', 'saving_return', 'transfer', 'reconciliation', 'correction_reversal']);
+    if (!value.transactions.every((tx) => {
+      if (!tx || typeof tx !== 'object' || !knownTypes.has(tx.type) || !Number.isFinite(Number(tx.amount))) return false;
+      return tx.type === 'reconciliation' ? toCents(tx.amount) !== 0 : toCents(tx.amount) > 0;
+    })) return false;
+    if (!(value.goals || []).every((goal) => goal && typeof goal === 'object' && typeof goal.name === 'string' && toCents(goal.target) > 0)) return false;
+    if (value.goalTransfers !== undefined && !Array.isArray(value.goalTransfers)) return false;
+    if ((value.goalTransfers || []).some((transfer) => !transfer || typeof transfer !== 'object' || toCents(transfer.amount) <= 0)) return false;
+    return true;
+  }
+
+  function validateNormalizedBackupIntegrity(tracker) {
+    if (!tracker || !activeAccounts(tracker).length) throw new Error('Backup has no active wallet.');
+    const accountIds = new Set(tracker.accounts.map((account) => account.id));
+    const goalIds = new Set(tracker.goals.map((goal) => goal.id));
+    if (accountIds.size !== tracker.accounts.length || goalIds.size !== tracker.goals.length) throw new Error('Backup contains duplicate IDs.');
+    for (const tx of tracker.transactions) {
+      if (['income', 'expense', 'saving', 'saving_return', 'reconciliation'].includes(tx.type) && (!tx.accountId || !accountIds.has(tx.accountId))) throw new Error('Backup references a missing wallet.');
+      if (tx.type === 'transfer' && (!accountIds.has(tx.fromAccountId) || !accountIds.has(tx.toAccountId) || tx.fromAccountId === tx.toAccountId)) throw new Error('Backup contains an invalid wallet transfer.');
+      if (tx.type === 'saving' && tx.goalId && !goalIds.has(tx.goalId)) throw new Error('Backup references a missing savings goal.');
+      if (tx.type === 'correction_reversal') {
+        if (!['income', 'expense', 'transfer', 'saving'].includes(tx.originalType)) throw new Error('Backup contains an invalid correction record.');
+        if (['income', 'expense', 'saving'].includes(tx.originalType) && (!tx.accountId || !accountIds.has(tx.accountId))) throw new Error('Backup correction references a missing wallet.');
+        if (tx.originalType === 'transfer' && (!accountIds.has(tx.fromAccountId) || !accountIds.has(tx.toAccountId) || tx.fromAccountId === tx.toAccountId)) throw new Error('Backup correction references an invalid transfer.');
+      }
+    }
+    const transactionsById = new Map(tracker.transactions.map((tx) => [tx.id, tx]));
+    const correctionGroups = new Map();
+    tracker.transactions.forEach((tx) => {
+      if (!tx.correctionGroupId) return;
+      if (!correctionGroups.has(tx.correctionGroupId)) correctionGroups.set(tx.correctionGroupId, []);
+      correctionGroups.get(tx.correctionGroupId).push(tx);
+    });
+    for (const source of tracker.transactions.filter((tx) => tx.correctedByGroupId)) {
+      const members = correctionGroups.get(source.correctedByGroupId) || [];
+      const reversal = members.find((tx) => tx.type === 'correction_reversal' && tx.correctsTransactionId === source.id);
+      const replacement = members.find((tx) => tx.type !== 'correction_reversal' && tx.correctsTransactionId === source.id);
+      if (!reversal || !replacement || members.length !== 2 || reversal.originalType !== source.type || replacement.type !== source.type) {
+        throw new Error('Backup contains an incomplete correction audit trail.');
+      }
+    }
+    for (const [groupId, members] of correctionGroups) {
+      const sourceId = members.find((tx) => tx.correctsTransactionId)?.correctsTransactionId;
+      const source = sourceId ? transactionsById.get(sourceId) : null;
+      if (!source || source.correctedByGroupId !== groupId) throw new Error('Backup contains an orphaned correction record.');
+    }
+
+    for (const transfer of tracker.goalTransfers) {
+      if (!goalIds.has(transfer.fromGoalId) || !goalIds.has(transfer.toGoalId) || transfer.fromGoalId === transfer.toGoalId) throw new Error('Backup contains an invalid savings transfer.');
+      if ((transfer.allocations || []).some((item) => !accountIds.has(item.accountId))) throw new Error('Backup savings transfer references a missing wallet.');
+      const allocated = (transfer.allocations || []).reduce((sum, item) => sum + toCents(item.amount || 0), 0);
+      if (transfer.allocations?.length && allocated !== toCents(transfer.amount || 0)) throw new Error('Backup contains an inconsistent savings allocation.');
+    }
+    for (const goal of tracker.goals) {
+      const rawGoalCents = toCents(goal.openingSaved || 0) + goalLedgerBalanceCents(goal.id, tracker);
+      if (rawGoalCents < 0) throw new Error('Backup would make a savings goal negative.');
+    }
+    const balanceProblem = stateBalanceProblem(tracker);
+    if (balanceProblem) throw new Error(`Backup would make ${balanceProblem.name} negative.`);
+    for (const account of tracker.accounts) {
+      if (!account.archivedAt) continue;
+      if (accountBalanceCentsForState(tracker, account.id) !== 0 || walletSavingsCentsForState(tracker, account.id) !== 0) {
+        throw new Error('Backup contains an archived wallet that still holds money.');
+      }
+    }
+    return tracker;
+  }
+
+  function parsePocketBackup(raw) {
+    if (!raw || typeof raw !== 'object') throw new Error('Backup must be a JSON object.');
+    if (raw.format === 'pocket-full-backup') {
+      if (![1, 2].includes(Number(raw.backupVersion))) throw new Error('Unsupported Pocket backup version.');
+      if (Number(raw.schemaVersion || 1) > SCHEMA_VERSION) throw new Error('This backup was created by a newer Pocket data schema.');
+      if (!validateBackupTrackerShape(raw.tracker)) throw new Error('Pocket tracker data is incomplete.');
+      const tracker = validateNormalizedBackupIntegrity(normalizeState(raw.tracker));
+      return { tracker, secretPocket: raw.secretPocket ? normalizeSecretConfig(raw.secretPocket) : null, full: true };
+    }
+    if (Number(raw.version || 1) > SCHEMA_VERSION) throw new Error('This legacy backup uses a newer Pocket data schema.');
+    if (validateBackupTrackerShape(raw)) return { tracker: validateNormalizedBackupIntegrity(normalizeState(raw)), secretPocket: null, full: false };
+    throw new Error('Not a recognized Pocket backup.');
   }
 
   async function importData(file) {
     try {
+      if (!file || file.size > 5 * 1024 * 1024) throw new Error('Backup file is too large.');
       const text = await file.text();
-      const imported = normalizeState(JSON.parse(text));
-      confirmAction('Restore this backup?', 'Your current locally stored tracker data will be replaced by the selected backup.', 'Restore data', () => {
-        state = imported;
+      const parsed = parsePocketBackup(JSON.parse(text));
+      const tracker = parsed.tracker;
+      const activeWalletCount = activeAccounts(tracker).length;
+      const goalCount = tracker.goals.filter((goal) => !goal.removedAt).length;
+      const transactionCount = tracker.transactions.length;
+      const companionCopy = parsed.full ? ' Companion profile and Secret Pocket settings are included.' : ' This is a legacy tracker-only backup; your current Secret Pocket profile will be kept.';
+      confirmAction('Restore this Pocket backup?', `${activeWalletCount} active wallet${activeWalletCount === 1 ? '' : 's'}, ${goalCount} active goal${goalCount === 1 ? '' : 's'}, and ${transactionCount} transaction${transactionCount === 1 ? '' : 's'} will replace the current tracker.${companionCopy}`, 'Restore data', () => {
+        state = tracker;
+        if (parsed.secretPocket) {
+          secretConfig = normalizeSecretConfig(parsed.secretPocket);
+          secretConfig.remember = false;
+          saveSecretConfig();
+          try { sessionStorage.removeItem(SECRET_SESSION_KEY); localStorage.removeItem(SECRET_TRUST_KEY); } catch (error) {}
+          state.settings.theme = 'dark';
+        }
         saveState();
+        resetCompanionDataBaseline();
         renderAll();
         setView('home');
-        showToast('Backup restored successfully.');
+        showToast(parsed.full ? 'Full Pocket backup restored. Secret Pocket is locked for safety.' : 'Legacy Pocket backup restored successfully.');
       });
     } catch (error) {
       console.warn(error);
-      showToast('That file is not a valid Pocket backup.');
+      showToast('That file is not a valid Pocket backup. No data was changed.');
     } finally {
       els.importFile.value = '';
     }
@@ -4477,7 +4899,7 @@
         openContribution(goals[0].id, '', account?.id || '');
       } else {
         savingsMode = 'wallet';
-        savingsWalletIndex = Math.max(0, state.accounts.findIndex((item) => item.id === account?.id));
+        savingsWalletIndex = Math.max(0, activeAccounts().findIndex((item) => item.id === account?.id));
         setView('savings');
         showToast('Choose a savings goal to add money to.');
       }
@@ -4495,8 +4917,12 @@
     if (action === 'remove-goal') removeGoal(button.dataset.goalId);
     if (action === 'toggle-manage-goals') { manageGoalsMode = !manageGoalsMode; renderSavings(); }
     if (action === 'open-wallet') openWallet();
+    if (action === 'manage-wallet') openWalletManage(button.dataset.id);
+    if (action === 'archive-wallet') archiveWallet();
+    if (action === 'restore-wallet') restoreWallet(button.dataset.id);
     if (action === 'remove-wallet') removeWallet(button.dataset.id);
     if (action === 'edit-transaction') editTransaction(button.dataset.id);
+    if (action === 'correct-transaction') correctTransaction(button.dataset.id);
     if (action === 'undo-transaction' || action === 'delete-transaction') undoTransaction(button.dataset.id);
     if (action === 'edit-receipt-transaction') editTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'undo-receipt-transaction') undoTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
@@ -4531,8 +4957,10 @@
       'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
+      'expenseDate', 'transferDate', 'goalSaveDate', 'goalTransferDate', 'contributeDate',
       'expenseDialog', 'expenseForm', 'expenseDialogTitle', 'expenseReceiptDialog', 'expenseReceiptContent',
       'walletDialog', 'walletForm', 'walletCustomNameWrap', 'walletCustomName', 'walletOpeningBalance', 'walletKeypad',
+      'walletManageDialog', 'walletManageForm', 'walletManageTitle', 'walletManageName', 'walletManageBalance', 'walletArchiveButton',
       'transferDialog', 'transferForm', 'transferDialogTitle', 'transferFromAccount', 'transferToAccount', 'transferAmountCard', 'transferAvailable', 'transferAmount', 'transferAmountHint', 'transferKeypad', 'transferNote', 'transferSaveButton',
       'expenseAmount', 'expenseAmountCard', 'expenseAvailable', 'expenseAmountHint', 'expenseKeypad', 'expenseAccount',
       'expenseNote', 'expenseStepAmount', 'expenseStepDetails', 'expenseCancelButton', 'expenseBackButton', 'expenseNextButton', 'expenseSaveButton', 'goalDialog', 'goalForm', 'goalDialogTitle', 'goalSubmitButton', 'goalName', 'goalTarget',
@@ -4608,7 +5036,7 @@
 
     els.walletCarousel.addEventListener('scroll', queueWalletCarouselTransforms, { passive: true });
     els.walletCarousel.addEventListener('wheel', (event) => {
-      if (state.accounts.length <= 1) return;
+      if (activeAccounts().length <= 1) return;
       if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
       event.preventDefault();
       els.walletCarousel.scrollBy({ left: event.deltaY, behavior: 'auto' });
@@ -4684,9 +5112,14 @@
       event.preventDefault();
       addWallet();
     });
+    els.walletManageForm.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'cancel') return;
+      event.preventDefault();
+      saveWalletManagement();
+    });
     els.transferFromAccount.addEventListener('change', () => {
       if (els.transferToAccount.value === els.transferFromAccount.value) {
-        const fallback = state.accounts.find((account) => account.id !== els.transferFromAccount.value)?.id || '';
+        const fallback = activeAccounts().find((account) => account.id !== els.transferFromAccount.value)?.id || '';
         if (fallback) els.transferToAccount.value = fallback;
       }
       syncWalletPickerTriggers();
@@ -4821,16 +5254,27 @@
 
     els.expenseDialog.addEventListener('close', () => {
       currentExpenseEditId = null;
+      currentCorrectionSourceId = null;
     });
     els.goalDialog.addEventListener('close', () => {
       currentGoalEditId = null;
     });
     els.allowanceDialog.addEventListener('close', () => {
       currentAllowanceEditId = null;
+      currentCorrectionSourceId = null;
       els.allowanceKeypad.classList.add('is-hidden');
     });
     els.transferDialog.addEventListener('close', () => {
       currentTransferEditId = null;
+      currentCorrectionSourceId = null;
+    });
+    els.walletManageDialog.addEventListener('close', () => {
+      currentWalletManageId = null;
+    });
+    els.contributeDialog.addEventListener('close', () => {
+      currentCorrectionSourceId = null;
+      const submit = els.contributeForm.querySelector('button[type="submit"]');
+      if (submit) submit.textContent = 'Add savings';
     });
 
     els.importFile.addEventListener('change', () => {
@@ -4871,7 +5315,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.2.0');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.3.0');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

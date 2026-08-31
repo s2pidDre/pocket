@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.2.0">
+  <link rel="stylesheet" href="css/style.css?v=3.3.0">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -158,9 +158,12 @@
             </div>
             <button class="activity-day-arrow next" id="activityNextDay" type="button" aria-label="Next day"><svg><use href="#i-chevron"/></svg></button>
             <select id="activityType" aria-label="Filter selected day activity">
-              <option value="all">All</option>
+              <option value="all">All activity</option>
               <option value="expense">Expenses</option>
-              <option value="transfer">Transfers</option>
+              <option value="income">Income</option>
+              <option value="savings">Savings</option>
+              <option value="transfer">Wallet transfers</option>
+              <option value="correction">Corrections</option>
             </select>
           </div>
 
@@ -257,12 +260,12 @@
               <div class="section-heading compact"><div><p class="eyebrow">Your data</p><h2>Backup and restore</h2></div></div>
               <button class="setting-row" type="button" data-action="export-data">
                 <span class="round-icon neutral-soft"><svg><use href="#i-download"/></svg></span>
-                <span><strong>Export backup</strong><small>Download a JSON copy of all your data.</small></span>
+                <span><strong>Export backup</strong><small>Download tracker, Secret Pocket, and companion data.</small></span>
                 <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
               <button class="setting-row" type="button" data-action="import-data">
                 <span class="round-icon neutral-soft"><svg><use href="#i-upload"/></svg></span>
-                <span><strong>Restore backup</strong><small>Review and replace data from a backup.</small></span>
+                <span><strong>Restore backup</strong><small>Preview and safely restore a Pocket backup.</small></span>
                 <svg class="chevron"><use href="#i-chevron"/></svg>
               </button>
               <input id="importFile" type="file" accept="application/json" hidden>
@@ -272,7 +275,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.2.0</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.3.0</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -371,7 +374,7 @@
   <dialog id="expenseDialog" class="app-dialog expense-dialog">
     <form method="dialog" class="dialog-panel expense-panel" id="expenseForm" autocomplete="off">
       <div class="dialog-header expense-header">
-        <div><h2 id="expenseDialogTitle">Add expense</h2><p class="dialog-subtitle">Enter the amount, choose a category, then save.</p></div>
+        <div><h2 id="expenseDialogTitle">Add expense</h2><p class="dialog-subtitle">Enter the amount, category, and real transaction date.</p></div>
         <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
       </div>
       <div class="dialog-body expense-body">
@@ -414,10 +417,14 @@
           </fieldset>
 
           <div class="expense-essential-details realtime-details">
+            <div class="field-group">
+              <label class="field-label" for="expenseDate">Expense date</label>
+              <input class="text-input" id="expenseDate" type="date" required>
+              <p class="helper-text realtime-entry-hint">Use the real date, including past expenses you are entering now.</p>
+            </div>
             <div class="field-group expense-note-field">
               <label class="field-label" for="expenseNote">Note <span>optional</span></label>
               <input class="text-input" id="expenseNote" type="text" maxlength="80" placeholder="Lunch, printing, jeep fare…" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done">
-              <p class="helper-text realtime-entry-hint">Recorded automatically at the time you save it.</p>
             </div>
           </div>
         </section>
@@ -440,8 +447,12 @@
       <div class="dialog-body">
         <div class="field-group"><label class="field-label" for="goalName">What are you saving for?</label><input class="text-input" id="goalName" type="text" maxlength="40" placeholder="Emergency fund" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done" required></div>
         <div class="field-grid">
-          <div class="field-group"><label class="field-label" for="goalTarget">Target amount</label><div class="compact-amount"><span>₱</span><input id="goalTarget" type="number" min="1" step="1" required></div></div>
-          <div class="field-group goal-create-only"><label class="field-label" for="goalCurrent">Save now <span>optional</span></label><div class="compact-amount"><span>₱</span><input id="goalCurrent" type="number" min="0" step="1" value="0"></div></div>
+          <div class="field-group"><label class="field-label" for="goalTarget">Target amount</label><div class="compact-amount"><span>₱</span><input id="goalTarget" type="number" min="0.01" step="0.01" required></div></div>
+          <div class="field-group goal-create-only"><label class="field-label" for="goalCurrent">Save now <span>optional</span></label><div class="compact-amount"><span>₱</span><input id="goalCurrent" type="number" min="0" step="0.01" value="0"></div></div>
+        </div>
+        <div class="field-group goal-create-only">
+          <label class="field-label" for="goalSaveDate">Savings date</label>
+          <input class="text-input" id="goalSaveDate" type="date" required>
         </div>
         <div class="field-group goal-create-only">
           <label class="field-label" for="goalAccountPicker">Save from</label>
@@ -492,6 +503,24 @@
     </form>
   </dialog>
 
+  <dialog id="walletManageDialog" class="app-dialog compact-dialog wallet-manage-dialog">
+    <form method="dialog" class="dialog-panel" id="walletManageForm" autocomplete="off">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Wallet management</p><h2 id="walletManageTitle">Wallet</h2><p class="dialog-subtitle">Rename the wallet or reconcile Pocket with its real available balance.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <div class="field-group"><label class="field-label" for="walletManageName">Wallet name</label><input class="text-input" id="walletManageName" type="text" maxlength="30" autocomplete="off" required></div>
+        <div class="field-group"><label class="field-label" for="walletManageBalance">Actual available balance</label><div class="amount-field"><span>₱</span><input id="walletManageBalance" type="number" min="0" step="0.01" required></div><p class="helper-text">If this differs from Pocket, an auditable reconciliation entry will be added instead of rewriting history.</p></div>
+      </div>
+      <div class="dialog-footer wallet-manage-footer">
+        <button class="button-danger wallet-archive-button" id="walletArchiveButton" type="button" data-action="archive-wallet">Archive</button>
+        <button class="button-secondary" type="button" data-close-dialog>Cancel</button>
+        <button class="button-primary" type="submit" value="default">Save changes</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="transferDialog" class="app-dialog compact-dialog transfer-dialog">
     <form method="dialog" class="dialog-panel" id="transferForm" autocomplete="off">
       <div class="dialog-header">
@@ -519,7 +548,8 @@
         </div>
 
         <div class="transfer-details-grid realtime-details">
-          <div class="field-group"><label class="field-label" for="transferNote">Note <span>optional</span></label><input class="text-input" id="transferNote" type="text" maxlength="80" placeholder="Cash to GCash" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done"><p class="helper-text realtime-entry-hint">Recorded automatically at the time you transfer it.</p></div>
+          <div class="field-group"><label class="field-label" for="transferDate">Transfer date</label><input class="text-input" id="transferDate" type="date" required><p class="helper-text realtime-entry-hint">Use the real date of the transfer.</p></div>
+          <div class="field-group"><label class="field-label" for="transferNote">Note <span>optional</span></label><input class="text-input" id="transferNote" type="text" maxlength="80" placeholder="Cash to GCash" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done"></div>
         </div>
       </div>
       <div class="dialog-footer">
@@ -575,6 +605,7 @@
       <div class="dialog-body goal-transfer-body">
         <input id="goalTransferFromGoalId" type="hidden">
         <div class="goal-transfer-source" id="goalTransferSource"></div>
+        <div class="field-group"><label class="field-label" for="goalTransferDate">Transfer date</label><input class="text-input" id="goalTransferDate" type="date" required></div>
         <fieldset class="goal-transfer-destinations" id="goalTransferDestinations">
           <legend>Move to</legend>
         </fieldset>
@@ -606,7 +637,11 @@
       <div class="dialog-body">
         <input type="hidden" id="contributeGoalId">
         <label class="field-label" for="contributeAmount">Amount to save</label>
-        <div class="amount-field"><span>₱</span><input id="contributeAmount" type="number" min="1" step="1" required></div>
+        <div class="amount-field"><span>₱</span><input id="contributeAmount" type="number" min="0.01" step="0.01" required></div>
+        <div class="field-group">
+          <label class="field-label" for="contributeDate">Savings date</label>
+          <input class="text-input" id="contributeDate" type="date" required>
+        </div>
         <div class="field-group">
           <label class="field-label" for="contributeAccountPicker">Save from</label>
           <select class="native-wallet-select" id="contributeAccount" aria-hidden="true" tabindex="-1"></select><button class="wallet-picker-trigger" id="contributeAccountPicker" type="button" data-wallet-select="contributeAccount" aria-label="Choose wallet"><span class="wallet-picker-trigger-icon"><svg><use href="#i-wallet"/></svg></span><span class="wallet-picker-trigger-copy"><strong>Wallet</strong><small>Select a wallet</small></span><svg class="wallet-picker-trigger-chevron"><use href="#i-chevron"/></svg></button>
@@ -918,6 +953,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.2.0" defer></script>
+  <script src="js/app.js?v=3.3.0" defer></script>
 </body>
 </html>
