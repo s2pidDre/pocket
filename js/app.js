@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.4';
+  const APP_VERSION = '3.5.5';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -5236,7 +5236,7 @@
     els.contentScroll.classList.toggle('home-active', view === 'home');
     els.contentScroll.classList.toggle('activity-active', view === 'activity');
     els.contentScroll.classList.toggle('savings-active', view === 'savings');
-    els.contentScroll.classList.toggle('fixed-view-active', ['home', 'activity', 'savings'].includes(view));
+    els.contentScroll.classList.toggle('fixed-view-active', ['home', 'activity'].includes(view));
     document.querySelectorAll('[data-view-panel]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.viewPanel === view));
     document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((button) => button.classList.toggle('is-active', button.dataset.view === view));
     renderHeader();
@@ -7103,7 +7103,7 @@
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
       'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
-      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'categorySettingsSummary', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
+      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDate', 'transferDate', 'goalSaveDate', 'goalTransferDate', 'contributeDate',
@@ -7527,7 +7527,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.4');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.5');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
