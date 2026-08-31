@@ -7640,14 +7640,182 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
 :root[data-theme="light"] body.wallet-carousel-interacting::before,
 :root[data-theme="light"] body.wallet-carousel-interacting .secret-scene-orb,
 :root[data-theme="light"] body.wallet-carousel-interacting .secret-scene-cloud,
-:root[data-theme="light"] body.wallet-carousel-interacting .secret-scene-star,
-:root[data-theme="light"] body.wallet-carousel-interacting .pocket-companion::before,
-:root[data-theme="light"] body.wallet-carousel-interacting .companion-bunny,
-:root[data-theme="light"] body.wallet-carousel-interacting .companion-sparkles {
+:root[data-theme="light"] body.wallet-carousel-interacting .secret-scene-star {
   animation-play-state: paused !important;
+}
+
+/* The companion is interactive UI, not decorative background. Never pause or hide it as part
+   of wallet rendering optimization; some mobile compositors can drop a paused transformed SVG. */
+:root[data-theme="light"] body.wallet-carousel-interacting .pocket-companion.is-visible {
+  display: block !important;
+  visibility: visible !important;
 }
 
 /* Avoid spending paint time on the glow transition while the JS is already positioning it. */
 .wallet-carousel.is-interacting .wallet-mode-card-glow {
   will-change: transform;
+}
+
+
+/* Pocket v3.5.16 — companion visibility regression fix. */
+:root[data-theme="light"] .pocket-companion.is-visible .companion-bunny {
+  visibility: visible;
+}
+
+
+/* Pocket v3.5.17 — dedicated Hidden Letter PIN gate. */
+.hidden-letter-pin-dialog,
+.hidden-letter-pin-dialog[open] {
+  width: min(430px, calc(100vw - 28px));
+}
+.hidden-letter-pin-panel {
+  position: relative;
+  overflow: hidden;
+}
+.hidden-letter-pin-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% 16%, rgba(255, 198, 219, .15), transparent 28%),
+    radial-gradient(circle at 84% 18%, rgba(190, 216, 255, .13), transparent 26%);
+}
+.hidden-letter-pin-header,
+.hidden-letter-pin-body,
+.hidden-letter-pin-footer { position: relative; z-index: 1; }
+.hidden-letter-pin-body {
+  display: grid;
+  justify-items: center;
+  gap: 13px;
+  padding-top: 18px;
+}
+.hidden-letter-pin-emblem {
+  position: relative;
+  width: 76px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+}
+.hidden-letter-pin-emblem span {
+  position: relative;
+  z-index: 2;
+  width: 58px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: linear-gradient(180deg, #fff6fa, #efd8e2);
+  color: #bd6e8d;
+  font-size: 25px;
+  box-shadow: 0 14px 28px rgba(124, 84, 105, .13);
+}
+.hidden-letter-pin-emblem i {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 62%, white);
+  opacity: .72;
+}
+.hidden-letter-pin-emblem i:nth-child(2) { left: 2px; top: 14px; }
+.hidden-letter-pin-emblem i:nth-child(3) { right: 1px; top: 7px; width: 5px; height: 5px; }
+.hidden-letter-pin-emblem i:nth-child(4) { right: 8px; bottom: 2px; width: 4px; height: 4px; }
+.hidden-letter-pin-dots {
+  display: grid;
+  grid-template-columns: repeat(8, 12px);
+  justify-content: center;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  cursor: text;
+}
+.hidden-letter-pin-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--text-3) 54%, transparent);
+  background: transparent;
+  transform: scale(.9);
+  transition: transform .16s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+.hidden-letter-pin-dots span.is-filled {
+  transform: scale(1);
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.hidden-letter-pin-dots.is-invalid {
+  animation: hidden-letter-pin-shake .32s ease;
+}
+.hidden-letter-pin-error {
+  min-height: 18px;
+  margin: -2px 0 0;
+  text-align: center;
+  color: #d86d86;
+}
+.hidden-letter-keypad { width: min(270px, 100%); }
+.hidden-letter-keypad button { min-height: 48px; }
+@keyframes hidden-letter-pin-shake {
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-3px); }
+}
+:root[data-theme="light"] .hidden-letter-pin-dialog::backdrop {
+  background: linear-gradient(180deg, rgba(255, 244, 250, .54), rgba(235, 241, 255, .44));
+  backdrop-filter: blur(15px) saturate(1.08);
+  -webkit-backdrop-filter: blur(15px) saturate(1.08);
+}
+:root[data-theme="light"] .hidden-letter-pin-panel {
+  border-color: rgba(255,255,255,.5);
+  background:
+    radial-gradient(circle at 16% 12%, rgba(255,255,255,.72), transparent 34%),
+    radial-gradient(circle at 82% 16%, rgba(213,230,255,.46), transparent 25%),
+    linear-gradient(180deg, rgba(255,248,252,.95), rgba(247,246,255,.92));
+  box-shadow: 0 28px 70px rgba(157, 112, 138, .17), inset 0 1px 0 rgba(255,255,255,.62);
+  backdrop-filter: blur(20px) saturate(1.08);
+  -webkit-backdrop-filter: blur(20px) saturate(1.08);
+}
+:root[data-theme="light"] .hidden-letter-pin-emblem span {
+  border: 1px solid rgba(255,255,255,.58);
+  background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(248,226,237,.92));
+  color: #bb6688;
+}
+:root[data-theme="light"] .hidden-letter-pin-dots span {
+  border-color: rgba(160, 119, 139, .42);
+}
+:root[data-theme="light"] .hidden-letter-pin-dots span.is-filled {
+  border-color: #cf789a;
+  background: #cf789a;
+  box-shadow: 0 0 0 4px rgba(207,120,154,.12);
+}
+:root:not([data-theme="light"]) .hidden-letter-pin-panel {
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,.055), transparent 42%),
+    linear-gradient(180deg, rgba(24,27,39,.99), rgba(13,16,27,.995));
+  border-color: rgba(255,255,255,.08);
+}
+@media (max-width: 560px) {
+  .hidden-letter-pin-dialog,
+  .hidden-letter-pin-dialog[open] {
+    width: calc(100vw - 24px);
+    height: auto;
+    max-height: calc(100dvh - 42px);
+    margin: auto;
+    border-radius: 18px;
+  }
+  .hidden-letter-pin-panel { height: auto; max-height: inherit; border-radius: 18px; }
+  .hidden-letter-pin-dots { grid-template-columns: repeat(8, 10px); gap: 8px; }
+  .hidden-letter-pin-dots span { width: 9px; height: 9px; }
+  .hidden-letter-keypad { width: min(250px, 100%); }
+  .hidden-letter-keypad button { min-height: 43px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hidden-letter-pin-dots,
+  .hidden-letter-pin-dots span { animation: none !important; transition: none !important; }
 }

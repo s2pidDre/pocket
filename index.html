@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.15">
+  <link rel="stylesheet" href="css/style.css?v=3.5.17">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -992,6 +992,30 @@
     </form>
   </dialog>
 
+  <dialog id="hiddenLetterPinDialog" class="app-dialog compact-dialog hidden-letter-pin-dialog" aria-label="Hidden letter lock">
+    <form method="dialog" class="dialog-panel hidden-letter-pin-panel" id="hiddenLetterPinForm" autocomplete="off">
+      <div class="dialog-header hidden-letter-pin-header">
+        <div><p class="eyebrow">Private letter</p><h2>One more lock ♡</h2><p class="dialog-subtitle">Enter the eight-digit letter PIN.</p></div>
+        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog-body hidden-letter-pin-body">
+        <div class="hidden-letter-pin-emblem" aria-hidden="true"><span>✉</span><i></i><i></i><i></i></div>
+        <button class="hidden-letter-pin-dots" id="hiddenLetterPinDots" type="button" aria-label="Hidden letter PIN entry" tabindex="-1">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </button>
+        <input class="secret-pin-capture" id="hiddenLetterPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" aria-describedby="hiddenLetterPinError" aria-invalid="false">
+        <p class="helper-text hidden-letter-pin-error" id="hiddenLetterPinError" role="alert" aria-live="polite"></p>
+        <div class="secret-keypad hidden-letter-keypad" id="hiddenLetterKeypad" aria-label="Hidden letter PIN keypad">
+          <button type="button" data-hidden-letter-key="1">1</button><button type="button" data-hidden-letter-key="2">2</button><button type="button" data-hidden-letter-key="3">3</button>
+          <button type="button" data-hidden-letter-key="4">4</button><button type="button" data-hidden-letter-key="5">5</button><button type="button" data-hidden-letter-key="6">6</button>
+          <button type="button" data-hidden-letter-key="7">7</button><button type="button" data-hidden-letter-key="8">8</button><button type="button" data-hidden-letter-key="9">9</button>
+          <span aria-hidden="true"></span><button type="button" data-hidden-letter-key="0">0</button><button type="button" data-hidden-letter-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
+        </div>
+      </div>
+      <div class="dialog-footer hidden-letter-pin-footer"><button class="button-secondary" type="button" data-close-dialog>Cancel</button><button class="button-primary" id="hiddenLetterPinUnlock" type="submit" value="default" disabled>Open letter</button></div>
+    </form>
+  </dialog>
+
   <dialog id="hiddenLetterDialog" class="app-dialog hidden-letter-dialog" aria-label="Hidden letter">
     <div class="dialog-panel hidden-letter-panel">
       <button class="icon-button hidden-letter-close" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
@@ -1171,6 +1195,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.15" defer></script>
+  <script src="js/app.js?v=3.5.17" defer></script>
 </body>
 </html>

@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.15';
+  const APP_VERSION = '3.5.17';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -177,6 +177,8 @@
   const HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL = 58;
   const HIDDEN_LETTER_GESTURE_MIN_PATH = 125;
   const HIDDEN_LETTER_GESTURE_COOLDOWN = 900;
+  const HIDDEN_LETTER_PIN_LENGTH = 8;
+  const HIDDEN_LETTER_PIN_HASH = 11680458;
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
   const COMPANION_DATA_SPEECH_LEVELS = {
@@ -5649,8 +5651,39 @@
     if (els.hiddenLetterPaper) els.hiddenLetterPaper.scrollTop = 0;
   }
 
-  function openHiddenLetterExperience() {
-    if (!els.hiddenLetterDialog || currentView !== 'home') return;
+  function hiddenLetterPinHash(value) {
+    let hash = 2166136261 >>> 0;
+    for (const character of String(value || '')) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash >>> 0;
+  }
+
+  function renderHiddenLetterPinDots() {
+    if (!els.hiddenLetterPinDots || !els.hiddenLetterPinInput) return;
+    const length = String(els.hiddenLetterPinInput.value || '').length;
+    [...els.hiddenLetterPinDots.querySelectorAll('span')].forEach((dot, index) => dot.classList.toggle('is-filled', index < length));
+    els.hiddenLetterPinUnlock.disabled = length !== HIDDEN_LETTER_PIN_LENGTH;
+  }
+
+  function setHiddenLetterPinEntry(value) {
+    if (!els.hiddenLetterPinInput) return;
+    els.hiddenLetterPinInput.value = String(value || '').replace(/\D/g, '').slice(0, HIDDEN_LETTER_PIN_LENGTH);
+    els.hiddenLetterPinInput.classList.remove('is-invalid');
+    els.hiddenLetterPinInput.setAttribute('aria-invalid', 'false');
+    els.hiddenLetterPinDots?.classList.remove('is-invalid');
+    if (els.hiddenLetterPinError) els.hiddenLetterPinError.textContent = '';
+    renderHiddenLetterPinDots();
+  }
+
+  function handleHiddenLetterPinKey(key) {
+    const current = els.hiddenLetterPinInput?.value || '';
+    if (key === 'backspace') setHiddenLetterPinEntry(current.slice(0, -1));
+    else if (/^\d$/.test(key) && current.length < HIDDEN_LETTER_PIN_LENGTH) setHiddenLetterPinEntry(`${current}${key}`);
+  }
+
+  function revealHiddenLetterEnvelope() {
     resetHiddenLetterState();
     openDialog(els.hiddenLetterDialog);
     try { navigator.vibrate?.(18); } catch (error) {}
@@ -5658,6 +5691,32 @@
       emitSecretLightFx('heart', { count: companionReducedMotion ? 2 : 5, area: 'center', duration: companionReducedMotion ? 900 : 1900 });
     }
     requestAnimationFrame(() => els.hiddenLetterEnvelope?.focus({ preventScroll: true }));
+  }
+
+  function openHiddenLetterExperience() {
+    if (!els.hiddenLetterPinDialog || currentView !== 'home') return;
+    setHiddenLetterPinEntry('');
+    openDialog(els.hiddenLetterPinDialog);
+    requestAnimationFrame(() => els.hiddenLetterPinDots?.focus({ preventScroll: true }));
+  }
+
+  function unlockHiddenLetter() {
+    const pin = String(els.hiddenLetterPinInput?.value || '');
+    if (pin.length !== HIDDEN_LETTER_PIN_LENGTH || hiddenLetterPinHash(pin) !== HIDDEN_LETTER_PIN_HASH) {
+      if (els.hiddenLetterPinError) els.hiddenLetterPinError.textContent = 'That PIN did not open the letter.';
+      els.hiddenLetterPinInput?.classList.add('is-invalid');
+      els.hiddenLetterPinInput?.setAttribute('aria-invalid', 'true');
+      els.hiddenLetterPinDots?.classList.remove('is-invalid');
+      void els.hiddenLetterPinDots?.offsetWidth;
+      els.hiddenLetterPinDots?.classList.add('is-invalid');
+      try { navigator.vibrate?.([28, 38, 28]); } catch (error) {}
+      els.hiddenLetterPinInput.value = '';
+      renderHiddenLetterPinDots();
+      return;
+    }
+    setHiddenLetterPinEntry('');
+    closeDialog(els.hiddenLetterPinDialog);
+    window.setTimeout(revealHiddenLetterEnvelope, 80);
   }
 
   function openHiddenLetterPaper() {
@@ -7659,7 +7718,7 @@
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
       'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
       'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
-      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'hiddenLetterDialog', 'hiddenLetterShell', 'hiddenLetterEnvelope', 'hiddenLetterPaper', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
+      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'hiddenLetterPinDialog', 'hiddenLetterPinForm', 'hiddenLetterPinDots', 'hiddenLetterPinInput', 'hiddenLetterPinError', 'hiddenLetterKeypad', 'hiddenLetterPinUnlock', 'hiddenLetterDialog', 'hiddenLetterShell', 'hiddenLetterEnvelope', 'hiddenLetterPaper', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
   }
@@ -7924,6 +7983,15 @@
       saveUiPreferences(); renderAll();
       showToast(`Text size set to ${uiPreferences.textSize}.`);
     });
+    els.hiddenLetterPinForm.addEventListener('submit', (event) => { event.preventDefault(); unlockHiddenLetter(); });
+    els.hiddenLetterKeypad.addEventListener('click', (event) => { const button = event.target.closest('[data-hidden-letter-key]'); if (button) handleHiddenLetterPinKey(button.dataset.hiddenLetterKey); });
+    els.hiddenLetterPinDots.addEventListener('click', () => els.hiddenLetterPinInput.focus({ preventScroll: true }));
+    els.hiddenLetterPinDialog.addEventListener('keydown', (event) => {
+      if (/^\d$/.test(event.key)) { event.preventDefault(); handleHiddenLetterPinKey(event.key); }
+      else if (event.key === 'Backspace') { event.preventDefault(); handleHiddenLetterPinKey('backspace'); }
+      else if (event.key === 'Enter' && !els.hiddenLetterPinUnlock.disabled) { event.preventDefault(); unlockHiddenLetter(); }
+    });
+    els.hiddenLetterPinInput.addEventListener('input', () => setHiddenLetterPinEntry(els.hiddenLetterPinInput.value));
     els.themeUnlockForm.addEventListener('submit', (event) => { event.preventDefault(); unlockLightTheme(); });
     els.secretKeypad.addEventListener('click', (event) => { const button=event.target.closest('[data-secret-key]'); if(button) handleSecretKey(button.dataset.secretKey); });
     els.secretPinDots.addEventListener('click',()=>els.themePassword.focus({preventScroll:true}));
@@ -8024,6 +8092,8 @@
       currentSavingsWithdrawalCorrectionId = null;
     });
 
+    els.hiddenLetterPinDialog?.addEventListener('close', () => setHiddenLetterPinEntry(''));
+
     els.hiddenLetterDialog?.addEventListener('close', () => {
       resetHiddenLetterState();
       cancelHiddenLetterGesture();
@@ -8086,7 +8156,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.15');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.17');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
