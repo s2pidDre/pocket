@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.11';
+  const APP_VERSION = '3.5.12';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -167,7 +167,13 @@
   let secretTapTimer = 0;
   let secretResetTimer = 0;
   let secretResetTriggered = false;
+  let hiddenLetterGesture = null;
+  let hiddenLetterGestureCooldownUntil = 0;
   const companionEffectNodes = new Set();
+  const HIDDEN_LETTER_GESTURE_MIN_VERTICAL = 78;
+  const HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL = 72;
+  const HIDDEN_LETTER_GESTURE_MIN_PATH = 170;
+  const HIDDEN_LETTER_GESTURE_COOLDOWN = 900;
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
   const COMPANION_DATA_SPEECH_LEVELS = {
@@ -5520,6 +5526,122 @@
     if (dialog.open) dialog.close();
   }
 
+  function resetHiddenLetterState() {
+    if (!els.hiddenLetterShell) return;
+    els.hiddenLetterShell.dataset.letterState = 'sealed';
+    if (els.hiddenLetterPaper) els.hiddenLetterPaper.scrollTop = 0;
+  }
+
+  function openHiddenLetterExperience() {
+    if (!els.hiddenLetterDialog || currentView !== 'home') return;
+    resetHiddenLetterState();
+    openDialog(els.hiddenLetterDialog);
+    try { navigator.vibrate?.(18); } catch (error) {}
+    requestAnimationFrame(() => els.hiddenLetterEnvelope?.focus({ preventScroll: true }));
+  }
+
+  function openHiddenLetterPaper() {
+    if (!els.hiddenLetterDialog?.open || !els.hiddenLetterShell) return;
+    els.hiddenLetterShell.dataset.letterState = 'open';
+    window.setTimeout(() => els.hiddenLetterPaper?.focus({ preventScroll: true }), 240);
+  }
+
+  function hiddenLetterGestureAllowed(event) {
+    if (currentView !== 'home') return false;
+    if (!event.isPrimary) return false;
+    if (event.button && event.button !== 0) return false;
+    if (els.hiddenLetterDialog?.open) return false;
+    if (document.querySelector('dialog[open]')) return false;
+    const homeView = document.getElementById('view-home');
+    if (!homeView?.contains(event.target)) return false;
+    if (event.target.closest('button, a, input, select, textarea, label, dialog, [role="button"], [data-action], [data-wallet-select], .sidebar, .topbar-actions, .wallet-carousel-stage, .home-wallet-actions, .pocket-companion')) return false;
+    return true;
+  }
+
+  function beginHiddenLetterGesture(event) {
+    if (!hiddenLetterGestureAllowed(event)) {
+      hiddenLetterGesture = null;
+      return;
+    }
+    hiddenLetterGesture = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      points: [{ x: event.clientX, y: event.clientY }],
+      path: 0
+    };
+  }
+
+  function trackHiddenLetterGesture(event) {
+    if (!hiddenLetterGesture || hiddenLetterGesture.pointerId !== event.pointerId) return;
+    const dx = event.clientX - hiddenLetterGesture.lastX;
+    const dy = event.clientY - hiddenLetterGesture.lastY;
+    const step = Math.hypot(dx, dy);
+    if (!step) return;
+    hiddenLetterGesture.path += step;
+    hiddenLetterGesture.lastX = event.clientX;
+    hiddenLetterGesture.lastY = event.clientY;
+    if (step >= 4 || hiddenLetterGesture.points.length < 3) {
+      hiddenLetterGesture.points.push({ x: event.clientX, y: event.clientY });
+      if (hiddenLetterGesture.points.length > 32) hiddenLetterGesture.points.splice(1, hiddenLetterGesture.points.length - 32);
+    }
+  }
+
+  function detectHiddenLetterLGesture(gesture) {
+    if (!gesture || gesture.path < HIDDEN_LETTER_GESTURE_MIN_PATH || gesture.points.length < 4) return false;
+    const points = gesture.points;
+    const start = points[0];
+    let pivotIndex = 0;
+    let pivotY = start.y;
+    for (let index = 1; index < points.length; index += 1) {
+      if (points[index].y > pivotY) {
+        pivotY = points[index].y;
+        pivotIndex = index;
+      }
+    }
+    if (pivotIndex < 1 || pivotIndex >= points.length - 1) return false;
+    const pivot = points[pivotIndex];
+    const end = points[points.length - 1];
+    const prePoints = points.slice(0, pivotIndex + 1);
+    const postPoints = points.slice(pivotIndex);
+    const preXs = prePoints.map((point) => point.x);
+    const preYs = prePoints.map((point) => point.y);
+    const postXs = postPoints.map((point) => point.x);
+    const postYs = postPoints.map((point) => point.y);
+    const verticalDrop = pivot.y - start.y;
+    const horizontalRun = end.x - pivot.x;
+    const overallRight = end.x - start.x;
+    const preHorizontalDrift = Math.max(...preXs) - Math.min(...preXs);
+    const postVerticalDrift = Math.max(...postYs) - Math.min(...postYs);
+    const leftTravel = start.x - Math.min(...points.map((point) => point.x));
+    const liftAboveStart = start.y - Math.min(...preYs);
+    if (verticalDrop < HIDDEN_LETTER_GESTURE_MIN_VERTICAL) return false;
+    if (horizontalRun < HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL) return false;
+    if (overallRight < 42) return false;
+    if (preHorizontalDrift > Math.max(54, verticalDrop * 0.9)) return false;
+    if (postVerticalDrift > Math.max(46, horizontalRun * 0.62)) return false;
+    if (leftTravel > 30 || liftAboveStart > 22) return false;
+    return true;
+  }
+
+  function endHiddenLetterGesture(event) {
+    if (!hiddenLetterGesture || hiddenLetterGesture.pointerId !== event.pointerId) return;
+    trackHiddenLetterGesture(event);
+    const gesture = hiddenLetterGesture;
+    hiddenLetterGesture = null;
+    if (Date.now() < hiddenLetterGestureCooldownUntil) return;
+    if (!detectHiddenLetterLGesture(gesture)) return;
+    hiddenLetterGestureCooldownUntil = Date.now() + HIDDEN_LETTER_GESTURE_COOLDOWN;
+    openHiddenLetterExperience();
+  }
+
+  function cancelHiddenLetterGesture(event) {
+    if (!hiddenLetterGesture) return;
+    if (!event || hiddenLetterGesture.pointerId === event.pointerId) hiddenLetterGesture = null;
+  }
+
   function renderSecretPinDots() {
     const length=String(els.themePassword?.value||'').length;
     [...els.secretPinDots.querySelectorAll('span')].forEach((dot,index)=>dot.classList.toggle('is-filled',index<length));
@@ -7296,6 +7418,7 @@
     if (action === 'edit-receipt-transaction') editTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'undo-receipt-transaction') undoTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'open-secret-pocket') openSecretPocketSettings();
+    if (action === 'open-hidden-letter') openHiddenLetterPaper();
     if (action === 'secret-theme-dark') setSecretTheme('dark');
     if (action === 'secret-theme-light') setSecretTheme('light');
     if (action === 'toggle-secret-companion') toggleSecretCompanion();
@@ -7353,7 +7476,7 @@
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
       'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
       'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
-      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
+      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'hiddenLetterDialog', 'hiddenLetterShell', 'hiddenLetterEnvelope', 'hiddenLetterPaper', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
   }
@@ -7647,6 +7770,11 @@
     ['gesturestart', 'gesturechange', 'gestureend'].forEach((eventName) => {
       document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
     });
+    document.addEventListener('pointerdown', beginHiddenLetterGesture, { passive: true });
+    document.addEventListener('pointermove', trackHiddenLetterGesture, { passive: true });
+    document.addEventListener('pointerup', endHiddenLetterGesture, { passive: true });
+    document.addEventListener('pointercancel', cancelHiddenLetterGesture, { passive: true });
+
     els.versionSecretTrigger.addEventListener('click',handleSecretVersionTap);
     els.versionSecretTrigger.addEventListener('pointerdown',startSecretRecoveryHold);
     ['pointerup','pointercancel','pointerleave'].forEach((eventName)=>els.versionSecretTrigger.addEventListener(eventName,cancelSecretRecoveryHold));
@@ -7709,6 +7837,11 @@
       currentSavingsWithdrawalCorrectionId = null;
     });
 
+    els.hiddenLetterDialog?.addEventListener('close', () => {
+      resetHiddenLetterState();
+      cancelHiddenLetterGesture();
+    });
+
     els.importFile.addEventListener('change', () => {
       const file = els.importFile.files?.[0];
       if (file) importData(file);
@@ -7766,7 +7899,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.11');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.12');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
