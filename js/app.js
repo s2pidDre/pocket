@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.13';
+  const APP_VERSION = '3.5.14';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -170,9 +170,9 @@
   let hiddenLetterGesture = null;
   let hiddenLetterGestureCooldownUntil = 0;
   const companionEffectNodes = new Set();
-  const HIDDEN_LETTER_GESTURE_MIN_VERTICAL = 78;
-  const HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL = 72;
-  const HIDDEN_LETTER_GESTURE_MIN_PATH = 170;
+  const HIDDEN_LETTER_GESTURE_MIN_VERTICAL = 62;
+  const HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL = 58;
+  const HIDDEN_LETTER_GESTURE_MIN_PATH = 125;
   const HIDDEN_LETTER_GESTURE_COOLDOWN = 900;
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
@@ -5554,98 +5554,158 @@
 
   function hiddenLetterGestureAllowed(event) {
     if (currentView !== 'home') return false;
-    if (!event.isPrimary) return false;
-    if (event.button && event.button !== 0) return false;
+    if ('isPrimary' in event && !event.isPrimary) return false;
+    if ('button' in event && event.button && event.button !== 0) return false;
     if (els.hiddenLetterDialog?.open) return false;
     if (document.querySelector('dialog[open]')) return false;
+    const target = event.target instanceof Element ? event.target : null;
     const homeView = document.getElementById('view-home');
-    if (!homeView?.contains(event.target)) return false;
-    if (event.target.closest('button, a, input, select, textarea, label, dialog, [role="button"], [data-action], [data-wallet-select], .sidebar, .topbar-actions, .wallet-carousel-stage, .home-wallet-actions, .pocket-companion')) return false;
+    if (!target || !homeView?.contains(target)) return false;
+    if (target.closest('button, a, input, select, textarea, label, dialog, [role="button"], [data-action], [data-wallet-select], .pocket-companion')) return false;
     return true;
   }
 
+  function makeHiddenLetterGesture(identifier, x, y, inputType = 'pointer') {
+    return {
+      identifier,
+      inputType,
+      startX: x,
+      startY: y,
+      lastX: x,
+      lastY: y,
+      points: [{ x, y }],
+      path: 0,
+      suppressScroll: false
+    };
+  }
+
+  function appendHiddenLetterGesturePoint(x, y) {
+    if (!hiddenLetterGesture) return;
+    const dx = x - hiddenLetterGesture.lastX;
+    const dy = y - hiddenLetterGesture.lastY;
+    const step = Math.hypot(dx, dy);
+    if (!step) return;
+    hiddenLetterGesture.path += step;
+    hiddenLetterGesture.lastX = x;
+    hiddenLetterGesture.lastY = y;
+    const totalDx = x - hiddenLetterGesture.startX;
+    const totalDy = y - hiddenLetterGesture.startY;
+    if (!hiddenLetterGesture.suppressScroll && totalDy > 12 && Math.abs(totalDy) > Math.abs(totalDx) * 1.1) {
+      hiddenLetterGesture.suppressScroll = true;
+    }
+    if (step >= 3 || hiddenLetterGesture.points.length < 3) {
+      hiddenLetterGesture.points.push({ x, y });
+      if (hiddenLetterGesture.points.length > 48) hiddenLetterGesture.points.splice(1, hiddenLetterGesture.points.length - 48);
+    }
+  }
+
   function beginHiddenLetterGesture(event) {
+    if (event.pointerType === 'touch') return;
     if (!hiddenLetterGestureAllowed(event)) {
       hiddenLetterGesture = null;
       return;
     }
-    hiddenLetterGesture = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      lastX: event.clientX,
-      lastY: event.clientY,
-      points: [{ x: event.clientX, y: event.clientY }],
-      path: 0
-    };
+    hiddenLetterGesture = makeHiddenLetterGesture(event.pointerId, event.clientX, event.clientY, 'pointer');
   }
 
   function trackHiddenLetterGesture(event) {
-    if (!hiddenLetterGesture || hiddenLetterGesture.pointerId !== event.pointerId) return;
-    const dx = event.clientX - hiddenLetterGesture.lastX;
-    const dy = event.clientY - hiddenLetterGesture.lastY;
-    const step = Math.hypot(dx, dy);
-    if (!step) return;
-    hiddenLetterGesture.path += step;
-    hiddenLetterGesture.lastX = event.clientX;
-    hiddenLetterGesture.lastY = event.clientY;
-    if (step >= 4 || hiddenLetterGesture.points.length < 3) {
-      hiddenLetterGesture.points.push({ x: event.clientX, y: event.clientY });
-      if (hiddenLetterGesture.points.length > 32) hiddenLetterGesture.points.splice(1, hiddenLetterGesture.points.length - 32);
-    }
+    if (event.pointerType === 'touch') return;
+    if (!hiddenLetterGesture || hiddenLetterGesture.inputType !== 'pointer' || hiddenLetterGesture.identifier !== event.pointerId) return;
+    appendHiddenLetterGesturePoint(event.clientX, event.clientY);
   }
 
   function detectHiddenLetterLGesture(gesture) {
     if (!gesture || gesture.path < HIDDEN_LETTER_GESTURE_MIN_PATH || gesture.points.length < 4) return false;
     const points = gesture.points;
     const start = points[0];
-    let pivotIndex = 0;
-    let pivotY = start.y;
-    for (let index = 1; index < points.length; index += 1) {
-      if (points[index].y > pivotY) {
-        pivotY = points[index].y;
-        pivotIndex = index;
+    const end = points[points.length - 1];
+    const allXs = points.map((point) => point.x);
+    const allYs = points.map((point) => point.y);
+    const leftTravel = start.x - Math.min(...allXs);
+    const liftAboveStart = start.y - Math.min(...allYs);
+    if (leftTravel > 36 || liftAboveStart > 28) return false;
+
+    let bestScore = -Infinity;
+    let matched = false;
+    for (let pivotIndex = 1; pivotIndex < points.length - 1; pivotIndex += 1) {
+      const pivot = points[pivotIndex];
+      const verticalDrop = pivot.y - start.y;
+      const horizontalRun = end.x - pivot.x;
+      if (verticalDrop < HIDDEN_LETTER_GESTURE_MIN_VERTICAL || horizontalRun < HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL) continue;
+
+      const prePoints = points.slice(0, pivotIndex + 1);
+      const postPoints = points.slice(pivotIndex);
+      const preXs = prePoints.map((point) => point.x);
+      const postYs = postPoints.map((point) => point.y);
+      const preHorizontalRange = Math.max(...preXs) - Math.min(...preXs);
+      const postVerticalRange = Math.max(...postYs) - Math.min(...postYs);
+      const firstLegDx = Math.abs(pivot.x - start.x);
+      const secondLegDy = Math.abs(end.y - pivot.y);
+
+      const firstLegLooksVertical = firstLegDx <= Math.max(48, verticalDrop * .68) && preHorizontalRange <= Math.max(62, verticalDrop * .88);
+      const secondLegLooksHorizontal = secondLegDy <= Math.max(42, horizontalRun * .58) && postVerticalRange <= Math.max(52, horizontalRun * .72);
+      if (!firstLegLooksVertical || !secondLegLooksHorizontal) continue;
+
+      const score = verticalDrop + horizontalRun - (firstLegDx * .8) - (secondLegDy * .9) - (preHorizontalRange * .18) - (postVerticalRange * .22);
+      if (score > bestScore) {
+        bestScore = score;
+        matched = true;
       }
     }
-    if (pivotIndex < 1 || pivotIndex >= points.length - 1) return false;
-    const pivot = points[pivotIndex];
-    const end = points[points.length - 1];
-    const prePoints = points.slice(0, pivotIndex + 1);
-    const postPoints = points.slice(pivotIndex);
-    const preXs = prePoints.map((point) => point.x);
-    const preYs = prePoints.map((point) => point.y);
-    const postXs = postPoints.map((point) => point.x);
-    const postYs = postPoints.map((point) => point.y);
-    const verticalDrop = pivot.y - start.y;
-    const horizontalRun = end.x - pivot.x;
-    const overallRight = end.x - start.x;
-    const preHorizontalDrift = Math.max(...preXs) - Math.min(...preXs);
-    const postVerticalDrift = Math.max(...postYs) - Math.min(...postYs);
-    const leftTravel = start.x - Math.min(...points.map((point) => point.x));
-    const liftAboveStart = start.y - Math.min(...preYs);
-    if (verticalDrop < HIDDEN_LETTER_GESTURE_MIN_VERTICAL) return false;
-    if (horizontalRun < HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL) return false;
-    if (overallRight < 42) return false;
-    if (preHorizontalDrift > Math.max(54, verticalDrop * 0.9)) return false;
-    if (postVerticalDrift > Math.max(46, horizontalRun * 0.62)) return false;
-    if (leftTravel > 30 || liftAboveStart > 22) return false;
-    return true;
+    return matched;
   }
 
-  function endHiddenLetterGesture(event) {
-    if (!hiddenLetterGesture || hiddenLetterGesture.pointerId !== event.pointerId) return;
-    trackHiddenLetterGesture(event);
+  function finishHiddenLetterGesture() {
     const gesture = hiddenLetterGesture;
     hiddenLetterGesture = null;
-    if (Date.now() < hiddenLetterGestureCooldownUntil) return;
+    if (!gesture || Date.now() < hiddenLetterGestureCooldownUntil) return;
     if (!detectHiddenLetterLGesture(gesture)) return;
     hiddenLetterGestureCooldownUntil = Date.now() + HIDDEN_LETTER_GESTURE_COOLDOWN;
     openHiddenLetterExperience();
   }
 
+  function endHiddenLetterGesture(event) {
+    if (event.pointerType === 'touch') return;
+    if (!hiddenLetterGesture || hiddenLetterGesture.inputType !== 'pointer' || hiddenLetterGesture.identifier !== event.pointerId) return;
+    appendHiddenLetterGesturePoint(event.clientX, event.clientY);
+    finishHiddenLetterGesture();
+  }
+
   function cancelHiddenLetterGesture(event) {
     if (!hiddenLetterGesture) return;
-    if (!event || hiddenLetterGesture.pointerId === event.pointerId) hiddenLetterGesture = null;
+    if (!event) {
+      hiddenLetterGesture = null;
+      return;
+    }
+    if (hiddenLetterGesture.inputType === 'pointer' && hiddenLetterGesture.identifier === event.pointerId) hiddenLetterGesture = null;
+  }
+
+  function hiddenLetterTouchById(touchList, identifier) {
+    return [...touchList].find((touch) => touch.identifier === identifier) || null;
+  }
+
+  function beginHiddenLetterTouchGesture(event) {
+    if (event.touches.length !== 1 || !hiddenLetterGestureAllowed(event)) {
+      hiddenLetterGesture = null;
+      return;
+    }
+    const touch = event.touches[0];
+    hiddenLetterGesture = makeHiddenLetterGesture(touch.identifier, touch.clientX, touch.clientY, 'touch');
+  }
+
+  function trackHiddenLetterTouchGesture(event) {
+    if (!hiddenLetterGesture || hiddenLetterGesture.inputType !== 'touch') return;
+    const touch = hiddenLetterTouchById(event.touches, hiddenLetterGesture.identifier);
+    if (!touch) return;
+    appendHiddenLetterGesturePoint(touch.clientX, touch.clientY);
+    if (hiddenLetterGesture.suppressScroll) event.preventDefault();
+  }
+
+  function endHiddenLetterTouchGesture(event) {
+    if (!hiddenLetterGesture || hiddenLetterGesture.inputType !== 'touch') return;
+    const touch = hiddenLetterTouchById(event.changedTouches, hiddenLetterGesture.identifier);
+    if (touch) appendHiddenLetterGesturePoint(touch.clientX, touch.clientY);
+    finishHiddenLetterGesture();
   }
 
   function renderSecretPinDots() {
@@ -7780,6 +7840,10 @@
     document.addEventListener('pointermove', trackHiddenLetterGesture, { passive: true });
     document.addEventListener('pointerup', endHiddenLetterGesture, { passive: true });
     document.addEventListener('pointercancel', cancelHiddenLetterGesture, { passive: true });
+    document.addEventListener('touchstart', beginHiddenLetterTouchGesture, { passive: true });
+    document.addEventListener('touchmove', trackHiddenLetterTouchGesture, { passive: false });
+    document.addEventListener('touchend', endHiddenLetterTouchGesture, { passive: true });
+    document.addEventListener('touchcancel', () => cancelHiddenLetterGesture(), { passive: true });
 
     els.versionSecretTrigger.addEventListener('click',handleSecretVersionTap);
     els.versionSecretTrigger.addEventListener('pointerdown',startSecretRecoveryHold);
@@ -7905,7 +7969,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.13');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.14');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
