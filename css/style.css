@@ -6264,3 +6264,23 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
   .savings-withdraw-dialog,
   .savings-withdraw-dialog[open] { width: calc(100vw - 18px); max-height: calc(100dvh - 24px); margin: auto; }
 }
+
+
+/* Pocket v3.5.2 — mobile Savings companion safe-edge fix.
+   Autonomous companion behavior no longer covers Savings headings/cards. */
+@media (max-width: 820px) {
+  :root[data-theme="light"] .pocket-companion.is-savings-safe-dock {
+    z-index: 32;
+    filter: none;
+  }
+  :root[data-theme="light"] .pocket-companion.is-savings-safe-dock::after {
+    width: 34px !important;
+    opacity: .42 !important;
+  }
+  :root[data-theme="light"] .pocket-companion.is-savings-safe-dock .companion-bunny {
+    transform-origin: 50% 96%;
+  }
+  :root[data-theme="light"] .pocket-companion.is-savings-safe-dock .companion-bubble {
+    max-width: min(150px, calc(100vw - 92px));
+  }
+}
