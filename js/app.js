@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.25';
+  const APP_VERSION = '3.5.26';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -3466,6 +3466,11 @@
     const end = Math.min(entries.length, start + pageEntries.length);
 
     els.globalHistoryCount.textContent = `${entries.length} record${entries.length === 1 ? '' : 's'}`;
+    if (els.globalHistoryClear) {
+      const hasActiveFilters = Boolean(query) || categoryId !== 'all';
+      els.globalHistoryClear.classList.toggle('is-hidden', !hasActiveFilters);
+      els.globalHistoryClear.disabled = !hasActiveFilters;
+    }
     els.globalHistoryResults.innerHTML = renderTransactionRows(pageEntries, true, {
       includeDate: true,
       emptyTitle: 'No matching history',
@@ -3486,6 +3491,7 @@
     els.globalHistorySearch.value = '';
     els.globalHistoryCategory.value = 'all';
     renderGlobalHistory();
+    if (els.globalHistoryResults) els.globalHistoryResults.scrollTop = 0;
   }
 
   function openGlobalHistory(preset = {}) {
@@ -7592,8 +7598,8 @@
     if (action === 'open-allowance-history') openAllowanceHistory();
     if (action === 'allowance-history-prev') { allowanceHistoryPage = Math.max(0, allowanceHistoryPage - 1); renderAllowanceHistory(); }
     if (action === 'allowance-history-next') { allowanceHistoryPage += 1; renderAllowanceHistory(); }
-    if (action === 'global-history-prev') { globalHistoryPage = Math.max(0, globalHistoryPage - 1); renderGlobalHistory(); }
-    if (action === 'global-history-next') { globalHistoryPage += 1; renderGlobalHistory(); }
+    if (action === 'global-history-prev') { globalHistoryPage = Math.max(0, globalHistoryPage - 1); renderGlobalHistory(); if (els.globalHistoryResults) els.globalHistoryResults.scrollTop = 0; }
+    if (action === 'global-history-next') { globalHistoryPage += 1; renderGlobalHistory(); if (els.globalHistoryResults) els.globalHistoryResults.scrollTop = 0; }
     if (action === 'open-goal-history') openGoalHistory(button.dataset.goalId);
     if (action === 'open-archived-goals') { renderSavings(); if (!els.archivedGoalsButton?.classList.contains('is-hidden')) openDialog(els.archivedGoalsDialog); }
     if (action === 'revert-goal-target') revertGoalTargetEvent(button.dataset.id);
@@ -7939,8 +7945,8 @@
       saveLegacySavingsSource();
     });
     els.categoryManagerForm.addEventListener('submit', (event) => { event.preventDefault(); saveCategoryManagerForm(); });
-    els.globalHistorySearch.addEventListener('input', () => { globalHistoryPage = 0; renderGlobalHistory(); });
-    els.globalHistoryCategory.addEventListener('change', () => { globalHistoryPage = 0; renderGlobalHistory(); });
+    els.globalHistorySearch.addEventListener('input', () => { globalHistoryPage = 0; renderGlobalHistory(); if (els.globalHistoryResults) els.globalHistoryResults.scrollTop = 0; });
+    els.globalHistoryCategory.addEventListener('change', () => { globalHistoryPage = 0; renderGlobalHistory(); if (els.globalHistoryResults) els.globalHistoryResults.scrollTop = 0; });
     els.globalHistoryClear.addEventListener('click', clearGlobalHistoryFilters);
     els.reconciliationCorrectionForm.addEventListener('submit', (event) => { event.preventDefault(); saveReconciliationCorrection(); });
     els.textSizeSetting.addEventListener('change', () => {
@@ -8126,7 +8132,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.25');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.26');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

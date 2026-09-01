@@ -7729,3 +7729,192 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
     font-size: 14px;
   }
 }
+
+
+/* Pocket v3.5.26 — Ledger results viewport and pagination layout fix. */
+.global-history-dialog {
+  height: min(780px, calc(100dvh - 30px));
+}
+.global-history-dialog .dialog-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.global-history-body {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: hidden !important;
+  gap: 11px;
+  padding-bottom: 0;
+}
+.global-history-simple-controls {
+  flex: 0 0 auto;
+}
+.global-history-meta {
+  min-height: 32px;
+  padding: 0 1px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+}
+.global-history-meta strong {
+  font-size: 11px;
+  font-weight: 760;
+}
+.global-history-meta .text-button {
+  min-height: 28px;
+  padding: 0 2px;
+  font-size: 10.5px;
+  font-weight: 740;
+}
+.global-history-meta .text-button.is-hidden {
+  display: none !important;
+}
+.global-history-results.transaction-list.full {
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  padding: 0 5px 8px 0;
+  scroll-padding-bottom: 12px;
+}
+.global-history-results.transaction-list.full .transaction-row {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  padding: 9px 1px 10px 0 !important;
+  gap: 5px 10px !important;
+}
+.global-history-results.transaction-list.full .transaction-row.has-actions {
+  min-height: 0 !important;
+}
+.global-history-results.transaction-list.full .transaction-row > .round-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+.global-history-results.transaction-list.full .transaction-copy strong {
+  font-size: 13px;
+}
+.global-history-results.transaction-list.full .transaction-copy small {
+  margin-top: 3px;
+  font-size: 9.8px;
+}
+.global-history-results.transaction-list.full .transaction-amount strong {
+  font-size: 13px;
+}
+.global-history-results.transaction-list.full .transaction-actions {
+  gap: 5px;
+  padding-top: 1px;
+}
+.global-history-results.transaction-list.full .transaction-actions-row {
+  gap: 5px;
+}
+.global-history-results.transaction-list.full .transaction-action {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 10px;
+}
+.global-history-pager {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  min-height: 50px;
+  margin: 0 -2px;
+  padding: 9px 2px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: 0 -10px 22px color-mix(in srgb, var(--surface) 88%, transparent);
+}
+.global-history-pager > span {
+  font-size: 10px;
+  font-weight: 780;
+}
+.global-history-pager button {
+  min-width: 86px;
+  min-height: 34px;
+  padding-inline: 11px;
+}
+.global-history-category-filter select {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.global-history-category-filter select:focus,
+.global-history-category-filter select:focus-visible {
+  outline: none !important;
+  border-color: color-mix(in srgb, var(--primary) 66%, var(--line-strong)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 13%, transparent) !important;
+}
+:root[data-theme="light"] .global-history-category-filter select:focus,
+:root[data-theme="light"] .global-history-category-filter select:focus-visible {
+  border-color: rgba(207, 105, 148, .7) !important;
+  box-shadow: 0 0 0 3px rgba(220, 119, 159, .12) !important;
+}
+@media (max-width: 560px) {
+  .global-history-dialog,
+  .global-history-dialog[open] {
+    width: calc(100vw - 18px);
+    height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+  .global-history-body {
+    gap: 9px;
+  }
+  .global-history-meta {
+    min-height: 29px;
+    padding-bottom: 7px;
+  }
+  .global-history-results.transaction-list.full {
+    padding-right: 2px;
+  }
+  .global-history-results.transaction-list.full .transaction-row {
+    padding: 8px 0 9px !important;
+    gap: 4px 9px !important;
+  }
+  .global-history-results.transaction-list.full .transaction-row > .round-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+  }
+  .global-history-results.transaction-list.full .transaction-copy strong,
+  .global-history-results.transaction-list.full .transaction-amount strong {
+    font-size: 12.5px;
+  }
+  .global-history-results.transaction-list.full .transaction-copy small {
+    font-size: 9.3px;
+  }
+  .global-history-results.transaction-list.full .transaction-action {
+    min-height: 27px;
+    padding: 0 8px;
+    font-size: 9.6px;
+  }
+  .global-history-pager {
+    min-height: 48px;
+    grid-template-columns: 82px minmax(0,1fr) 82px;
+    gap: 5px;
+    padding: 8px 0 9px;
+  }
+  .global-history-pager button {
+    min-width: 0;
+    width: 100%;
+    min-height: 32px;
+    padding-inline: 7px;
+    font-size: 9px;
+  }
+}
+@media (max-height: 700px) and (max-width: 560px) {
+  .global-history-dialog,
+  .global-history-dialog[open] {
+    height: calc(100dvh - 12px);
+    max-height: calc(100dvh - 12px);
+  }
+  .global-history-dialog .dialog-header {
+    padding-bottom: 10px;
+  }
+  .global-history-dialog .dialog-subtitle {
+    display: none;
+  }
+}
