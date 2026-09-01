@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.17';
+  const APP_VERSION = '3.5.18';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -5684,6 +5684,7 @@
   }
 
   function revealHiddenLetterEnvelope() {
+    if (!secretPocketLightActive()) return;
     resetHiddenLetterState();
     openDialog(els.hiddenLetterDialog);
     try { navigator.vibrate?.(18); } catch (error) {}
@@ -5694,13 +5695,14 @@
   }
 
   function openHiddenLetterExperience() {
-    if (!els.hiddenLetterPinDialog || currentView !== 'home') return;
+    if (!els.hiddenLetterPinDialog || currentView !== 'home' || !secretPocketLightActive()) return;
     setHiddenLetterPinEntry('');
     openDialog(els.hiddenLetterPinDialog);
     requestAnimationFrame(() => els.hiddenLetterPinDots?.focus({ preventScroll: true }));
   }
 
   function unlockHiddenLetter() {
+    if (!secretPocketLightActive()) { closeDialog(els.hiddenLetterPinDialog); setHiddenLetterPinEntry(''); return; }
     const pin = String(els.hiddenLetterPinInput?.value || '');
     if (pin.length !== HIDDEN_LETTER_PIN_LENGTH || hiddenLetterPinHash(pin) !== HIDDEN_LETTER_PIN_HASH) {
       if (els.hiddenLetterPinError) els.hiddenLetterPinError.textContent = 'That PIN did not open the letter.';
@@ -5729,7 +5731,7 @@
   }
 
   function hiddenLetterGestureAllowed(event) {
-    if (currentView !== 'home') return false;
+    if (currentView !== 'home' || !secretPocketLightActive()) return false;
     if ('isPrimary' in event && !event.isPrimary) return false;
     if ('button' in event && event.button && event.button !== 0) return false;
     if (els.hiddenLetterDialog?.open) return false;
@@ -8156,7 +8158,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.17');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.18');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
