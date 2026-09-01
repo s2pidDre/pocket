@@ -7519,15 +7519,15 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
 .secret-letter-copy {
   display: grid;
   gap: clamp(15px, 2.4vw, 21px);
-  font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+  font-family: "Comic Sans MS", "Comic Sans", "Segoe UI", system-ui, sans-serif;
 }
 .secret-letter-copy p {
   margin: 0;
   color: #694957;
-  font-size: clamp(15px, 2.2vw, 17px);
+  font-size: clamp(16px, 2.15vw, 18px);
   font-weight: 400;
-  line-height: 1.78;
-  letter-spacing: .005em;
+  line-height: 1.72;
+  letter-spacing: .006em;
 }
 .secret-letter-signoff {
   margin-top: 22px;
@@ -7674,4 +7674,23 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
   .secret-letter-sheet-content,
   .secret-letter-stage[data-letter-state="opening"] .secret-letter-envelope,
   .secret-letter-stage[data-letter-state="open"] .secret-letter-envelope { transition: none !important; }
+}
+
+
+/* Pocket v3.5.24 — more legible handwritten-style letter typography. */
+.secret-letter-copy {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+@media (max-width: 480px) {
+  .secret-letter-copy p {
+    font-size: 16px;
+    line-height: 1.72;
+  }
+}
+@media (max-width: 720px) {
+  .secret-letter-copy p {
+    font-size: 16px;
+    line-height: 1.74;
+  }
 }
