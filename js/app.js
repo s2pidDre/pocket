@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.21';
+  const APP_VERSION = '3.5.22';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -170,16 +170,7 @@
   let secretTapTimer = 0;
   let secretResetTimer = 0;
   let secretResetTriggered = false;
-  let hiddenLetterGesture = null;
-  let hiddenLetterGestureCooldownUntil = 0;
-  let hiddenLetterOpenTimer = 0;
   const companionEffectNodes = new Set();
-  const HIDDEN_LETTER_GESTURE_MIN_VERTICAL = 62;
-  const HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL = 58;
-  const HIDDEN_LETTER_GESTURE_MIN_PATH = 125;
-  const HIDDEN_LETTER_GESTURE_COOLDOWN = 900;
-  const HIDDEN_LETTER_PIN_LENGTH = 8;
-  const HIDDEN_LETTER_PIN_HASH = 11680458;
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
   const COMPANION_DATA_SPEECH_LEVELS = {
@@ -5646,255 +5637,6 @@
     if (dialog.open) dialog.close();
   }
 
-  function resetHiddenLetterState() {
-    window.clearTimeout(hiddenLetterOpenTimer);
-    hiddenLetterOpenTimer = 0;
-    if (!els.hiddenLetterShell) return;
-    els.hiddenLetterShell.dataset.letterState = 'sealed';
-    if (els.hiddenLetterPaper) els.hiddenLetterPaper.scrollTop = 0;
-  }
-
-  function hiddenLetterPinHash(value) {
-    let hash = 2166136261 >>> 0;
-    for (const character of String(value || '')) {
-      hash ^= character.charCodeAt(0);
-      hash = Math.imul(hash, 16777619) >>> 0;
-    }
-    return hash >>> 0;
-  }
-
-  function renderHiddenLetterPinDots() {
-    if (!els.hiddenLetterPinDots || !els.hiddenLetterPinInput) return;
-    const length = String(els.hiddenLetterPinInput.value || '').length;
-    [...els.hiddenLetterPinDots.querySelectorAll('span')].forEach((dot, index) => dot.classList.toggle('is-filled', index < length));
-    els.hiddenLetterPinUnlock.disabled = length !== HIDDEN_LETTER_PIN_LENGTH;
-  }
-
-  function setHiddenLetterPinEntry(value) {
-    if (!els.hiddenLetterPinInput) return;
-    els.hiddenLetterPinInput.value = String(value || '').replace(/\D/g, '').slice(0, HIDDEN_LETTER_PIN_LENGTH);
-    els.hiddenLetterPinInput.classList.remove('is-invalid');
-    els.hiddenLetterPinInput.setAttribute('aria-invalid', 'false');
-    els.hiddenLetterPinDots?.classList.remove('is-invalid');
-    if (els.hiddenLetterPinError) els.hiddenLetterPinError.textContent = '';
-    renderHiddenLetterPinDots();
-  }
-
-  function handleHiddenLetterPinKey(key) {
-    const current = els.hiddenLetterPinInput?.value || '';
-    if (key === 'backspace') setHiddenLetterPinEntry(current.slice(0, -1));
-    else if (/^\d$/.test(key) && current.length < HIDDEN_LETTER_PIN_LENGTH) setHiddenLetterPinEntry(`${current}${key}`);
-  }
-
-  function revealHiddenLetterEnvelope() {
-    if (!secretPocketLightActive()) return;
-    resetHiddenLetterState();
-    openDialog(els.hiddenLetterDialog);
-    try { navigator.vibrate?.(18); } catch (error) {}
-    if (secretPocketLightActive()) {
-      emitSecretLightFx('heart', { count: companionReducedMotion ? 2 : 5, area: 'center', duration: companionReducedMotion ? 900 : 1900 });
-    }
-    requestAnimationFrame(() => els.hiddenLetterEnvelope?.focus({ preventScroll: true }));
-  }
-
-  function openHiddenLetterExperience() {
-    if (!els.hiddenLetterPinDialog || currentView !== 'home' || !secretPocketLightActive()) return;
-    setHiddenLetterPinEntry('');
-    openDialog(els.hiddenLetterPinDialog);
-    requestAnimationFrame(() => els.hiddenLetterPinDots?.focus({ preventScroll: true }));
-  }
-
-  function unlockHiddenLetter() {
-    if (!secretPocketLightActive()) { closeDialog(els.hiddenLetterPinDialog); setHiddenLetterPinEntry(''); return; }
-    const pin = String(els.hiddenLetterPinInput?.value || '');
-    if (pin.length !== HIDDEN_LETTER_PIN_LENGTH || hiddenLetterPinHash(pin) !== HIDDEN_LETTER_PIN_HASH) {
-      if (els.hiddenLetterPinError) els.hiddenLetterPinError.textContent = 'That PIN did not open the letter.';
-      els.hiddenLetterPinInput?.classList.add('is-invalid');
-      els.hiddenLetterPinInput?.setAttribute('aria-invalid', 'true');
-      els.hiddenLetterPinDots?.classList.remove('is-invalid');
-      void els.hiddenLetterPinDots?.offsetWidth;
-      els.hiddenLetterPinDots?.classList.add('is-invalid');
-      try { navigator.vibrate?.([28, 38, 28]); } catch (error) {}
-      els.hiddenLetterPinInput.value = '';
-      renderHiddenLetterPinDots();
-      return;
-    }
-    setHiddenLetterPinEntry('');
-    closeDialog(els.hiddenLetterPinDialog);
-    window.setTimeout(revealHiddenLetterEnvelope, 80);
-  }
-
-  function openHiddenLetterPaper() {
-    if (!els.hiddenLetterDialog?.open || !els.hiddenLetterShell) return;
-    window.clearTimeout(hiddenLetterOpenTimer);
-    els.hiddenLetterShell.dataset.letterState = 'opening';
-    if (secretPocketLightActive()) {
-      window.setTimeout(() => emitSecretLightFx('sparkle', { count: companionReducedMotion ? 3 : 7, area: 'center', duration: companionReducedMotion ? 900 : 2100 }), 120);
-    }
-    hiddenLetterOpenTimer = window.setTimeout(() => {
-      if (!els.hiddenLetterDialog?.open || !els.hiddenLetterShell) return;
-      els.hiddenLetterShell.dataset.letterState = 'open';
-      els.hiddenLetterPaper?.focus({ preventScroll: true });
-      hiddenLetterOpenTimer = 0;
-    }, companionReducedMotion ? 120 : 620);
-  }
-
-  function hiddenLetterGestureAllowed(event) {
-    if (currentView !== 'home' || !secretPocketLightActive()) return false;
-    if ('isPrimary' in event && !event.isPrimary) return false;
-    if ('button' in event && event.button && event.button !== 0) return false;
-    if (els.hiddenLetterDialog?.open) return false;
-    if (document.querySelector('dialog[open]')) return false;
-    const target = event.target instanceof Element ? event.target : null;
-    const homeView = document.getElementById('view-home');
-    if (!target || !homeView?.contains(target)) return false;
-    if (target.closest('button, a, input, select, textarea, label, dialog, [role="button"], [data-action], [data-wallet-select], .pocket-companion')) return false;
-    return true;
-  }
-
-  function makeHiddenLetterGesture(identifier, x, y, inputType = 'pointer') {
-    return {
-      identifier,
-      inputType,
-      startX: x,
-      startY: y,
-      lastX: x,
-      lastY: y,
-      points: [{ x, y }],
-      path: 0,
-      suppressScroll: false
-    };
-  }
-
-  function appendHiddenLetterGesturePoint(x, y) {
-    if (!hiddenLetterGesture) return;
-    const dx = x - hiddenLetterGesture.lastX;
-    const dy = y - hiddenLetterGesture.lastY;
-    const step = Math.hypot(dx, dy);
-    if (!step) return;
-    hiddenLetterGesture.path += step;
-    hiddenLetterGesture.lastX = x;
-    hiddenLetterGesture.lastY = y;
-    const totalDx = x - hiddenLetterGesture.startX;
-    const totalDy = y - hiddenLetterGesture.startY;
-    if (!hiddenLetterGesture.suppressScroll && totalDy > 12 && Math.abs(totalDy) > Math.abs(totalDx) * 1.1) {
-      hiddenLetterGesture.suppressScroll = true;
-    }
-    if (step >= 3 || hiddenLetterGesture.points.length < 3) {
-      hiddenLetterGesture.points.push({ x, y });
-      if (hiddenLetterGesture.points.length > 48) hiddenLetterGesture.points.splice(1, hiddenLetterGesture.points.length - 48);
-    }
-  }
-
-  function beginHiddenLetterGesture(event) {
-    if (event.pointerType === 'touch') return;
-    if (!hiddenLetterGestureAllowed(event)) {
-      hiddenLetterGesture = null;
-      return;
-    }
-    hiddenLetterGesture = makeHiddenLetterGesture(event.pointerId, event.clientX, event.clientY, 'pointer');
-  }
-
-  function trackHiddenLetterGesture(event) {
-    if (event.pointerType === 'touch') return;
-    if (!hiddenLetterGesture || hiddenLetterGesture.inputType !== 'pointer' || hiddenLetterGesture.identifier !== event.pointerId) return;
-    appendHiddenLetterGesturePoint(event.clientX, event.clientY);
-  }
-
-  function detectHiddenLetterLGesture(gesture) {
-    if (!gesture || gesture.path < HIDDEN_LETTER_GESTURE_MIN_PATH || gesture.points.length < 4) return false;
-    const points = gesture.points;
-    const start = points[0];
-    const end = points[points.length - 1];
-    const allXs = points.map((point) => point.x);
-    const allYs = points.map((point) => point.y);
-    const leftTravel = start.x - Math.min(...allXs);
-    const liftAboveStart = start.y - Math.min(...allYs);
-    if (leftTravel > 36 || liftAboveStart > 28) return false;
-
-    let bestScore = -Infinity;
-    let matched = false;
-    for (let pivotIndex = 1; pivotIndex < points.length - 1; pivotIndex += 1) {
-      const pivot = points[pivotIndex];
-      const verticalDrop = pivot.y - start.y;
-      const horizontalRun = end.x - pivot.x;
-      if (verticalDrop < HIDDEN_LETTER_GESTURE_MIN_VERTICAL || horizontalRun < HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL) continue;
-
-      const prePoints = points.slice(0, pivotIndex + 1);
-      const postPoints = points.slice(pivotIndex);
-      const preXs = prePoints.map((point) => point.x);
-      const postYs = postPoints.map((point) => point.y);
-      const preHorizontalRange = Math.max(...preXs) - Math.min(...preXs);
-      const postVerticalRange = Math.max(...postYs) - Math.min(...postYs);
-      const firstLegDx = Math.abs(pivot.x - start.x);
-      const secondLegDy = Math.abs(end.y - pivot.y);
-
-      const firstLegLooksVertical = firstLegDx <= Math.max(48, verticalDrop * .68) && preHorizontalRange <= Math.max(62, verticalDrop * .88);
-      const secondLegLooksHorizontal = secondLegDy <= Math.max(42, horizontalRun * .58) && postVerticalRange <= Math.max(52, horizontalRun * .72);
-      if (!firstLegLooksVertical || !secondLegLooksHorizontal) continue;
-
-      const score = verticalDrop + horizontalRun - (firstLegDx * .8) - (secondLegDy * .9) - (preHorizontalRange * .18) - (postVerticalRange * .22);
-      if (score > bestScore) {
-        bestScore = score;
-        matched = true;
-      }
-    }
-    return matched;
-  }
-
-  function finishHiddenLetterGesture() {
-    const gesture = hiddenLetterGesture;
-    hiddenLetterGesture = null;
-    if (!gesture || Date.now() < hiddenLetterGestureCooldownUntil) return;
-    if (!detectHiddenLetterLGesture(gesture)) return;
-    hiddenLetterGestureCooldownUntil = Date.now() + HIDDEN_LETTER_GESTURE_COOLDOWN;
-    openHiddenLetterExperience();
-  }
-
-  function endHiddenLetterGesture(event) {
-    if (event.pointerType === 'touch') return;
-    if (!hiddenLetterGesture || hiddenLetterGesture.inputType !== 'pointer' || hiddenLetterGesture.identifier !== event.pointerId) return;
-    appendHiddenLetterGesturePoint(event.clientX, event.clientY);
-    finishHiddenLetterGesture();
-  }
-
-  function cancelHiddenLetterGesture(event) {
-    if (!hiddenLetterGesture) return;
-    if (!event) {
-      hiddenLetterGesture = null;
-      return;
-    }
-    if (hiddenLetterGesture.inputType === 'pointer' && hiddenLetterGesture.identifier === event.pointerId) hiddenLetterGesture = null;
-  }
-
-  function hiddenLetterTouchById(touchList, identifier) {
-    return [...touchList].find((touch) => touch.identifier === identifier) || null;
-  }
-
-  function beginHiddenLetterTouchGesture(event) {
-    if (event.touches.length !== 1 || !hiddenLetterGestureAllowed(event)) {
-      hiddenLetterGesture = null;
-      return;
-    }
-    const touch = event.touches[0];
-    hiddenLetterGesture = makeHiddenLetterGesture(touch.identifier, touch.clientX, touch.clientY, 'touch');
-  }
-
-  function trackHiddenLetterTouchGesture(event) {
-    if (!hiddenLetterGesture || hiddenLetterGesture.inputType !== 'touch') return;
-    const touch = hiddenLetterTouchById(event.touches, hiddenLetterGesture.identifier);
-    if (!touch) return;
-    appendHiddenLetterGesturePoint(touch.clientX, touch.clientY);
-    if (hiddenLetterGesture.suppressScroll) event.preventDefault();
-  }
-
-  function endHiddenLetterTouchGesture(event) {
-    if (!hiddenLetterGesture || hiddenLetterGesture.inputType !== 'touch') return;
-    const touch = hiddenLetterTouchById(event.changedTouches, hiddenLetterGesture.identifier);
-    if (touch) appendHiddenLetterGesturePoint(touch.clientX, touch.clientY);
-    finishHiddenLetterGesture();
-  }
-
   function renderSecretPinDots() {
     const length=String(els.themePassword?.value||'').length;
     [...els.secretPinDots.querySelectorAll('span')].forEach((dot,index)=>dot.classList.toggle('is-filled',index<length));
@@ -7671,7 +7413,6 @@
     if (action === 'edit-receipt-transaction') editTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'undo-receipt-transaction') undoTransaction(els.expenseReceiptDialog.dataset.transactionId || lastReceiptTransactionId);
     if (action === 'open-secret-pocket') openSecretPocketSettings();
-    if (action === 'open-hidden-letter') openHiddenLetterPaper();
     if (action === 'secret-theme-dark') setSecretTheme('dark');
     if (action === 'secret-theme-light') setSecretTheme('light');
     if (action === 'toggle-secret-companion') toggleSecretCompanion();
@@ -7729,7 +7470,7 @@
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
       'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
       'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
-      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'hiddenLetterPinDialog', 'hiddenLetterPinForm', 'hiddenLetterPinDots', 'hiddenLetterPinInput', 'hiddenLetterPinError', 'hiddenLetterKeypad', 'hiddenLetterPinUnlock', 'hiddenLetterDialog', 'hiddenLetterShell', 'hiddenLetterEnvelope', 'hiddenLetterPaper', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
+      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
   }
@@ -7994,15 +7735,6 @@
       saveUiPreferences(); renderAll();
       showToast(`Text size set to ${uiPreferences.textSize}.`);
     });
-    els.hiddenLetterPinForm.addEventListener('submit', (event) => { event.preventDefault(); unlockHiddenLetter(); });
-    els.hiddenLetterKeypad.addEventListener('click', (event) => { const button = event.target.closest('[data-hidden-letter-key]'); if (button) handleHiddenLetterPinKey(button.dataset.hiddenLetterKey); });
-    els.hiddenLetterPinDots.addEventListener('click', () => els.hiddenLetterPinInput.focus({ preventScroll: true }));
-    els.hiddenLetterPinDialog.addEventListener('keydown', (event) => {
-      if (/^\d$/.test(event.key)) { event.preventDefault(); handleHiddenLetterPinKey(event.key); }
-      else if (event.key === 'Backspace') { event.preventDefault(); handleHiddenLetterPinKey('backspace'); }
-      else if (event.key === 'Enter' && !els.hiddenLetterPinUnlock.disabled) { event.preventDefault(); unlockHiddenLetter(); }
-    });
-    els.hiddenLetterPinInput.addEventListener('input', () => setHiddenLetterPinEntry(els.hiddenLetterPinInput.value));
     els.themeUnlockForm.addEventListener('submit', (event) => { event.preventDefault(); unlockLightTheme(); });
     els.secretKeypad.addEventListener('click', (event) => { const button=event.target.closest('[data-secret-key]'); if(button) handleSecretKey(button.dataset.secretKey); });
     els.secretPinDots.addEventListener('click',()=>els.themePassword.focus({preventScroll:true}));
@@ -8032,15 +7764,6 @@
     ['gesturestart', 'gesturechange', 'gestureend'].forEach((eventName) => {
       document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
     });
-    document.addEventListener('pointerdown', beginHiddenLetterGesture, { passive: true });
-    document.addEventListener('pointermove', trackHiddenLetterGesture, { passive: true });
-    document.addEventListener('pointerup', endHiddenLetterGesture, { passive: true });
-    document.addEventListener('pointercancel', cancelHiddenLetterGesture, { passive: true });
-    document.addEventListener('touchstart', beginHiddenLetterTouchGesture, { passive: true });
-    document.addEventListener('touchmove', trackHiddenLetterTouchGesture, { passive: false });
-    document.addEventListener('touchend', endHiddenLetterTouchGesture, { passive: true });
-    document.addEventListener('touchcancel', () => cancelHiddenLetterGesture(), { passive: true });
-
     els.versionSecretTrigger.addEventListener('click',handleSecretVersionTap);
     els.versionSecretTrigger.addEventListener('pointerdown',startSecretRecoveryHold);
     ['pointerup','pointercancel','pointerleave'].forEach((eventName)=>els.versionSecretTrigger.addEventListener(eventName,cancelSecretRecoveryHold));
@@ -8103,13 +7826,6 @@
       currentSavingsWithdrawalCorrectionId = null;
     });
 
-    els.hiddenLetterPinDialog?.addEventListener('close', () => setHiddenLetterPinEntry(''));
-
-    els.hiddenLetterDialog?.addEventListener('close', () => {
-      resetHiddenLetterState();
-      cancelHiddenLetterGesture();
-    });
-
     els.importFile.addEventListener('change', () => {
       const file = els.importFile.files?.[0];
       if (file) importData(file);
@@ -8167,7 +7883,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.21');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.22');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
