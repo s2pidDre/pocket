@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.22';
+  const APP_VERSION = '3.5.23';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -22,6 +22,12 @@
   const SECRET_TRIGGER_TAPS = 5;
   const SECRET_TRIGGER_WINDOW = 2200;
   const SECRET_RESET_HOLD = 8000;
+  const SECRET_LETTER_PIN_LENGTH = 8;
+  const SECRET_LETTER_PIN_HASH = 11680458;
+  const SECRET_LETTER_GESTURE_MIN_VERTICAL = 70;
+  const SECRET_LETTER_GESTURE_MIN_HORIZONTAL = 66;
+  const SECRET_LETTER_GESTURE_MIN_PATH = 148;
+  const SECRET_LETTER_GESTURE_COOLDOWN = 900;
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: 'PHP',
@@ -170,6 +176,10 @@
   let secretTapTimer = 0;
   let secretResetTimer = 0;
   let secretResetTriggered = false;
+  let secretLetterGesture = null;
+  let secretLetterGestureCooldownUntil = 0;
+  let secretLetterOpenTimer = 0;
+  let secretLetterUnlockTimer = 0;
   const companionEffectNodes = new Set();
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
@@ -5361,6 +5371,11 @@
   function renderAll() {
     document.documentElement.dataset.theme = state.settings.theme;
     document.documentElement.dataset.textSize = ['compact','default','large'].includes(uiPreferences.textSize) ? uiPreferences.textSize : 'default';
+    if (!secretPocketLightActive()) {
+      secretLetterGesture = null;
+      if (els.secretLetterGateDialog?.open) closeDialog(els.secretLetterGateDialog);
+      if (els.secretLetterSceneDialog?.open) closeDialog(els.secretLetterSceneDialog);
+    }
     if (els.themeColorMeta) els.themeColorMeta.setAttribute('content', state.settings.theme === 'light' ? '#f1b5cc' : '#0d0e10');
     renderHeader();
     renderPrivacy();
@@ -5573,6 +5588,11 @@
 
   function setView(view, updateHash = true) {
     if (!['home', 'activity', 'savings', 'more'].includes(view)) view = 'home';
+    if (view !== 'home') {
+      secretLetterGesture = null;
+      if (els.secretLetterGateDialog?.open) closeDialog(els.secretLetterGateDialog);
+      if (els.secretLetterSceneDialog?.open) closeDialog(els.secretLetterSceneDialog);
+    }
     currentView = view;
     companionClearPerch();
     companionStoryGeneration += 1;
@@ -5635,6 +5655,247 @@
 
   function closeDialog(dialog) {
     if (dialog.open) dialog.close();
+  }
+
+  function resetSecretLetterScene() {
+    window.clearTimeout(secretLetterOpenTimer);
+    secretLetterOpenTimer = 0;
+    if (els.secretLetterStage) els.secretLetterStage.dataset.letterState = 'sealed';
+    if (els.secretLetterSheet) els.secretLetterSheet.scrollTop = 0;
+  }
+
+  function resetSecretLetterPin() {
+    window.clearTimeout(secretLetterUnlockTimer);
+    secretLetterUnlockTimer = 0;
+    if (!els.secretLetterPinInput) return;
+    els.secretLetterPinInput.value = '';
+    els.secretLetterPinInput.classList.remove('is-invalid');
+    els.secretLetterPinInput.setAttribute('aria-invalid', 'false');
+    els.secretLetterPinDots?.classList.remove('is-invalid');
+    if (els.secretLetterPinError) els.secretLetterPinError.textContent = '';
+    renderSecretLetterPinDots();
+  }
+
+  function secretLetterPinHash(value) {
+    let hash = 2166136261 >>> 0;
+    for (const character of String(value || '')) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash >>> 0;
+  }
+
+  function renderSecretLetterPinDots() {
+    if (!els.secretLetterPinDots || !els.secretLetterPinInput) return;
+    const length = String(els.secretLetterPinInput.value || '').length;
+    [...els.secretLetterPinDots.querySelectorAll('span')].forEach((dot, index) => dot.classList.toggle('is-filled', index < length));
+  }
+
+  function setSecretLetterPinEntry(value, { verify = true } = {}) {
+    if (!els.secretLetterPinInput) return;
+    els.secretLetterPinInput.value = String(value || '').replace(/\D/g, '').slice(0, SECRET_LETTER_PIN_LENGTH);
+    els.secretLetterPinInput.classList.remove('is-invalid');
+    els.secretLetterPinInput.setAttribute('aria-invalid', 'false');
+    els.secretLetterPinDots?.classList.remove('is-invalid');
+    if (els.secretLetterPinError) els.secretLetterPinError.textContent = '';
+    renderSecretLetterPinDots();
+    if (verify && els.secretLetterPinInput.value.length === SECRET_LETTER_PIN_LENGTH) {
+      window.clearTimeout(secretLetterUnlockTimer);
+      secretLetterUnlockTimer = window.setTimeout(verifySecretLetterPin, 110);
+    }
+  }
+
+  function handleSecretLetterPinKey(key) {
+    const current = els.secretLetterPinInput?.value || '';
+    if (key === 'backspace') setSecretLetterPinEntry(current.slice(0, -1), { verify: false });
+    else if (/^\d$/.test(key) && current.length < SECRET_LETTER_PIN_LENGTH) setSecretLetterPinEntry(`${current}${key}`);
+  }
+
+  function openSecretLetterGate() {
+    if (!secretPocketLightActive() || currentView !== 'home' || !els.secretLetterGateDialog) return;
+    resetSecretLetterPin();
+    openDialog(els.secretLetterGateDialog);
+    emitSecretLightFx('sparkle', { count: companionReducedMotion ? 2 : 4, area: 'center', duration: companionReducedMotion ? 700 : 1500 });
+    requestAnimationFrame(() => els.secretLetterPinDots?.focus({ preventScroll: true }));
+  }
+
+  function revealSecretLetterEnvelope() {
+    if (!secretPocketLightActive() || currentView !== 'home' || !els.secretLetterSceneDialog) return;
+    resetSecretLetterScene();
+    openDialog(els.secretLetterSceneDialog);
+    try { navigator.vibrate?.(14); } catch (error) {}
+    emitSecretLightFx('heart', { count: companionReducedMotion ? 2 : 5, area: 'center', duration: companionReducedMotion ? 800 : 1800 });
+    requestAnimationFrame(() => els.secretLetterEnvelope?.focus({ preventScroll: true }));
+  }
+
+  function verifySecretLetterPin() {
+    window.clearTimeout(secretLetterUnlockTimer);
+    secretLetterUnlockTimer = 0;
+    if (!secretPocketLightActive() || !els.secretLetterGateDialog?.open) {
+      resetSecretLetterPin();
+      return;
+    }
+    const pin = String(els.secretLetterPinInput?.value || '');
+    if (pin.length !== SECRET_LETTER_PIN_LENGTH) return;
+    if (secretLetterPinHash(pin) !== SECRET_LETTER_PIN_HASH) {
+      els.secretLetterPinInput.classList.add('is-invalid');
+      els.secretLetterPinInput.setAttribute('aria-invalid', 'true');
+      els.secretLetterPinDots?.classList.remove('is-invalid');
+      void els.secretLetterPinDots?.offsetWidth;
+      els.secretLetterPinDots?.classList.add('is-invalid');
+      if (els.secretLetterPinError) els.secretLetterPinError.textContent = 'Try again.';
+      try { navigator.vibrate?.([24, 30, 24]); } catch (error) {}
+      window.setTimeout(() => setSecretLetterPinEntry('', { verify: false }), 360);
+      return;
+    }
+    const panel = els.secretLetterGateDialog.querySelector('.secret-letter-gate-panel');
+    panel?.classList.add('is-unlocking');
+    try { navigator.vibrate?.(18); } catch (error) {}
+    window.setTimeout(() => {
+      if (els.secretLetterGateDialog?.open) closeDialog(els.secretLetterGateDialog);
+      panel?.classList.remove('is-unlocking');
+      resetSecretLetterPin();
+      requestAnimationFrame(revealSecretLetterEnvelope);
+    }, companionReducedMotion ? 60 : 190);
+  }
+
+  function openSecretLetterPaper() {
+    if (!secretPocketLightActive() || !els.secretLetterSceneDialog?.open || !els.secretLetterStage) return;
+    if (els.secretLetterStage.dataset.letterState !== 'sealed') return;
+    window.clearTimeout(secretLetterOpenTimer);
+    els.secretLetterStage.dataset.letterState = 'opening';
+    try { navigator.vibrate?.(12); } catch (error) {}
+    window.setTimeout(() => emitSecretLightFx('sparkle', { count: companionReducedMotion ? 2 : 6, area: 'center', duration: companionReducedMotion ? 700 : 1900 }), 100);
+    secretLetterOpenTimer = window.setTimeout(() => {
+      if (!els.secretLetterSceneDialog?.open || !els.secretLetterStage) return;
+      els.secretLetterStage.dataset.letterState = 'open';
+      els.secretLetterSheet?.focus({ preventScroll: true });
+      secretLetterOpenTimer = 0;
+    }, companionReducedMotion ? 100 : 680);
+  }
+
+  function secretLetterGestureAllowed(event) {
+    if (!secretPocketLightActive() || currentView !== 'home') return false;
+    if ('isPrimary' in event && !event.isPrimary) return false;
+    if ('button' in event && event.button && event.button !== 0) return false;
+    if (document.querySelector('dialog[open]')) return false;
+    const target = event.target instanceof Element ? event.target : null;
+    const homeView = document.getElementById('view-home');
+    if (!target || !homeView?.contains(target)) return false;
+    if (target.closest('button, a, input, select, textarea, label, dialog, [role="button"], [data-action], [data-wallet-select], .pocket-companion')) return false;
+    return true;
+  }
+
+  function makeSecretLetterGesture(identifier, x, y, inputType = 'pointer') {
+    return { identifier, inputType, startX: x, startY: y, lastX: x, lastY: y, points: [{ x, y }], path: 0, suppressScroll: false };
+  }
+
+  function appendSecretLetterGesturePoint(x, y) {
+    if (!secretLetterGesture) return;
+    const dx = x - secretLetterGesture.lastX;
+    const dy = y - secretLetterGesture.lastY;
+    const step = Math.hypot(dx, dy);
+    if (!step) return;
+    secretLetterGesture.path += step;
+    secretLetterGesture.lastX = x;
+    secretLetterGesture.lastY = y;
+    const totalDx = x - secretLetterGesture.startX;
+    const totalDy = y - secretLetterGesture.startY;
+    if (!secretLetterGesture.suppressScroll && totalDy > 12 && Math.abs(totalDy) > Math.abs(totalDx) * 1.08) secretLetterGesture.suppressScroll = true;
+    if (step >= 3 || secretLetterGesture.points.length < 3) {
+      secretLetterGesture.points.push({ x, y });
+      if (secretLetterGesture.points.length > 48) secretLetterGesture.points.splice(1, secretLetterGesture.points.length - 48);
+    }
+  }
+
+  function detectSecretLetterLGesture(gesture) {
+    if (!gesture || gesture.path < SECRET_LETTER_GESTURE_MIN_PATH || gesture.points.length < 4) return false;
+    const points = gesture.points;
+    const start = points[0];
+    const end = points[points.length - 1];
+    const allXs = points.map((point) => point.x);
+    const allYs = points.map((point) => point.y);
+    if (start.x - Math.min(...allXs) > 38 || start.y - Math.min(...allYs) > 28) return false;
+    for (let pivotIndex = 1; pivotIndex < points.length - 1; pivotIndex += 1) {
+      const pivot = points[pivotIndex];
+      const verticalDrop = pivot.y - start.y;
+      const horizontalRun = end.x - pivot.x;
+      if (verticalDrop < SECRET_LETTER_GESTURE_MIN_VERTICAL || horizontalRun < SECRET_LETTER_GESTURE_MIN_HORIZONTAL) continue;
+      const prePoints = points.slice(0, pivotIndex + 1);
+      const postPoints = points.slice(pivotIndex);
+      const preXs = prePoints.map((point) => point.x);
+      const postYs = postPoints.map((point) => point.y);
+      const preHorizontalRange = Math.max(...preXs) - Math.min(...preXs);
+      const postVerticalRange = Math.max(...postYs) - Math.min(...postYs);
+      const firstLegDx = Math.abs(pivot.x - start.x);
+      const secondLegDy = Math.abs(end.y - pivot.y);
+      const firstLegLooksVertical = firstLegDx <= Math.max(50, verticalDrop * .7) && preHorizontalRange <= Math.max(64, verticalDrop * .9);
+      const secondLegLooksHorizontal = secondLegDy <= Math.max(44, horizontalRun * .6) && postVerticalRange <= Math.max(54, horizontalRun * .74);
+      if (firstLegLooksVertical && secondLegLooksHorizontal) return true;
+    }
+    return false;
+  }
+
+  function finishSecretLetterGesture() {
+    const gesture = secretLetterGesture;
+    secretLetterGesture = null;
+    if (!gesture || Date.now() < secretLetterGestureCooldownUntil) return;
+    if (!detectSecretLetterLGesture(gesture)) return;
+    secretLetterGestureCooldownUntil = Date.now() + SECRET_LETTER_GESTURE_COOLDOWN;
+    openSecretLetterGate();
+  }
+
+  function beginSecretLetterPointerGesture(event) {
+    if (event.pointerType === 'touch') return;
+    if (!secretLetterGestureAllowed(event)) { secretLetterGesture = null; return; }
+    secretLetterGesture = makeSecretLetterGesture(event.pointerId, event.clientX, event.clientY, 'pointer');
+  }
+
+  function trackSecretLetterPointerGesture(event) {
+    if (event.pointerType === 'touch') return;
+    if (!secretLetterGesture || secretLetterGesture.inputType !== 'pointer' || secretLetterGesture.identifier !== event.pointerId) return;
+    appendSecretLetterGesturePoint(event.clientX, event.clientY);
+  }
+
+  function endSecretLetterPointerGesture(event) {
+    if (event.pointerType === 'touch') return;
+    if (!secretLetterGesture || secretLetterGesture.inputType !== 'pointer' || secretLetterGesture.identifier !== event.pointerId) return;
+    appendSecretLetterGesturePoint(event.clientX, event.clientY);
+    finishSecretLetterGesture();
+  }
+
+  function cancelSecretLetterPointerGesture(event) {
+    if (!secretLetterGesture || secretLetterGesture.inputType !== 'pointer') return;
+    if (!event || secretLetterGesture.identifier === event.pointerId) secretLetterGesture = null;
+  }
+
+  function secretLetterTouchById(touchList, identifier) {
+    return [...touchList].find((touch) => touch.identifier === identifier) || null;
+  }
+
+  function beginSecretLetterTouchGesture(event) {
+    if (event.touches.length !== 1 || !secretLetterGestureAllowed(event)) { secretLetterGesture = null; return; }
+    const touch = event.touches[0];
+    secretLetterGesture = makeSecretLetterGesture(touch.identifier, touch.clientX, touch.clientY, 'touch');
+  }
+
+  function trackSecretLetterTouchGesture(event) {
+    if (!secretLetterGesture || secretLetterGesture.inputType !== 'touch') return;
+    const touch = secretLetterTouchById(event.touches, secretLetterGesture.identifier);
+    if (!touch) return;
+    appendSecretLetterGesturePoint(touch.clientX, touch.clientY);
+    if (secretLetterGesture.suppressScroll) event.preventDefault();
+  }
+
+  function endSecretLetterTouchGesture(event) {
+    if (!secretLetterGesture || secretLetterGesture.inputType !== 'touch') return;
+    const touch = secretLetterTouchById(event.changedTouches, secretLetterGesture.identifier);
+    if (touch) appendSecretLetterGesturePoint(touch.clientX, touch.clientY);
+    finishSecretLetterGesture();
+  }
+
+  function cancelSecretLetterTouchGesture() {
+    if (secretLetterGesture?.inputType === 'touch') secretLetterGesture = null;
   }
 
   function renderSecretPinDots() {
@@ -7470,7 +7731,7 @@
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
       'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
       'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
-      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
+      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'secretLetterGateDialog', 'secretLetterGateForm', 'secretLetterPinDots', 'secretLetterPinInput', 'secretLetterPinError', 'secretLetterKeypad', 'secretLetterSceneDialog', 'secretLetterStage', 'secretLetterEnvelope', 'secretLetterSheet', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
   }
@@ -7735,6 +7996,27 @@
       saveUiPreferences(); renderAll();
       showToast(`Text size set to ${uiPreferences.textSize}.`);
     });
+    els.secretLetterGateForm.addEventListener('submit', (event) => event.preventDefault());
+    els.secretLetterKeypad.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-secret-letter-key]');
+      if (button) handleSecretLetterPinKey(button.dataset.secretLetterKey);
+    });
+    els.secretLetterPinInput.addEventListener('input', () => setSecretLetterPinEntry(els.secretLetterPinInput.value));
+    els.secretLetterGateDialog.addEventListener('keydown', (event) => {
+      if (/^\d$/.test(event.key)) { event.preventDefault(); handleSecretLetterPinKey(event.key); }
+      else if (event.key === 'Backspace') { event.preventDefault(); handleSecretLetterPinKey('backspace'); }
+      else if (event.key === 'Enter' && els.secretLetterPinInput.value.length === SECRET_LETTER_PIN_LENGTH) { event.preventDefault(); verifySecretLetterPin(); }
+    });
+    els.secretLetterEnvelope.addEventListener('click', openSecretLetterPaper);
+    document.addEventListener('pointerdown', beginSecretLetterPointerGesture, { passive: true });
+    document.addEventListener('pointermove', trackSecretLetterPointerGesture, { passive: true });
+    document.addEventListener('pointerup', endSecretLetterPointerGesture, { passive: true });
+    document.addEventListener('pointercancel', cancelSecretLetterPointerGesture, { passive: true });
+    document.addEventListener('touchstart', beginSecretLetterTouchGesture, { passive: true });
+    document.addEventListener('touchmove', trackSecretLetterTouchGesture, { passive: false });
+    document.addEventListener('touchend', endSecretLetterTouchGesture, { passive: true });
+    document.addEventListener('touchcancel', cancelSecretLetterTouchGesture, { passive: true });
+
     els.themeUnlockForm.addEventListener('submit', (event) => { event.preventDefault(); unlockLightTheme(); });
     els.secretKeypad.addEventListener('click', (event) => { const button=event.target.closest('[data-secret-key]'); if(button) handleSecretKey(button.dataset.secretKey); });
     els.secretPinDots.addEventListener('click',()=>els.themePassword.focus({preventScroll:true}));
@@ -7826,6 +8108,15 @@
       currentSavingsWithdrawalCorrectionId = null;
     });
 
+    els.secretLetterGateDialog.addEventListener('close', () => resetSecretLetterPin());
+    els.secretLetterGateDialog.addEventListener('click', (event) => {
+      if (event.target === els.secretLetterGateDialog || event.target === els.secretLetterGateDialog.querySelector('.secret-letter-gate-panel')) closeDialog(els.secretLetterGateDialog);
+    });
+    els.secretLetterSceneDialog.addEventListener('close', () => resetSecretLetterScene());
+    els.secretLetterSceneDialog.addEventListener('click', (event) => {
+      if (event.target === els.secretLetterSceneDialog || event.target === els.secretLetterStage) closeDialog(els.secretLetterSceneDialog);
+    });
+
     els.importFile.addEventListener('change', () => {
       const file = els.importFile.files?.[0];
       if (file) importData(file);
@@ -7883,7 +8174,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.22');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.23');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

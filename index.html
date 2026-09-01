@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.22">
+  <link rel="stylesheet" href="css/style.css?v=3.5.23">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -316,7 +316,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.11</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.23</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -992,6 +992,63 @@
     </form>
   </dialog>
 
+  <dialog id="secretLetterGateDialog" class="app-dialog secret-letter-gate-dialog" aria-label="Private letter lock">
+    <form class="secret-letter-gate-panel" id="secretLetterGateForm" autocomplete="off">
+      <button class="secret-letter-close" type="button" data-close-dialog aria-label="Close private letter"><svg><use href="#i-close"/></svg></button>
+      <div class="secret-letter-gate-center">
+        <div class="secret-letter-gate-envelope" aria-hidden="true">
+          <span class="gate-envelope-body"></span>
+          <span class="gate-envelope-flap"></span>
+          <span class="gate-envelope-seal">♡</span>
+        </div>
+        <p class="secret-letter-gate-label">Private</p>
+        <button class="secret-letter-pin-dots" id="secretLetterPinDots" type="button" aria-label="Private letter PIN entry" tabindex="-1">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </button>
+        <input class="secret-pin-capture" id="secretLetterPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" aria-describedby="secretLetterPinError" aria-invalid="false">
+        <p class="secret-letter-pin-error" id="secretLetterPinError" role="alert" aria-live="polite"></p>
+        <div class="secret-letter-keypad" id="secretLetterKeypad" aria-label="Private letter PIN keypad">
+          <button type="button" data-secret-letter-key="1">1</button><button type="button" data-secret-letter-key="2">2</button><button type="button" data-secret-letter-key="3">3</button>
+          <button type="button" data-secret-letter-key="4">4</button><button type="button" data-secret-letter-key="5">5</button><button type="button" data-secret-letter-key="6">6</button>
+          <button type="button" data-secret-letter-key="7">7</button><button type="button" data-secret-letter-key="8">8</button><button type="button" data-secret-letter-key="9">9</button>
+          <span aria-hidden="true"></span><button type="button" data-secret-letter-key="0">0</button><button type="button" data-secret-letter-key="backspace" aria-label="Delete last digit"><svg><use href="#i-backspace"/></svg></button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="secretLetterSceneDialog" class="app-dialog secret-letter-scene-dialog" aria-label="Private letter">
+    <div class="secret-letter-scene-panel">
+      <button class="secret-letter-close" type="button" data-close-dialog aria-label="Close private letter"><svg><use href="#i-close"/></svg></button>
+      <div class="secret-letter-stage" id="secretLetterStage" data-letter-state="sealed">
+        <button class="secret-letter-envelope" id="secretLetterEnvelope" type="button" aria-label="Open the private letter">
+          <span class="secret-letter-envelope-shadow" aria-hidden="true"></span>
+          <span class="secret-letter-envelope-back" aria-hidden="true"></span>
+          <span class="secret-letter-envelope-paper-preview" aria-hidden="true"></span>
+          <span class="secret-letter-envelope-front" aria-hidden="true"></span>
+          <span class="secret-letter-envelope-flap" aria-hidden="true"></span>
+          <span class="secret-letter-envelope-seal" aria-hidden="true">♡</span>
+        </button>
+
+        <article class="secret-letter-sheet" id="secretLetterSheet" tabindex="-1" aria-label="Letter">
+          <div class="secret-letter-sheet-content">
+            <p class="secret-letter-date">Written in August</p>
+            <div class="secret-letter-copy">
+              <p>August ko to ginagawa, idk kung when mo mababasa.</p>
+              <p>Nakakatakot ka gustuhin. I know na madali ka magsawa, and that came from you na rin naman.</p>
+              <p>Aware pa naman ako na boring akong tao, like I don't have something new to show daily, no fun activities I could think of na pwedeng gawin with you, stupid pa magkwento. Every time na mag-dinner tayo somewhere, I actually just enjoy your presence. I don't have interesting shit to share most of the time. Idk if you feel dull sa ganong moments, pero ganon lang talaga ako. Hindi ako madaldal, pero I love listening kapag may kwento ka.</p>
+              <p>You would probably get bored of my personality soon, and kung nangyari man 'yon, please tell me directly na lang.</p>
+              <p>Sabi ko nga sa'yo, gusto ko meron ka ring sariling feelings na susundin, and hindi 'yon leading to a certain direction like magiging convenient for me yung decision mo. HINDI GANON 'YON. I just want you to know what you truly want, hindi yung go with the flow ka lang.</p>
+              <p>oh... may hunch rin nga pala ako noon na nakakausap mo parin Marc i think nung sportsfest nung nakita ko siya kasi andon rin siya kila Estanoco, wala lang hunch lang with no basis. I just hope u tell me if ever may ganon, para alam ko naman gagawin ko, no hard feelings naman kasi kung sakali, pero i think if nangyari yon i really would just ghost everyone so at least tell me. naalala ko lang kasi may napanaginipan ako about don. probably kaya rin nagbago desisyon ko nung una nating usap don sa malapit sa apartment niyo, maybe dahil may mga shit pa na need ko malaman ang sagot, and ofc kasi gusto kita. Ayoko lang talaga ng shitty complicated situation like that.</p>
+              <p>Oh well, sinasabi ko sa'yo mga 'yan, pero I'm someone you shouldn't expect too much from.</p>
+            </div>
+            <div class="secret-letter-signoff" aria-hidden="true">♡</div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </dialog>
+
   <div class="secret-light-scene" id="secretLightScene" aria-hidden="true">
     <span class="secret-scene-orb orb-a"></span><span class="secret-scene-orb orb-b"></span><span class="secret-scene-orb orb-c"></span>
     <span class="secret-scene-cloud cloud-a"></span><span class="secret-scene-cloud cloud-b"></span><span class="secret-scene-cloud cloud-c"></span>
@@ -1135,6 +1192,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.22" defer></script>
+  <script src="js/app.js?v=3.5.23" defer></script>
 </body>
 </html>
