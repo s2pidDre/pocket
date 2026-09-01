@@ -7943,3 +7943,218 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
     text-indent: .7em;
   }
 }
+
+
+/* Pocket v3.5.19 — Hidden Letter alignment/design polish. */
+.hidden-letter-pin-panel,
+.hidden-letter-panel {
+  animation: hidden-letter-panel-in .42s cubic-bezier(.2,.86,.24,1);
+}
+.hidden-letter-pin-note {
+  margin: -2px 0 2px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+  max-width: 260px;
+}
+.hidden-letter-pin-body {
+  gap: 12px;
+}
+.hidden-letter-keypad button {
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
+}
+.hidden-letter-keypad button:hover,
+.hidden-letter-keypad button:focus-visible {
+  transform: translateY(-1px);
+}
+.hidden-letter-dialog .dialog-panel {
+  position: relative;
+  overflow: hidden;
+}
+.hidden-letter-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.08), transparent 24%, transparent 74%, rgba(255,255,255,.06));
+  z-index: 0;
+}
+.hidden-letter-shell {
+  position: relative;
+  z-index: 1;
+}
+.hidden-letter-sealed {
+  gap: 12px;
+  animation: hidden-letter-sealed-in .48s cubic-bezier(.2,.8,.2,1);
+}
+.hidden-letter-envelope {
+  filter: drop-shadow(0 18px 40px rgba(129, 88, 112, .12));
+  will-change: transform;
+  animation: hidden-letter-envelope-float 4.8s ease-in-out infinite;
+}
+.hidden-letter-envelope::before {
+  content: '';
+  position: absolute;
+  inset: 12% 10% auto;
+  height: 22%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,0));
+  opacity: .72;
+  pointer-events: none;
+}
+.hidden-letter-envelope-seal {
+  animation: hidden-letter-seal-pulse 2.8s ease-in-out infinite;
+}
+.hidden-letter-kicker,
+.hidden-letter-paper-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.hidden-letter-kicker {
+  margin: 0 auto 4px;
+}
+.hidden-letter-meta {
+  gap: 6px;
+}
+.hidden-letter-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.hidden-letter-paper-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+.hidden-letter-paper-date {
+  margin-bottom: 0;
+}
+.hidden-letter-paper-body {
+  position: relative;
+  z-index: 1;
+}
+.hidden-letter-paper-body p:last-child {
+  margin-bottom: 0;
+}
+.hidden-letter-shell[data-letter-state="opening"] .hidden-letter-sealed {
+  opacity: 0;
+  transform: translateY(-24px) scale(.965);
+  pointer-events: none;
+}
+.hidden-letter-shell[data-letter-state="opening"] .hidden-letter-paper {
+  opacity: 1;
+  pointer-events: none;
+  transform: translateY(16px) scale(.985);
+}
+.hidden-letter-shell[data-letter-state="open"] .hidden-letter-paper {
+  animation: hidden-letter-paper-open .54s cubic-bezier(.19,.92,.2,1);
+}
+:root[data-theme="light"] .hidden-letter-kicker,
+:root[data-theme="light"] .hidden-letter-paper-kicker {
+  color: #a45d7d;
+  background: rgba(255,255,255,.56);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.46);
+}
+:root[data-theme="light"] .hidden-letter-note,
+:root[data-theme="light"] .hidden-letter-pin-note {
+  color: #9f7f90;
+}
+:root[data-theme="light"] .hidden-letter-paper-header {
+  border-bottom-color: rgba(171, 130, 149, .16);
+}
+:root[data-theme="light"] .hidden-letter-envelope {
+  filter: drop-shadow(0 22px 40px rgba(194, 132, 161, .16));
+}
+:root[data-theme="light"] .hidden-letter-envelope::before {
+  background: linear-gradient(180deg, rgba(255,255,255,.42), rgba(255,255,255,0));
+}
+:root[data-theme="light"] .hidden-letter-paper {
+  box-shadow: 0 30px 76px rgba(179, 128, 151, .19), inset 0 1px 0 rgba(255,255,255,.55);
+}
+:root:not([data-theme="light"]) .hidden-letter-kicker,
+:root:not([data-theme="light"]) .hidden-letter-paper-kicker {
+  color: #ffd9e7;
+  background: rgba(255,255,255,.08);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+:root:not([data-theme="light"]) .hidden-letter-note,
+:root:not([data-theme="light"]) .hidden-letter-pin-note {
+  color: #b9a7b1;
+}
+@keyframes hidden-letter-panel-in {
+  0% { opacity: 0; transform: translateY(16px) scale(.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes hidden-letter-sealed-in {
+  0% { opacity: 0; transform: translateY(22px) scale(.96); }
+  100% { opacity: 1; transform: translateY(-8px) scale(1); }
+}
+@keyframes hidden-letter-envelope-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+@keyframes hidden-letter-seal-pulse {
+  0%, 100% { transform: translateX(-50%) scale(1); box-shadow: 0 14px 24px rgba(212, 125, 159, .28), inset 0 1px 0 rgba(255,255,255,.25); }
+  50% { transform: translateX(-50%) scale(1.06); box-shadow: 0 18px 30px rgba(212, 125, 159, .34), inset 0 1px 0 rgba(255,255,255,.3); }
+}
+@keyframes hidden-letter-paper-open {
+  0% { opacity: .15; transform: translateY(28px) scale(.96) rotateX(-8deg); }
+  60% { opacity: 1; transform: translateY(-4px) scale(1.008) rotateX(0deg); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (max-width: 720px) {
+  .hidden-letter-paper-header {
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+  }
+  .hidden-letter-paper-kicker,
+  .hidden-letter-paper-date {
+    font-size: 11px;
+  }
+  .hidden-letter-note {
+    max-width: 240px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+@media (max-width: 520px) {
+  .hidden-letter-envelope {
+    width: min(100%, 290px);
+  }
+  .hidden-letter-pin-note {
+    max-width: 230px;
+    font-size: 11.5px;
+  }
+  .hidden-letter-paper-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hidden-letter-pin-panel,
+  .hidden-letter-panel,
+  .hidden-letter-sealed,
+  .hidden-letter-envelope,
+  .hidden-letter-envelope-seal,
+  .hidden-letter-shell[data-letter-state="open"] .hidden-letter-paper {
+    animation: none !important;
+  }
+}

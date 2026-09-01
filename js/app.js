@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.18';
+  const APP_VERSION = '3.5.19';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -172,6 +172,7 @@
   let secretResetTriggered = false;
   let hiddenLetterGesture = null;
   let hiddenLetterGestureCooldownUntil = 0;
+  let hiddenLetterOpenTimer = 0;
   const companionEffectNodes = new Set();
   const HIDDEN_LETTER_GESTURE_MIN_VERTICAL = 62;
   const HIDDEN_LETTER_GESTURE_MIN_HORIZONTAL = 58;
@@ -5646,6 +5647,8 @@
   }
 
   function resetHiddenLetterState() {
+    window.clearTimeout(hiddenLetterOpenTimer);
+    hiddenLetterOpenTimer = 0;
     if (!els.hiddenLetterShell) return;
     els.hiddenLetterShell.dataset.letterState = 'sealed';
     if (els.hiddenLetterPaper) els.hiddenLetterPaper.scrollTop = 0;
@@ -5723,11 +5726,17 @@
 
   function openHiddenLetterPaper() {
     if (!els.hiddenLetterDialog?.open || !els.hiddenLetterShell) return;
-    els.hiddenLetterShell.dataset.letterState = 'open';
+    window.clearTimeout(hiddenLetterOpenTimer);
+    els.hiddenLetterShell.dataset.letterState = 'opening';
     if (secretPocketLightActive()) {
       window.setTimeout(() => emitSecretLightFx('sparkle', { count: companionReducedMotion ? 3 : 7, area: 'center', duration: companionReducedMotion ? 900 : 2100 }), 120);
     }
-    window.setTimeout(() => els.hiddenLetterPaper?.focus({ preventScroll: true }), 240);
+    hiddenLetterOpenTimer = window.setTimeout(() => {
+      if (!els.hiddenLetterDialog?.open || !els.hiddenLetterShell) return;
+      els.hiddenLetterShell.dataset.letterState = 'open';
+      els.hiddenLetterPaper?.focus({ preventScroll: true });
+      hiddenLetterOpenTimer = 0;
+    }, companionReducedMotion ? 120 : 420);
   }
 
   function hiddenLetterGestureAllowed(event) {
@@ -8158,7 +8167,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.18');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.19');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
