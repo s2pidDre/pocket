@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.24">
+  <link rel="stylesheet" href="css/style.css?v=3.5.25">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -121,7 +121,7 @@
 
             <div class="wallet-mode-indicators" id="walletModeIndicators" aria-label="Wallet pages"></div>
 
-            <article class="home-wallet-overview" aria-label="Selected wallet overview">
+            <article class="home-wallet-overview" aria-label="Spending overview">
               <div class="home-wallet-overview-row">
                 <div><p class="eyebrow">Today</p><strong class="money-value" id="homeWalletTodaySpent">₱0 spent</strong></div>
                 <span id="homeWalletTodayEntries">0 entries</span>
@@ -130,11 +130,11 @@
               <div class="home-wallet-category-legend" id="homeWalletTodayLegend" aria-label="Today category breakdown"></div>
               <div class="home-wallet-overview-divider"></div>
               <div class="home-wallet-overview-row month-row">
-                <div><p class="eyebrow" id="homeWalletMonthLabel">This month</p><strong class="money-value" id="homeWalletMonthSpent">₱0 spent</strong></div>
+                <div><p class="eyebrow" id="homeWalletMonthLabel">This month · All wallets</p><strong class="money-value" id="homeWalletMonthSpent">₱0 spent</strong></div>
                 <span id="homeWalletTopCategory">No spending yet</span>
               </div>
-              <div class="home-wallet-category-bar" id="homeWalletMonthBar" aria-label="This month's spending by category"></div>
-              <div class="home-wallet-category-legend" id="homeWalletMonthLegend" aria-label="Monthly category breakdown"></div>
+              <div class="home-wallet-category-bar" id="homeWalletMonthBar" aria-label="All-wallet monthly spending by category"></div>
+              <div class="home-wallet-category-legend" id="homeWalletMonthLegend" aria-label="All-wallet monthly category breakdown"></div>
             </article>
 
             <div class="home-wallet-actions" aria-label="Wallet quick actions">
@@ -316,7 +316,7 @@
               <div class="section-heading compact"><div><p class="eyebrow">App</p><h2>Updates</h2></div></div>
               <button class="setting-row version-secret-trigger" id="versionSecretTrigger" type="button" aria-label="Installed Pocket version">
                 <span class="round-icon neutral-soft"><svg><use href="#i-refresh"/></svg></span>
-                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.24</small></span>
+                <span><strong>Installed version</strong><small id="appVersion">Version 3.5.25</small></span>
                 <span class="status-pill success" id="updateStatus">Current</span>
               </button>
               <button class="setting-row" type="button" data-action="check-update">
@@ -907,20 +907,13 @@
 
   <dialog id="globalHistoryDialog" class="app-dialog global-history-dialog">
     <div class="dialog-panel">
-      <div class="dialog-header"><div><p class="eyebrow">Ledger</p><h2>Search all history</h2><p class="dialog-subtitle">Search every Pocket record without changing the ledger.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <div class="dialog-header"><div><p class="eyebrow">Ledger</p><h2>Search history</h2><p class="dialog-subtitle">Find a record by keyword or category.</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
       <div class="dialog-body global-history-body">
-        <div class="global-history-search"><span><svg><use href="#i-search"/></svg></span><input id="globalHistorySearch" class="text-input" type="search" placeholder="Search note, wallet, category, goal, amount…" autocomplete="off"></div>
-        <div class="global-history-filters">
-          <label><span>Type</span><select id="globalHistoryType"><option value="all">All types</option><option value="expense">Expenses</option><option value="income">Income</option><option value="savings">Savings</option><option value="transfer">Transfers</option><option value="reconciliation">Reconciliation</option><option value="correction">Corrections</option></select></label>
-          <label><span>Wallet</span><select id="globalHistoryWallet"><option value="all">All wallets</option></select></label>
-          <label><span>Category</span><select id="globalHistoryCategory"><option value="all">All categories</option></select></label>
-          <label><span>Goal</span><select id="globalHistoryGoal"><option value="all">All goals</option></select></label>
-          <label><span>From</span><input id="globalHistoryFrom" type="date"></label>
-          <label><span>To</span><input id="globalHistoryTo" type="date"></label>
-          <label><span>Min amount</span><input id="globalHistoryMin" type="number" min="0" step="0.01" placeholder="0"></label>
-          <label><span>Max amount</span><input id="globalHistoryMax" type="number" min="0" step="0.01" placeholder="Any"></label>
+        <div class="global-history-simple-controls">
+          <div class="global-history-search"><span><svg><use href="#i-search"/></svg></span><input id="globalHistorySearch" class="text-input" type="search" placeholder="Search history…" autocomplete="off"></div>
+          <label class="global-history-category-filter"><span>Category</span><select id="globalHistoryCategory"><option value="all">All categories</option></select></label>
         </div>
-        <div class="global-history-meta"><strong id="globalHistoryCount">0 records</strong><button class="text-button" id="globalHistoryClear" type="button">Clear filters</button></div>
+        <div class="global-history-meta"><strong id="globalHistoryCount">0 records</strong><button class="text-button" id="globalHistoryClear" type="button">Clear</button></div>
         <div class="transaction-list full global-history-results" id="globalHistoryResults"></div>
         <div class="global-history-pager is-hidden" id="globalHistoryPager" aria-label="Ledger history pages">
           <button class="button-secondary" id="globalHistoryPrev" type="button" data-action="global-history-prev">Previous</button>
@@ -1192,6 +1185,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.24" defer></script>
+  <script src="js/app.js?v=3.5.25" defer></script>
 </body>
 </html>

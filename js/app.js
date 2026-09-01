@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.24';
+  const APP_VERSION = '3.5.25';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -2458,7 +2458,8 @@
     return accounts[walletModeIndex] || accounts[0] || null;
   }
 
-  function walletExpenseSummaries(accountId, todayKey, monthStart, monthEnd) {
+  function homeExpenseSummaries(accountId, todayKey, monthStart, monthEnd) {
+    const allWalletIds = new Set((state.accounts || []).map((account) => account.id));
     const todayExpenses = [];
     const monthExpenses = [];
     let todaySpentCents = 0;
@@ -2467,15 +2468,15 @@
     const monthCategories = new Map();
 
     for (const tx of state.transactions || []) {
-      if (tx.type !== 'expense' || tx.accountId !== accountId || isSupersededTransaction(tx)) continue;
+      if (tx.type !== 'expense' || isSupersededTransaction(tx)) continue;
       const amountCents = toCents(tx.amount || 0);
       const category = tx.category || 'Other';
-      if (tx.date === todayKey) {
+      if (tx.accountId === accountId && tx.date === todayKey) {
         todayExpenses.push(tx);
         todaySpentCents += amountCents;
         todayCategories.set(category, (todayCategories.get(category) || 0) + amountCents);
       }
-      if (tx.date >= monthStart && tx.date <= monthEnd) {
+      if (allWalletIds.has(tx.accountId) && tx.date >= monthStart && tx.date <= monthEnd) {
         monthExpenses.push(tx);
         monthSpentCents += amountCents;
         monthCategories.set(category, (monthCategories.get(category) || 0) + amountCents);
@@ -2610,7 +2611,7 @@
     if (!account || !els.homeWalletTodaySpent) return;
     const today = localDateKey();
     const month = monthRange();
-    const summaries = walletExpenseSummaries(account.id, today, month.start, month.end);
+    const summaries = homeExpenseSummaries(account.id, today, month.start, month.end);
     const todaySummary = summaries.today;
     const monthSummary = summaries.month;
     const monthName = new Intl.DateTimeFormat('en-PH', { month: 'long' }).format(new Date());
@@ -2619,7 +2620,7 @@
     els.homeWalletTodayEntries.textContent = `${todaySummary.expenses.length} ${todaySummary.expenses.length === 1 ? 'entry' : 'entries'}`;
     els.homeWalletTodayBar.innerHTML = renderExpenseCategoryBar(todaySummary);
     els.homeWalletTodayLegend.innerHTML = renderExpenseCategoryLegend(todaySummary);
-    els.homeWalletMonthLabel.textContent = monthName;
+    els.homeWalletMonthLabel.textContent = `${monthName} · All wallets`;
     els.homeWalletMonthSpent.textContent = state.settings.privacy ? '₱•••• spent' : `${currency(monthSummary.spent, true)} spent`;
     els.homeWalletTopCategory.textContent = monthSummary.top ? `${monthSummary.top[0]} · biggest category` : 'No spending yet';
     els.homeWalletMonthBar.innerHTML = renderExpenseCategoryBar(monthSummary);
@@ -3423,28 +3424,12 @@
     return ids;
   }
 
-  function globalHistoryTypeMatches(entry, type) {
-    if (type === 'all') return true;
-    if (type === 'expense') return entry.type === 'expense';
-    if (type === 'income') return entry.type === 'income';
-    if (type === 'savings') return ['saving', 'saving_return', 'goal_transfer'].includes(entry.type);
-    if (type === 'transfer') return entry.type === 'transfer';
-    if (type === 'reconciliation') return entry.type === 'reconciliation' || (entry.type === 'correction_reversal' && entry.originalType === 'reconciliation');
-    if (type === 'correction') return entry.type === 'correction_reversal' || Boolean(entry.correctsTransactionId) || Boolean(entry.correctedByGroupId) || (entry.type === 'goal_transfer' && (entry.isReversal || entry.correctsGoalTransferId || entry.correctedByGroupId));
-    return entry.type === type;
-  }
-
   function populateGlobalHistoryFilters(preset = {}) {
-    if (!els.globalHistoryWallet) return;
-    const walletValue = preset.walletId ?? els.globalHistoryWallet.value ?? 'all';
+    if (!els.globalHistoryCategory) return;
     const categoryValue = preset.categoryId ?? els.globalHistoryCategory.value ?? 'all';
-    const goalValue = preset.goalId ?? els.globalHistoryGoal.value ?? 'all';
-    els.globalHistoryWallet.innerHTML = `<option value="all">All wallets</option>${(state.accounts || []).map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}${account.archivedAt ? ' · Archived' : ''}</option>`).join('')}`;
     els.globalHistoryCategory.innerHTML = `<option value="all">All categories</option>${expenseCategories(state, true).map((category) => `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}${category.archivedAt ? ' · Archived' : ''}</option>`).join('')}`;
-    els.globalHistoryGoal.innerHTML = `<option value="all">All goals</option>${(state.goals || []).filter((goal) => !goalIsWithdrawn(goal)).map((goal) => `<option value="${escapeHtml(goal.id)}">${escapeHtml(goal.name)}${goalIsArchived(goal) ? ' · Archived' : ''}</option>`).join('')}`;
-    if ([...els.globalHistoryWallet.options].some((option) => option.value === walletValue)) els.globalHistoryWallet.value = walletValue;
     if ([...els.globalHistoryCategory.options].some((option) => option.value === categoryValue)) els.globalHistoryCategory.value = categoryValue;
-    if ([...els.globalHistoryGoal.options].some((option) => option.value === goalValue)) els.globalHistoryGoal.value = goalValue;
+    else els.globalHistoryCategory.value = 'all';
   }
 
   function globalHistorySearchText(entry) {
@@ -3463,28 +3448,12 @@
     if (!els.globalHistoryResults) return;
     let entries = allLedgerEntries();
     const query = String(els.globalHistorySearch.value || '').trim().toLowerCase();
-    const type = els.globalHistoryType.value || 'all';
-    const walletId = els.globalHistoryWallet.value || 'all';
     const categoryId = els.globalHistoryCategory.value || 'all';
-    const goalId = els.globalHistoryGoal.value || 'all';
-    const from = validDateKey(els.globalHistoryFrom.value) ? els.globalHistoryFrom.value : '';
-    const to = validDateKey(els.globalHistoryTo.value) ? els.globalHistoryTo.value : '';
-    const minCents = els.globalHistoryMin.value === '' ? null : Math.max(0, toCents(els.globalHistoryMin.value));
-    const maxCents = els.globalHistoryMax.value === '' ? null : Math.max(0, toCents(els.globalHistoryMax.value));
 
     entries = entries.filter((entry) => {
-      if (!globalHistoryTypeMatches(entry, type)) return false;
-      if (walletId !== 'all' && !ledgerEntryWalletIds(entry).has(walletId)) return false;
       if (categoryId !== 'all') {
         if (entry.type !== 'expense' || categoryForTransaction(entry)?.id !== categoryId) return false;
       }
-      if (goalId !== 'all' && !ledgerEntryGoalIds(entry).has(goalId)) return false;
-      const date = entry.date || localDateKey(new Date(entry.createdAt || Date.now()));
-      if (from && date < from) return false;
-      if (to && date > to) return false;
-      const cents = Math.abs(toCents(entry.amount || 0));
-      if (minCents !== null && cents < minCents) return false;
-      if (maxCents !== null && cents > maxCents) return false;
       if (query && !globalHistorySearchText(entry).includes(query)) return false;
       return true;
     });
@@ -3500,7 +3469,7 @@
     els.globalHistoryResults.innerHTML = renderTransactionRows(pageEntries, true, {
       includeDate: true,
       emptyTitle: 'No matching history',
-      emptyCopy: 'Try clearing a filter or using a different search.'
+      emptyCopy: 'Try another search or choose a different category.'
     });
 
     if (els.globalHistoryPager) {
@@ -3515,33 +3484,17 @@
   function clearGlobalHistoryFilters() {
     globalHistoryPage = 0;
     els.globalHistorySearch.value = '';
-    els.globalHistoryType.value = 'all';
-    els.globalHistoryWallet.value = 'all';
     els.globalHistoryCategory.value = 'all';
-    els.globalHistoryGoal.value = 'all';
-    els.globalHistoryFrom.value = '';
-    els.globalHistoryTo.value = '';
-    els.globalHistoryMin.value = '';
-    els.globalHistoryMax.value = '';
     renderGlobalHistory();
   }
 
   function openGlobalHistory(preset = {}) {
     globalHistoryPage = 0;
-    const today = localDateKey();
-    els.globalHistoryFrom.max = today;
-    els.globalHistoryTo.max = today;
     populateGlobalHistoryFilters(preset);
     if (preset.reset !== false) {
       els.globalHistorySearch.value = preset.query || '';
-      els.globalHistoryType.value = preset.type || 'all';
-      els.globalHistoryFrom.value = preset.from || '';
-      els.globalHistoryTo.value = preset.to || '';
-      els.globalHistoryMin.value = preset.min || '';
-      els.globalHistoryMax.value = preset.max || '';
-      if (preset.walletId && [...els.globalHistoryWallet.options].some((o) => o.value === preset.walletId)) els.globalHistoryWallet.value = preset.walletId;
-      if (preset.categoryId && [...els.globalHistoryCategory.options].some((o) => o.value === preset.categoryId)) els.globalHistoryCategory.value = preset.categoryId;
-      if (preset.goalId && [...els.globalHistoryGoal.options].some((o) => o.value === preset.goalId)) els.globalHistoryGoal.value = preset.goalId;
+      if (preset.categoryId && [...els.globalHistoryCategory.options].some((option) => option.value === preset.categoryId)) els.globalHistoryCategory.value = preset.categoryId;
+      else els.globalHistoryCategory.value = 'all';
     }
     renderGlobalHistory();
     openDialog(els.globalHistoryDialog);
@@ -7664,7 +7617,7 @@
     if (action === 'open-wallet') openWallet();
     if (action === 'manage-wallet') openWalletManage(button.dataset.id);
     if (action === 'wallet-detail') openWalletDetail(button.dataset.id);
-    if (action === 'wallet-detail-search') { closeDialog(els.walletDetailDialog); openGlobalHistory({ walletId: currentWalletDetailId || 'all' }); }
+    if (action === 'wallet-detail-search') { const wallet = state.accounts.find((account) => account.id === currentWalletDetailId); closeDialog(els.walletDetailDialog); openGlobalHistory({ query: wallet?.name || '' }); }
     if (action === 'archive-wallet') archiveWallet();
     if (action === 'restore-wallet') restoreWallet(button.dataset.id);
     if (action === 'remove-wallet') removeWallet(button.dataset.id);
@@ -7727,7 +7680,7 @@
       'savingsWithdrawDialog', 'savingsWithdrawForm', 'savingsWithdrawTitle', 'savingsWithdrawGoalId', 'savingsWithdrawSummary', 'savingsWithdrawAccount', 'savingsWithdrawAvailable', 'savingsWithdrawAmount', 'savingsWithdrawDate', 'savingsWithdrawReason', 'savingsWithdrawNote', 'savingsWithdrawSaveButton',
       'legacySavingsSourceDialog', 'legacySavingsSourceForm', 'legacySavingsGoalId', 'legacySavingsSourceTitle', 'legacySavingsSourceSummary', 'legacySavingsAccount',
       'walletPickerDialog', 'walletPickerTitle', 'walletPickerSubtitle', 'walletPickerList',
-      'globalHistoryDialog', 'globalHistorySearch', 'globalHistoryType', 'globalHistoryWallet', 'globalHistoryCategory', 'globalHistoryGoal', 'globalHistoryFrom', 'globalHistoryTo', 'globalHistoryMin', 'globalHistoryMax', 'globalHistoryCount', 'globalHistoryClear', 'globalHistoryResults', 'globalHistoryPager', 'globalHistoryPrev', 'globalHistoryNext', 'globalHistoryPageLabel',
+      'globalHistoryDialog', 'globalHistorySearch', 'globalHistoryCategory', 'globalHistoryCount', 'globalHistoryClear', 'globalHistoryResults', 'globalHistoryPager', 'globalHistoryPrev', 'globalHistoryNext', 'globalHistoryPageLabel',
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
       'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
       'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
@@ -7986,9 +7939,8 @@
       saveLegacySavingsSource();
     });
     els.categoryManagerForm.addEventListener('submit', (event) => { event.preventDefault(); saveCategoryManagerForm(); });
-    [els.globalHistorySearch, els.globalHistoryType, els.globalHistoryWallet, els.globalHistoryCategory, els.globalHistoryGoal, els.globalHistoryFrom, els.globalHistoryTo, els.globalHistoryMin, els.globalHistoryMax].forEach((control) => {
-      control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', () => { globalHistoryPage = 0; renderGlobalHistory(); });
-    });
+    els.globalHistorySearch.addEventListener('input', () => { globalHistoryPage = 0; renderGlobalHistory(); });
+    els.globalHistoryCategory.addEventListener('change', () => { globalHistoryPage = 0; renderGlobalHistory(); });
     els.globalHistoryClear.addEventListener('click', clearGlobalHistoryFilters);
     els.reconciliationCorrectionForm.addEventListener('submit', (event) => { event.preventDefault(); saveReconciliationCorrection(); });
     els.textSizeSetting.addEventListener('change', () => {
@@ -8174,7 +8126,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.24');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.25');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
