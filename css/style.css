@@ -8453,3 +8453,317 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
     animation: none !important;
   }
 }
+
+
+/* Pocket v3.5.21 — Hidden letter realignment and borderless envelope scene. */
+.hidden-letter-dialog,
+.hidden-letter-dialog[open] {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.hidden-letter-dialog::backdrop {
+  background: linear-gradient(180deg, rgba(255, 243, 248, .34), rgba(233, 241, 255, .28));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.hidden-letter-dialog .dialog-panel {
+  display: block;
+  width: 100vw;
+  height: 100dvh;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  overflow: visible !important;
+}
+.hidden-letter-close {
+  top: max(14px, calc(env(safe-area-inset-top) + 10px));
+  right: max(14px, calc(env(safe-area-inset-right) + 10px));
+  width: 44px;
+  height: 44px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #996579;
+  z-index: 7;
+}
+.hidden-letter-close::before {
+  display: none !important;
+}
+.hidden-letter-close:hover,
+.hidden-letter-close:focus-visible {
+  transform: scale(1.06);
+  background: transparent !important;
+}
+.hidden-letter-shell {
+  position: relative;
+  display: block;
+  width: 100vw;
+  height: 100dvh;
+  padding: 0;
+}
+.hidden-letter-meta,
+.hidden-letter-kicker,
+.hidden-letter-note,
+.hidden-letter-paper-kicker {
+  display: none !important;
+}
+.hidden-letter-sealed {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(320px, calc(100vw - 44px));
+  transform: translate(-50%, -50%);
+  opacity: 1;
+}
+.hidden-letter-envelope {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1.24 / 1;
+  filter: drop-shadow(0 16px 32px rgba(181, 129, 151, .18));
+  animation: hidden-letter-envelope-float-clean 4.6s ease-in-out infinite;
+}
+.hidden-letter-envelope:hover,
+.hidden-letter-envelope:focus-visible {
+  transform: translateY(-5px) scale(1.015);
+}
+.hidden-letter-envelope-shadow {
+  bottom: 8px;
+  width: 70%;
+  height: 14px;
+  background: rgba(174, 139, 159, .18);
+  filter: blur(12px);
+}
+.hidden-letter-envelope-back,
+.hidden-letter-envelope-front,
+.hidden-letter-envelope-flap {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.hidden-letter-envelope-back {
+  bottom: 34px;
+  height: 64%;
+  border-radius: 18px;
+}
+.hidden-letter-envelope-paper {
+  bottom: 66px;
+  width: 72%;
+  height: 54%;
+  border: 0 !important;
+  border-radius: 14px 14px 8px 8px;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,250,252,.96));
+}
+.hidden-letter-envelope-front {
+  bottom: 0;
+  height: 60%;
+  border-radius: 18px;
+}
+.hidden-letter-envelope-flap {
+  top: 30px;
+  height: 56%;
+  border-radius: 18px;
+}
+.hidden-letter-envelope-seal {
+  top: 42%;
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+.hidden-letter-paper {
+  position: absolute;
+  left: 50%;
+  top: max(82px, calc(env(safe-area-inset-top) + 42px));
+  bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
+  width: min(640px, calc(100vw - 26px));
+  min-height: 0;
+  max-height: none;
+  padding: 24px 22px 26px;
+  border: 0 !important;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.985), rgba(252,247,249,.98)),
+    repeating-linear-gradient(180deg, transparent 0 34px, rgba(209, 177, 187, .14) 34px 35px);
+  box-shadow: 0 18px 44px rgba(185, 132, 154, .16);
+  transform: translate(-50%, 48px) scale(.94);
+  opacity: 0;
+  pointer-events: none;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.hidden-letter-paper::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 24px;
+  width: 1px;
+  background: rgba(227, 178, 198, .42);
+  pointer-events: none;
+}
+.hidden-letter-paper-header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 0 18px;
+}
+.hidden-letter-paper-date {
+  padding: 0;
+  margin: 0;
+  color: #a16b82;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  background: none !important;
+  box-shadow: none !important;
+}
+.hidden-letter-paper-body {
+  display: grid;
+  gap: 18px;
+  font-family: 'Segoe Script', 'Bradley Hand', 'Segoe Print', 'Lucida Handwriting', cursive;
+}
+.hidden-letter-paper-body p {
+  margin: 0;
+  padding-left: 18px;
+  color: #6f4d5c;
+  font-size: clamp(16px, 1.95vw, 18px);
+  line-height: 1.9;
+  letter-spacing: .01em;
+  text-indent: 0;
+}
+.hidden-letter-signoff {
+  margin-top: 20px;
+  padding-right: 6px;
+  color: #cf88a3;
+  font-size: 26px;
+}
+.hidden-letter-shell[data-letter-state="sealed"] .hidden-letter-paper {
+  opacity: 0;
+  transform: translate(-50%, 48px) scale(.94);
+}
+.hidden-letter-shell[data-letter-state="opening"] .hidden-letter-sealed,
+.hidden-letter-shell[data-letter-state="open"] .hidden-letter-sealed {
+  transform: translate(-50%, 120px) scale(.985) !important;
+  opacity: 1 !important;
+  pointer-events: none;
+}
+.hidden-letter-shell[data-letter-state="opening"] .hidden-letter-envelope-flap,
+.hidden-letter-shell[data-letter-state="open"] .hidden-letter-envelope-flap {
+  animation: hidden-letter-flap-open-plain .7s cubic-bezier(.2,.84,.2,1) forwards;
+}
+.hidden-letter-shell[data-letter-state="opening"] .hidden-letter-envelope-paper,
+.hidden-letter-shell[data-letter-state="open"] .hidden-letter-envelope-paper {
+  animation: hidden-letter-paper-peek-plain .7s cubic-bezier(.2,.84,.2,1) forwards;
+}
+.hidden-letter-shell[data-letter-state="opening"] .hidden-letter-paper {
+  opacity: 1;
+  transform: translate(-50%, 20px) scale(.965);
+}
+.hidden-letter-shell[data-letter-state="open"] .hidden-letter-paper {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+  animation: hidden-letter-sheet-rise-plain .72s cubic-bezier(.18,.88,.16,1);
+}
+:root[data-theme="light"] .hidden-letter-envelope-back {
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(252,237,243,.95));
+}
+:root[data-theme="light"] .hidden-letter-envelope-front {
+  background: linear-gradient(180deg, rgba(254,239,246,.98), rgba(242,216,228,.96));
+}
+:root[data-theme="light"] .hidden-letter-envelope-flap {
+  background: linear-gradient(180deg, rgba(255,247,250,.98), rgba(244,221,232,.98));
+}
+:root[data-theme="light"] .hidden-letter-envelope-seal {
+  background: linear-gradient(180deg, #ecb2c7, #d6809f);
+  box-shadow: 0 10px 18px rgba(214, 128, 159, .24);
+}
+:root:not([data-theme="light"]) .hidden-letter-dialog::backdrop {
+  background: rgba(12, 14, 22, .56);
+}
+:root:not([data-theme="light"]) .hidden-letter-close {
+  color: #e2c2d0;
+}
+:root:not([data-theme="light"]) .hidden-letter-paper {
+  background:
+    linear-gradient(180deg, rgba(250,244,247,.985), rgba(247,239,243,.98)),
+    repeating-linear-gradient(180deg, transparent 0 34px, rgba(205, 177, 188, .18) 34px 35px);
+}
+@keyframes hidden-letter-envelope-float-clean {
+  0%,100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes hidden-letter-flap-open-plain {
+  from { transform: translateX(-50%) rotateX(0deg); }
+  to { transform: translateX(-50%) rotateX(-172deg); }
+}
+@keyframes hidden-letter-paper-peek-plain {
+  0% { bottom: 66px; height: 54%; }
+  100% { bottom: 108px; height: 72%; }
+}
+@keyframes hidden-letter-sheet-rise-plain {
+  0% { opacity: .08; transform: translate(-50%, 54px) scale(.93); }
+  62% { opacity: 1; transform: translate(-50%, -4px) scale(1.008); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+@media (max-width: 720px) {
+  .hidden-letter-close {
+    width: 40px;
+    height: 40px;
+  }
+  .hidden-letter-sealed {
+    width: min(304px, calc(100vw - 34px));
+  }
+  .hidden-letter-envelope {
+    max-width: 304px;
+  }
+  .hidden-letter-shell[data-letter-state="opening"] .hidden-letter-sealed,
+  .hidden-letter-shell[data-letter-state="open"] .hidden-letter-sealed {
+    transform: translate(-50%, 104px) scale(.985) !important;
+  }
+  .hidden-letter-paper {
+    top: max(72px, calc(env(safe-area-inset-top) + 18px));
+    bottom: max(10px, calc(env(safe-area-inset-bottom) + 8px));
+    width: calc(100vw - 12px);
+    padding: 20px 16px 22px;
+    border-radius: 12px;
+  }
+  .hidden-letter-paper::before {
+    left: 18px;
+  }
+  .hidden-letter-paper-body {
+    gap: 16px;
+  }
+  .hidden-letter-paper-body p {
+    padding-left: 12px;
+    font-size: 15.5px;
+    line-height: 1.82;
+  }
+}
+@media (max-width: 420px) {
+  .hidden-letter-paper {
+    width: calc(100vw - 6px);
+    padding: 18px 14px 20px;
+  }
+  .hidden-letter-paper::before {
+    left: 15px;
+  }
+  .hidden-letter-paper-body p {
+    padding-left: 10px;
+    font-size: 15px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hidden-letter-envelope,
+  .hidden-letter-shell[data-letter-state="opening"] .hidden-letter-envelope-flap,
+  .hidden-letter-shell[data-letter-state="open"] .hidden-letter-envelope-flap,
+  .hidden-letter-shell[data-letter-state="opening"] .hidden-letter-envelope-paper,
+  .hidden-letter-shell[data-letter-state="open"] .hidden-letter-envelope-paper,
+  .hidden-letter-shell[data-letter-state="open"] .hidden-letter-paper {
+    animation: none !important;
+  }
+}

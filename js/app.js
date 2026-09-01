@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.20';
+  const APP_VERSION = '3.5.21';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -5736,7 +5736,7 @@
       els.hiddenLetterShell.dataset.letterState = 'open';
       els.hiddenLetterPaper?.focus({ preventScroll: true });
       hiddenLetterOpenTimer = 0;
-    }, companionReducedMotion ? 120 : 520);
+    }, companionReducedMotion ? 120 : 620);
   }
 
   function hiddenLetterGestureAllowed(event) {
@@ -8167,7 +8167,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.20');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.21');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
