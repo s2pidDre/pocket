@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.27';
+  const APP_VERSION = '3.5.28';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -28,6 +28,24 @@
   const SECRET_LETTER_GESTURE_MIN_HORIZONTAL = 66;
   const SECRET_LETTER_GESTURE_MIN_PATH = 148;
   const SECRET_LETTER_GESTURE_COOLDOWN = 900;
+  const LEDGER_SAMPLE_LETTER_QUERY = 'for you';
+  const WALLET_SAMPLE_LETTER_HOLD = 560;
+  const WALLET_SAMPLE_LETTER_PULL = 58;
+  const COMPANION_SAMPLE_LETTER_HOLD = 2100;
+  const SAMPLE_HIDDEN_LETTERS = {
+    ledger: {
+      label: 'Found in the ledger',
+      body: ['Not everything worth remembering has a category or an amount.', 'Some things are just meant to stay.']
+    },
+    wallet: {
+      label: 'Tucked behind a wallet',
+      body: ['You found something I tucked away.', 'Maybe the things we keep closest are not always the ones we can count.']
+    },
+    companion: {
+      label: 'Left by Bunny',
+      body: ['You stayed long enough for Bunny to leave this here.', 'Consider this a tiny reminder to be gentle with yourself today.']
+    }
+  };
   const CURRENCY = new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: 'PHP',
@@ -180,6 +198,9 @@
   let secretLetterGestureCooldownUntil = 0;
   let secretLetterOpenTimer = 0;
   let secretLetterUnlockTimer = 0;
+  let walletSampleLetterPull = null;
+  let walletSampleLetterHoldTimer = 0;
+  let companionSampleLetterTimer = 0;
   const companionEffectNodes = new Set();
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
@@ -2666,6 +2687,8 @@
             <span>Today <b class="money-value">${todayLabel}</b></span>
             <span>${account.isPrimary ? 'Main wallet' : 'Wallet'}</span>
           </div>
+          <span class="wallet-secret-pull-zone" aria-hidden="true"></span>
+          <button class="wallet-secret-envelope" type="button" data-action="open-sample-letter" data-letter-source="wallet" aria-label="Open the hidden note" aria-hidden="true" tabindex="-1"><span aria-hidden="true">♡</span></button>
         </article>`;
     }).join('');
 
@@ -3281,6 +3304,137 @@
     }).join('');
   }
 
+  function sampleHiddenLetterMarkup(source) {
+    const letter = SAMPLE_HIDDEN_LETTERS[source] || SAMPLE_HIDDEN_LETTERS.ledger;
+    return letter.body.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('');
+  }
+
+  function hideWalletSampleLetterEnvelope(card = null) {
+    const cards = card ? [card] : [...document.querySelectorAll('.wallet-mode-card.has-sample-letter')];
+    cards.forEach((item) => {
+      item.classList.remove('has-sample-letter', 'is-sample-letter-pulling', 'is-sample-letter-armed');
+      item.style.removeProperty('--sample-letter-pull');
+      const envelope = item.querySelector('.wallet-secret-envelope');
+      if (envelope) {
+        envelope.setAttribute('aria-hidden', 'true');
+        envelope.tabIndex = -1;
+      }
+    });
+  }
+
+  function hideCompanionSampleLetterEnvelope() {
+    els.pocketCompanion?.classList.remove('has-sample-letter');
+    if (els.companionSecretEnvelope) {
+      els.companionSecretEnvelope.setAttribute('aria-hidden', 'true');
+      els.companionSecretEnvelope.tabIndex = -1;
+    }
+  }
+
+  function openSampleHiddenLetter(source = 'ledger') {
+    const letter = SAMPLE_HIDDEN_LETTERS[source] || SAMPLE_HIDDEN_LETTERS.ledger;
+    if (!els.sampleHiddenLetterDialog || !els.sampleHiddenLetterBody || !els.sampleHiddenLetterLabel) return;
+    if (els.globalHistoryDialog?.open) closeDialog(els.globalHistoryDialog);
+    hideWalletSampleLetterEnvelope();
+    if (source === 'companion') hideCompanionSampleLetterEnvelope();
+    els.sampleHiddenLetterLabel.textContent = letter.label;
+    els.sampleHiddenLetterBody.innerHTML = sampleHiddenLetterMarkup(source);
+    openDialog(els.sampleHiddenLetterDialog);
+    if (secretPocketLightActive()) emitSecretLightFx('sparkle', { count: companionReducedMotion ? 2 : 5, area: 'center', duration: companionReducedMotion ? 800 : 1700 });
+    requestAnimationFrame(() => els.sampleHiddenLetterDialog.querySelector('.sample-hidden-letter-paper')?.focus({ preventScroll: true }));
+  }
+
+  function ledgerSampleLetterResult() {
+    return `
+      <button class="ledger-secret-result" type="button" data-action="open-sample-letter" data-letter-source="ledger" aria-label="Open hidden note">
+        <span class="ledger-secret-result-icon" aria-hidden="true">♡</span>
+        <span class="ledger-secret-result-copy"><strong>Something you forgot</strong><small>Personal · No category</small></span>
+        <span class="ledger-secret-result-mark" aria-hidden="true">···</span>
+      </button>`;
+  }
+
+  function resetWalletSampleLetterPull({ keepEnvelope = false } = {}) {
+    window.clearTimeout(walletSampleLetterHoldTimer);
+    walletSampleLetterHoldTimer = 0;
+    const pull = walletSampleLetterPull;
+    walletSampleLetterPull = null;
+    if (!pull?.card) return;
+    pull.card.classList.remove('is-sample-letter-pulling', 'is-sample-letter-armed');
+    pull.card.style.removeProperty('--sample-letter-pull');
+    if (!keepEnvelope) hideWalletSampleLetterEnvelope(pull.card);
+  }
+
+  function beginWalletSampleLetterPull(event) {
+    const zone = event.target.closest('.wallet-secret-pull-zone');
+    if (!zone || document.querySelector('dialog[open]')) return;
+    const card = zone.closest('.wallet-mode-card');
+    if (!card?.classList.contains('is-current')) return;
+    hideWalletSampleLetterEnvelope(card);
+    window.clearTimeout(walletSampleLetterHoldTimer);
+    walletSampleLetterPull = {
+      id: event.pointerId,
+      zone,
+      card,
+      startX: event.clientX,
+      startY: event.clientY,
+      armed: false
+    };
+    try { zone.setPointerCapture?.(event.pointerId); } catch (error) {}
+    walletSampleLetterHoldTimer = window.setTimeout(() => {
+      if (!walletSampleLetterPull || walletSampleLetterPull.id !== event.pointerId) return;
+      walletSampleLetterPull.armed = true;
+      card.classList.add('is-sample-letter-armed');
+      try { navigator.vibrate?.(10); } catch (error) {}
+    }, WALLET_SAMPLE_LETTER_HOLD);
+  }
+
+  function moveWalletSampleLetterPull(event) {
+    const pull = walletSampleLetterPull;
+    if (!pull || pull.id !== event.pointerId) return;
+    const dx = event.clientX - pull.startX;
+    const upward = pull.startY - event.clientY;
+    if (!pull.armed) {
+      if (Math.hypot(dx, event.clientY - pull.startY) > 13) resetWalletSampleLetterPull();
+      return;
+    }
+    if (Math.abs(dx) > 72) {
+      resetWalletSampleLetterPull();
+      return;
+    }
+    event.preventDefault();
+    const progress = Math.max(0, Math.min(1, upward / WALLET_SAMPLE_LETTER_PULL));
+    pull.card.classList.add('is-sample-letter-pulling');
+    pull.card.style.setProperty('--sample-letter-pull', `${Math.round(progress * 88)}px`);
+  }
+
+  function endWalletSampleLetterPull(event, cancelled = false) {
+    const pull = walletSampleLetterPull;
+    if (!pull || pull.id !== event.pointerId) return;
+    const dx = event.clientX - pull.startX;
+    const upward = pull.startY - event.clientY;
+    const success = !cancelled && pull.armed && upward >= WALLET_SAMPLE_LETTER_PULL && Math.abs(dx) < 72;
+    const card = pull.card;
+    resetWalletSampleLetterPull({ keepEnvelope: success });
+    if (!success || !card?.isConnected) return;
+    card.classList.add('has-sample-letter');
+    const envelope = card.querySelector('.wallet-secret-envelope');
+    if (envelope) {
+      envelope.setAttribute('aria-hidden', 'false');
+      envelope.tabIndex = 0;
+      window.setTimeout(() => envelope.focus({ preventScroll: true }), 220);
+    }
+    try { navigator.vibrate?.(18); } catch (error) {}
+  }
+
+  function revealCompanionSampleLetterEnvelope() {
+    if (!companionIsAvailable() || !els.pocketCompanion || !els.companionSecretEnvelope) return;
+    els.pocketCompanion.classList.add('has-sample-letter');
+    els.companionSecretEnvelope.setAttribute('aria-hidden', 'false');
+    els.companionSecretEnvelope.tabIndex = 0;
+    companionSetMood('happy');
+    if (secretPocketLightActive()) emitSecretLightFx('heart', { count: companionReducedMotion ? 2 : 4, area: 'bottom', duration: companionReducedMotion ? 780 : 1500 });
+    try { navigator.vibrate?.(14); } catch (error) {}
+  }
+
   function allLedgerEntries() {
     const transactions = (state.transactions || []).map((tx) => ({ ...tx }));
     const goalTransfers = (state.goalTransfers || []).map((item) => ({
@@ -3335,6 +3489,16 @@
     let entries = allLedgerEntries();
     const query = String(els.globalHistorySearch.value || '').trim().toLowerCase();
     const categoryId = els.globalHistoryCategory.value || 'all';
+    const revealLedgerSampleLetter = query === LEDGER_SAMPLE_LETTER_QUERY && categoryId === 'all';
+
+    if (revealLedgerSampleLetter) {
+      els.globalHistoryCount.textContent = '1 record';
+      els.globalHistoryClear.classList.remove('is-hidden');
+      els.globalHistoryClear.disabled = false;
+      els.globalHistoryResults.innerHTML = ledgerSampleLetterResult();
+      if (els.globalHistoryPager) els.globalHistoryPager.classList.add('is-hidden');
+      return;
+    }
 
     entries = entries.filter((entry) => {
       if (categoryId !== 'all') {
@@ -3768,11 +3932,26 @@
     els.pocketCompanion?.classList.add('is-held');
     window.clearTimeout(companionPetTimer);
     companionPetTimer = window.setTimeout(companionPetMain, 500);
+    window.clearTimeout(companionSampleLetterTimer);
+    companionSampleLetterTimer = window.setTimeout(() => {
+      const pointer = companionPointerState;
+      if (!pointer || pointer.id !== event.pointerId || pointer.dragging || pointer.strokeDistance > 7) return;
+      pointer.secretLetterTriggered = true;
+      pointer.petting = false;
+      window.clearTimeout(companionPetTimer);
+      els.pocketCompanion?.classList.remove('is-petting', 'is-pet-stroking');
+      if (els.pocketCompanion) delete els.pocketCompanion.dataset.petZone;
+      revealCompanionSampleLetterEnvelope();
+    }, COMPANION_SAMPLE_LETTER_HOLD);
   }
 
   function companionPointerMove(event) {
     if (!companionPointerState || event.pointerId !== companionPointerState.id) return;
     event.preventDefault();
+    if (Math.hypot(event.clientX - companionPointerState.startX, event.clientY - companionPointerState.startY) > 8) {
+      window.clearTimeout(companionSampleLetterTimer);
+      companionSampleLetterTimer = 0;
+    }
     if (companionPointerState.petting) {
       companionPetStroke(event);
       return;
@@ -3794,6 +3973,8 @@
     event.preventDefault();
     event.stopPropagation();
     window.clearTimeout(companionPetTimer);
+    window.clearTimeout(companionSampleLetterTimer);
+    companionSampleLetterTimer = 0;
     const pointer = companionPointerState;
     const dx = event.clientX - pointer.startX;
     const dy = event.clientY - pointer.startY;
@@ -3811,6 +3992,10 @@
     if (cancelled) {
       els.pocketCompanion?.classList.remove('is-petting');
       if (els.pocketCompanion) delete els.pocketCompanion.dataset.petZone;
+      return;
+    }
+    if (pointer.secretLetterTriggered) {
+      scheduleCompanionAction(7000);
       return;
     }
     if (pointer.petting) {
@@ -7526,6 +7711,7 @@
     if (action === 'change-secret-pin') openChangeSecretPin();
     if (action === 'lock-secret-pocket') lockSecretPocket();
     if (action === 'open-global-history') openGlobalHistory();
+    if (action === 'open-sample-letter') openSampleHiddenLetter(button.dataset.letterSource || 'ledger');
     if (action === 'open-category-manager') openCategoryManager();
     if (action === 'edit-category') editCategory(button.dataset.id);
     if (action === 'archive-category') archiveCategory(button.dataset.id);
@@ -7570,7 +7756,7 @@
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
       'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
       'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
-      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'secretLetterGateDialog', 'secretLetterGateForm', 'secretLetterPinDots', 'secretLetterPinInput', 'secretLetterPinError', 'secretLetterKeypad', 'secretLetterSceneDialog', 'secretLetterStage', 'secretLetterEnvelope', 'secretLetterSheet', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'toast', 'toastMessage', 'toastAction',
+      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'sampleHiddenLetterDialog', 'sampleHiddenLetterLabel', 'sampleHiddenLetterBody', 'secretLetterGateDialog', 'secretLetterGateForm', 'secretLetterPinDots', 'secretLetterPinInput', 'secretLetterPinError', 'secretLetterKeypad', 'secretLetterSceneDialog', 'secretLetterStage', 'secretLetterEnvelope', 'secretLetterSheet', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'companionSecretEnvelope', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
   }
@@ -7641,6 +7827,10 @@
     });
 
     els.walletCarousel.addEventListener('scroll', queueWalletCarouselTransforms, { passive: true });
+    els.walletCarousel.addEventListener('pointerdown', beginWalletSampleLetterPull);
+    els.walletCarousel.addEventListener('pointermove', moveWalletSampleLetterPull, { passive: false });
+    els.walletCarousel.addEventListener('pointerup', (event) => endWalletSampleLetterPull(event, false));
+    els.walletCarousel.addEventListener('pointercancel', (event) => endWalletSampleLetterPull(event, true));
     els.walletCarousel.addEventListener('wheel', (event) => {
       if (activeAccounts().length <= 1) return;
       if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -7943,6 +8133,9 @@
       currentSavingsWithdrawalCorrectionId = null;
     });
 
+    els.sampleHiddenLetterDialog.addEventListener('click', (event) => {
+      if (event.target === els.sampleHiddenLetterDialog || event.target === els.sampleHiddenLetterDialog.querySelector('.sample-hidden-letter-panel')) closeDialog(els.sampleHiddenLetterDialog);
+    });
     els.secretLetterGateDialog.addEventListener('close', () => resetSecretLetterPin());
     els.secretLetterGateDialog.addEventListener('click', (event) => {
       if (event.target === els.secretLetterGateDialog || event.target === els.secretLetterGateDialog.querySelector('.secret-letter-gate-panel')) closeDialog(els.secretLetterGateDialog);
@@ -8009,7 +8202,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.27');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.28');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);

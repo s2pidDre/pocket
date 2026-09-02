@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.27">
+  <link rel="stylesheet" href="css/style.css?v=3.5.28">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -976,6 +976,17 @@
     </div>
   </dialog>
 
+  <dialog id="sampleHiddenLetterDialog" class="app-dialog sample-hidden-letter-dialog" aria-label="Hidden note">
+    <div class="sample-hidden-letter-panel">
+      <button class="sample-hidden-letter-close" type="button" data-close-dialog aria-label="Close hidden note"><svg><use href="#i-close"/></svg></button>
+      <article class="sample-hidden-letter-paper" tabindex="-1">
+        <p class="sample-hidden-letter-label" id="sampleHiddenLetterLabel"></p>
+        <div class="sample-hidden-letter-copy" id="sampleHiddenLetterBody"></div>
+        <div class="sample-hidden-letter-signoff" aria-hidden="true">♡</div>
+      </article>
+    </div>
+  </dialog>
+
   <div class="secret-light-scene" id="secretLightScene" aria-hidden="true">
     <span class="secret-scene-orb orb-a"></span><span class="secret-scene-orb orb-b"></span><span class="secret-scene-orb orb-c"></span>
     <span class="secret-scene-cloud cloud-a"></span><span class="secret-scene-cloud cloud-b"></span><span class="secret-scene-cloud cloud-c"></span>
@@ -1115,10 +1126,11 @@
       <span class="companion-wearable" aria-hidden="true"></span>
       <span class="companion-zzz" aria-hidden="true">zZ</span>
     </div>
+    <button class="companion-secret-envelope" id="companionSecretEnvelope" type="button" data-action="open-sample-letter" data-letter-source="companion" aria-label="Open the hidden note" aria-hidden="true" tabindex="-1"><span aria-hidden="true">♡</span></button>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.27" defer></script>
+  <script src="js/app.js?v=3.5.28" defer></script>
 </body>
 </html>
