@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.26">
+  <link rel="stylesheet" href="css/style.css?v=3.5.27">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -814,7 +814,6 @@
           <label class="secret-select-row" for="secretCompanionSpeech"><span><strong>Companion speech</strong><small>Quiet keeps only important reactions.</small></span><select id="secretCompanionSpeech"><option value="normal">Normal</option><option value="quiet">Quiet</option><option value="off">Off</option></select></label>
           <label class="secret-select-row" for="secretCompanionMovement"><span><strong>Companion movement</strong><small>Calm reduces roaming and ambient animation frequency.</small></span><select id="secretCompanionMovement"><option value="normal">Normal</option><option value="calm">Calm</option></select></label>
           <label class="secret-select-row" for="secretCompanionPerformance"><span><strong>Performance</strong><small>Auto saves battery when Pocket is idle or hidden.</small></span><select id="secretCompanionPerformance"><option value="auto">Auto</option><option value="full">Full animation</option><option value="battery">Battery saver</option></select></label>
-          <button class="secret-action-row companion-studio-entry" type="button" data-action="open-companion-room"><span><strong>Companion Studio</strong><small id="companionStudioSummary">Visit the room, build your bond, and choose accessories.</small></span><svg class="chevron"><use href="#i-chevron"/></svg></button>
           <button class="secret-action-row" type="button" data-action="reset-companion-position"><span><strong>Reset companion position</strong><small>Return the bunny to its default safe corner.</small></span><svg class="chevron"><use href="#i-chevron"/></svg></button>
         </section>
         <section class="secret-settings-section">
@@ -826,71 +825,6 @@
       <div class="dialog-footer secret-pocket-footer">
         <button class="button-primary secret-pocket-done" type="button" data-close-dialog><span>Enter Pocket</span></button>
       </div>
-    </div>
-  </dialog>
-
-  <dialog id="companionRoomDialog" class="app-dialog companion-room-dialog">
-    <div class="dialog-panel">
-      <div class="dialog-header companion-room-header">
-        <div><p class="eyebrow">Companion Studio</p><h2 id="companionRoomTitle">Bunny's room ♡</h2><p class="dialog-subtitle">A cozy offline home for your Secret Pocket companion.</p></div>
-        <button class="icon-button" type="button" data-close-dialog aria-label="Close"><svg><use href="#i-close"/></svg></button>
-      </div>
-      <div class="dialog-body companion-room-body">
-        <section class="companion-room-scene" id="companionRoomScene" aria-label="Companion room">
-          <div class="room-wall-stars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="room-window" aria-hidden="true"><span class="room-moon"></span><i></i><i></i><i></i></div>
-          <div class="room-shelf" aria-hidden="true"><span class="room-jar"></span><span class="room-book"></span><span class="room-frame">♡</span></div>
-          <div class="room-plant" aria-hidden="true"><i></i><i></i><span></span></div>
-          <div class="room-bed" aria-hidden="true"><span></span></div>
-          <div class="room-rug" aria-hidden="true"></div>
-          <div class="companion-room-bunny" id="companionRoomBunny" data-accessory="none" aria-hidden="true"></div>
-          <div class="companion-room-message" id="companionRoomMessage">Welcome home ♡</div>
-        </section>
-
-        <section class="companion-vitals-card" aria-label="Companion status">
-          <div class="companion-vital-heading"><div><p class="eyebrow">Bond</p><h3 id="companionMoodLabel">Calm & cozy</h3></div><span class="companion-level-pill" id="companionBondLevel">New friend</span></div>
-          <div class="companion-vital-row"><span>Bond</span><strong id="companionBondValue">18%</strong></div>
-          <div class="companion-vital-track"><span class="companion-vital-fill bond-fill" id="companionBondFill"></span></div>
-          <div class="companion-vital-row"><span>Energy</span><strong id="companionEnergyValue">72%</strong></div>
-          <div class="companion-vital-track"><span class="companion-vital-fill energy-fill" id="companionEnergyFill"></span></div>
-          <div class="companion-memory-row"><span id="companionVisitStreak">1 day together</span><span id="companionInteractionCount">0 interactions</span></div>
-        </section>
-
-        <section class="companion-studio-section">
-          <div class="companion-studio-heading"><div><p class="eyebrow">Identity</p><h3>Make them yours</h3></div></div>
-          <div class="companion-identity-grid">
-            <label class="field-group" for="companionNameInput"><span class="field-label">Companion name</span><input class="text-input" id="companionNameInput" maxlength="14" autocomplete="off" placeholder="Bunny"></label>
-            <label class="field-group" for="companionPersonality"><span class="field-label">Personality</span><select id="companionPersonality"><option value="gentle">Gentle</option><option value="playful">Playful</option><option value="curious">Curious</option></select></label>
-          </div>
-        </section>
-
-        <section class="companion-studio-section companion-awareness-section">
-          <div class="companion-studio-heading"><div><p class="eyebrow">Awareness</p><h3>Real Pocket talk</h3></div><small>Uses local data only</small></div>
-          <label class="field-group companion-data-speech-field" for="companionDataSpeech">
-            <span class="field-label">Data speech level</span>
-            <select id="companionDataSpeech"><option value="quiet">Quiet</option><option value="balanced">Balanced</option><option value="chatty">Chatty</option><option value="very-chatty">Very Chatty</option></select>
-            <small class="companion-field-note">Controls how often your companion comments on real balances, spending, savings progress, and comparisons.</small>
-          </label>
-          <div class="companion-awareness-note"><strong>Card-aware comments</strong><span>When possible, the bunny walks to and points at the exact wallet, goal, or summary card it is talking about.</span></div>
-        </section>
-
-        <section class="companion-studio-section">
-          <div class="companion-studio-heading"><div><p class="eyebrow">Accessories</p><h3>Choose a little look</h3></div><small>Saved on this device</small></div>
-          <div class="companion-accessory-grid" id="companionAccessoryGrid" role="group" aria-label="Companion accessories">
-            <button type="button" data-action="select-companion-accessory" data-accessory="none"><span class="accessory-preview accessory-none">♡</span><strong>Classic</strong></button>
-            <button type="button" data-action="select-companion-accessory" data-accessory="glasses"><span class="accessory-preview accessory-glasses" aria-hidden="true"></span><strong>Glasses</strong></button>
-            <button type="button" data-action="select-companion-accessory" data-accessory="scarf"><span class="accessory-preview accessory-scarf" aria-hidden="true"></span><strong>Scarf</strong></button>
-            <button type="button" data-action="select-companion-accessory" data-accessory="star"><span class="accessory-preview accessory-star" aria-hidden="true">★</span><strong>Star crown</strong></button>
-          </div>
-        </section>
-
-        <section class="companion-room-actions" aria-label="Companion interactions">
-          <button class="button-secondary" type="button" data-action="room-pet"><span>Pet</span><small>Bond +3</small></button>
-          <button class="button-secondary" type="button" data-action="room-play"><span>Play</span><small>Bond +2</small></button>
-          <button class="button-secondary" type="button" data-action="room-nap"><span>Nap</span><small>Energy +12</small></button>
-        </section>
-      </div>
-      <div class="dialog-footer companion-room-footer"><button class="button-primary" type="button" data-close-dialog>Back to Pocket</button></div>
     </div>
   </dialog>
 
@@ -1185,6 +1119,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.26" defer></script>
+  <script src="js/app.js?v=3.5.27" defer></script>
 </body>
 </html>

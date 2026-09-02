@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.26';
+  const APP_VERSION = '3.5.27';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -272,8 +272,6 @@
       taps: 0,
       pets: 0,
       drags: 0,
-      roomVisits: 0,
-      roomActions: 0,
       financeMoments: 0,
       savingsWins: 0,
       visitStreak: 1,
@@ -317,8 +315,6 @@
       taps: Math.max(0, Number(source.taps || 0)),
       pets: Math.max(0, Number(source.pets || 0)),
       drags: Math.max(0, Number(source.drags || 0)),
-      roomVisits: Math.max(0, Number(source.roomVisits || 0)),
-      roomActions: Math.max(0, Number(source.roomActions || 0)),
       financeMoments: Math.max(0, Number(source.financeMoments || 0)),
       savingsWins: Math.max(0, Number(source.savingsWins || 0)),
       visitStreak: Math.max(1, Number(source.visitStreak || 1)),
@@ -1063,13 +1059,6 @@
     return companionProfileState().personality || 'gentle';
   }
 
-  function companionBondLevel(affection = companionProfileState().affection) {
-    if (affection >= 85) return 'Best friends';
-    if (affection >= 65) return 'Very close';
-    if (affection >= 42) return 'Good friends';
-    if (affection >= 24) return 'Getting close';
-    return 'New friend';
-  }
 
   function companionMoodFromState() {
     const profile = companionProfileState();
@@ -1082,10 +1071,6 @@
     return 'relaxed';
   }
 
-  function companionMoodText(mood = companionMoodFromState()) {
-    const labels = { relaxed: 'Calm & cozy', calm: 'Calm & cozy', happy: 'Bright & happy', curious: 'Curious', sleepy: 'Sleepy', proud: 'Proud of you', gentle: 'Soft & relaxed', excited: 'Very excited' };
-    return labels[mood] || 'Calm & cozy';
-  }
 
   function companionAdjustProfile(changes = {}, options = {}) {
     const profile = companionProfileState();
@@ -1095,17 +1080,12 @@
     if (changes.tap) profile.taps += changes.tap;
     if (changes.pet) profile.pets += changes.pet;
     if (changes.drag) profile.drags += changes.drag;
-    if (changes.roomVisit) profile.roomVisits += changes.roomVisit;
-    if (changes.roomAction) profile.roomActions += changes.roomAction;
     if (changes.financeMoment) profile.financeMoments += changes.financeMoment;
     if (changes.savingsWin) profile.savingsWins += changes.savingsWin;
     if (changes.interaction !== false) profile.lastInteractionAt = Date.now();
     if (!changes.mood) profile.mood = companionMoodFromState();
     if (options.save !== false) saveSecretConfig();
-    if (options.render !== false) {
-      renderCompanionRoom();
-      syncCompanionAccessory();
-    }
+    if (options.render !== false) syncCompanionAccessory();
     return profile;
   }
 
@@ -1178,102 +1158,8 @@
     if (!els.pocketCompanion) return;
     const profile = companionProfileState();
     els.pocketCompanion.dataset.accessory = profile.accessory || 'none';
-    if (els.companionRoomBunny) els.companionRoomBunny.dataset.accessory = profile.accessory || 'none';
   }
 
-  function renderCompanionRoomBunny() {
-    if (!els.companionRoomBunny || !els.companionBunny) return;
-    if (!els.companionRoomBunny.querySelector('svg')) {
-      const source = els.companionBunny.querySelector('svg');
-      if (source) els.companionRoomBunny.appendChild(source.cloneNode(true));
-      const wearable = document.createElement('span');
-      wearable.className = 'companion-wearable';
-      wearable.setAttribute('aria-hidden', 'true');
-      els.companionRoomBunny.appendChild(wearable);
-    }
-    els.companionRoomBunny.dataset.accessory = companionProfileState().accessory || 'none';
-  }
-
-  function renderCompanionRoom() {
-    if (!els.companionRoomDialog) return;
-    const profile = companionProfileState();
-    renderCompanionRoomBunny();
-    if (els.companionRoomTitle) els.companionRoomTitle.textContent = `${profile.name || 'Bunny'}'s room ♡`;
-    if (els.companionMoodLabel) els.companionMoodLabel.textContent = companionMoodText(profile.mood || companionMoodFromState());
-    if (els.companionBondLevel) els.companionBondLevel.textContent = companionBondLevel(profile.affection);
-    if (els.companionBondValue) els.companionBondValue.textContent = `${Math.round(profile.affection)}%`;
-    if (els.companionEnergyValue) els.companionEnergyValue.textContent = `${Math.round(profile.energy)}%`;
-    if (els.companionBondFill) els.companionBondFill.style.width = `${profile.affection}%`;
-    if (els.companionEnergyFill) els.companionEnergyFill.style.width = `${profile.energy}%`;
-    if (els.companionVisitStreak) els.companionVisitStreak.textContent = `${profile.visitStreak} day${profile.visitStreak === 1 ? '' : 's'} together`;
-    if (els.companionInteractionCount) {
-      const total = profile.taps + profile.pets + profile.drags + profile.roomVisits + profile.roomActions + profile.financeMoments;
-      els.companionInteractionCount.textContent = `${total} interaction${total === 1 ? '' : 's'}`;
-    }
-    if (els.companionNameInput && document.activeElement !== els.companionNameInput) els.companionNameInput.value = profile.name || 'Bunny';
-    if (els.companionPersonality) els.companionPersonality.value = profile.personality || 'gentle';
-    if (els.companionDataSpeech) els.companionDataSpeech.value = companionDataSpeechLevel();
-    if (els.companionAccessoryGrid) {
-      els.companionAccessoryGrid.querySelectorAll('[data-accessory]').forEach((button) => {
-        const active = button.dataset.accessory === profile.accessory;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
-    }
-    if (els.companionStudioSummary) els.companionStudioSummary.textContent = `${profile.name} · ${companionBondLevel(profile.affection)} · ${companionMoodText(profile.mood)}`;
-  }
-
-  function openCompanionRoom() {
-    if (!isSecretPocketUnlocked()) return openThemeUnlock();
-    closeDialog(els.secretPocketDialog);
-    const profile = companionProfileState();
-    profile.roomVisits += 1;
-    profile.lastInteractionAt = Date.now();
-    saveSecretConfig();
-    renderCompanionRoom();
-    if (els.companionRoomMessage) els.companionRoomMessage.textContent = `${profile.name} is home ♡`;
-    openDialog(els.companionRoomDialog);
-  }
-
-  function animateRoomCompanion(kind, message) {
-    if (!els.companionRoomBunny) return;
-    const classes = ['is-room-petted','is-room-playing','is-room-sleeping'];
-    els.companionRoomBunny.classList.remove(...classes);
-    void els.companionRoomBunny.offsetWidth;
-    const className = kind === 'pet' ? 'is-room-petted' : kind === 'play' ? 'is-room-playing' : 'is-room-sleeping';
-    els.companionRoomBunny.classList.add(className);
-    if (els.companionRoomMessage) els.companionRoomMessage.textContent = message;
-    window.setTimeout(() => els.companionRoomBunny?.classList.remove(className), kind === 'nap' ? 2200 : 1100);
-  }
-
-  function companionRoomPet() {
-    const profile = companionAdjustProfile({ affection: 3, energy: 1, pet: 1, roomAction: 1, mood: 'happy' });
-    animateRoomCompanion('pet', `${profile.name} melts into the head pats ♡`);
-  }
-
-  function companionRoomPlay() {
-    const profile = companionAdjustProfile({ affection: 2, energy: -6, roomAction: 1, mood: 'excited' });
-    animateRoomCompanion('play', `${profile.name} does a tiny victory hop ✨`);
-  }
-
-  function companionRoomNap() {
-    const profile = companionAdjustProfile({ energy: 12, mood: 'sleepy', roomAction: 1 });
-    animateRoomCompanion('nap', `${profile.name} curls up for a cozy nap… zZ`);
-  }
-
-  function selectCompanionAccessory(accessory) {
-    const profile = companionProfileState();
-    if (!profile.unlockedAccessories.includes(accessory)) return;
-    profile.accessory = accessory;
-    profile.lastInteractionAt = Date.now();
-    saveSecretConfig();
-    syncCompanionAccessory();
-    renderCompanionRoom();
-    if (els.companionRoomMessage) {
-      const labels = { none: 'Classic look selected ♡', glasses: 'Smart little glasses! ✨', scarf: 'Cozy scarf equipped ♡', star: 'Star crown equipped ✨' };
-      els.companionRoomMessage.textContent = labels[accessory] || 'Accessory equipped.';
-    }
-  }
 
   function secretPocketLightActive() { return Boolean(state?.settings?.theme === 'light' && isSecretPocketUnlocked()); }
 
@@ -5905,7 +5791,6 @@
         ? (companionOn ? 'Dreamy glass cards, floating sparkles, and your cozy bunny companion are all active.' : 'Dreamy glass cards and floating sparkles stay active even while the bunny rests.')
         : 'Switch back to Light Pocket anytime you want the hidden dreamy world again.';
     }
-    renderCompanionRoom();
     syncCompanionAccessory();
     els.secretRememberSwitch.classList.toggle('is-on',Boolean(secretConfig?.remember)); els.secretRememberToggle.setAttribute('aria-checked',secretConfig?.remember?'true':'false'); els.secretRememberLabel.textContent=secretConfig?.remember?'On · stays unlocked on this device':'Off · locks after this browser session'; if(!unlocked&&els.secretPocketDialog.open) closeDialog(els.secretPocketDialog);
   }
@@ -5927,7 +5812,7 @@
   function openChangeSecretPin() { els.changeSecretPinForm.reset(); els.changeSecretPinError.textContent=''; openDialog(els.changeSecretPinDialog); requestAnimationFrame(()=>els.newSecretPin.focus({preventScroll:true})); }
   async function changeSecretPin() { const pin=els.newSecretPin.value.replace(/\D/g,'').slice(0,4); const confirmPin=els.confirmSecretPin.value.replace(/\D/g,'').slice(0,4); if(pin.length!==4){ els.changeSecretPinError.textContent='Enter exactly four digits.'; return; } if(pin!==confirmPin){ els.changeSecretPinError.textContent='The two PINs do not match.'; return; } await storeSecretPin(pin); closeDialog(els.changeSecretPinDialog); showToast('Secret PIN changed.'); }
   function lockSecretPocket() { setSecretPocketUnlocked(false,false); state.settings.theme='dark'; persistCurrentTheme(); closeDialog(els.secretPocketDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket locked.'); }
-  function resetSecretPocketAccess() { const companionProfile=companionProfileState(); secretConfig=defaultSecretConfig(); secretConfig.companionProfile=companionProfile; secretFailedAttempts=0; secretLockoutUntil=0; saveSecretThrottleState(); saveSecretConfig(); try{sessionStorage.removeItem(SECRET_SESSION_KEY);localStorage.removeItem(SECRET_TRUST_KEY);}catch(error){} state.settings.theme='dark'; persistCurrentTheme(); closeDialog(els.secretPocketDialog); closeDialog(els.companionRoomDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket access reset to the default code.'); }
+  function resetSecretPocketAccess() { const companionProfile=companionProfileState(); secretConfig=defaultSecretConfig(); secretConfig.companionProfile=companionProfile; secretFailedAttempts=0; secretLockoutUntil=0; saveSecretThrottleState(); saveSecretConfig(); try{sessionStorage.removeItem(SECRET_SESSION_KEY);localStorage.removeItem(SECRET_TRUST_KEY);}catch(error){} state.settings.theme='dark'; persistCurrentTheme(); closeDialog(els.secretPocketDialog); renderAll(); syncSecretLightWorld({ force: true }); showToast('Secret Pocket access reset to the default code.'); }
   function openSecretPocketRecovery() { confirmAction('Reset Secret Pocket access?','This resets only the secret PIN and hidden appearance preferences. Wallets, transactions, savings, and allowance history are not changed.','Reset access',resetSecretPocketAccess); }
   function handleSecretVersionTap() { if(secretResetTriggered){secretResetTriggered=false;return;} if(secretConfig?.discovered){ if(isSecretPocketUnlocked()) openSecretPocketSettings(); else openThemeUnlock(); return; } secretTapCount+=1; window.clearTimeout(secretTapTimer); secretTapTimer=window.setTimeout(()=>{secretTapCount=0;},SECRET_TRIGGER_WINDOW); if(secretTapCount>=SECRET_TRIGGER_TAPS){window.clearTimeout(secretTapTimer);secretTapCount=0;openThemeUnlock();} }
   function startSecretRecoveryHold() { secretResetTriggered=false; window.clearTimeout(secretResetTimer); secretResetTimer=window.setTimeout(()=>{secretResetTriggered=true;openSecretPocketRecovery();},SECRET_RESET_HOLD); }
@@ -7637,11 +7522,6 @@
     if (action === 'secret-theme-light') setSecretTheme('light');
     if (action === 'toggle-secret-companion') toggleSecretCompanion();
     if (action === 'toggle-secret-remember') toggleSecretRemember();
-    if (action === 'open-companion-room') openCompanionRoom();
-    if (action === 'select-companion-accessory') selectCompanionAccessory(button.dataset.accessory || 'none');
-    if (action === 'room-pet') companionRoomPet();
-    if (action === 'room-play') companionRoomPlay();
-    if (action === 'room-nap') companionRoomNap();
     if (action === 'reset-companion-position') resetCompanionPosition();
     if (action === 'change-secret-pin') openChangeSecretPin();
     if (action === 'lock-secret-pocket') lockSecretPocket();
@@ -7672,7 +7552,7 @@
       'walletCarouselPrev', 'walletCarouselNext', 'walletModeIndicators', 'homeWalletTodaySpent', 'homeWalletTodayEntries', 'homeWalletTodayBar', 'homeWalletTodayLegend', 'homeWalletMonthLabel', 'homeWalletMonthSpent', 'homeWalletTopCategory', 'homeWalletMonthBar', 'homeWalletMonthLegend',
       'activityType', 'activityDatePicker', 'activityPrevDay', 'activityNextDay', 'activityDayName', 'activityDayDate', 'activityHistoryTitle', 'activityDayCard', 'activitySwipeHint', 'monthSpent', 'monthTransferred',
       'activityCount', 'allTransactions', 'totalSavings', 'savingsInsights', 'goalsGrid', 'savingsRecentPanel', 'savingsRecentActivity', 'manageGoalsButton', 'savingsViewTitle', 'savingsViewSubtitle', 'savingsBalanceLabel', 'savingsModeToggle', 'savingsWalletTabs', 'archivedGoalsButton', 'archivedGoalsButtonCount', 'archivedGoalsDialog', 'archivedGoalsCount', 'archivedGoalsList', 'savingsGoalPager', 'savingsGoalDots', 'savingsGoalPageLabel', 'goalHistoryDialog', 'goalHistoryTitle', 'goalHistorySubtitle', 'goalHistoryCount', 'goalHistoryList',
-      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'companionStudioSummary', 'companionRoomDialog', 'companionRoomTitle', 'companionRoomScene', 'companionRoomBunny', 'companionRoomMessage', 'companionMoodLabel', 'companionBondLevel', 'companionBondValue', 'companionBondFill', 'companionEnergyValue', 'companionEnergyFill', 'companionVisitStreak', 'companionInteractionCount', 'companionNameInput', 'companionPersonality', 'companionDataSpeech', 'companionAccessoryGrid', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'allowanceHistoryPager', 'allowanceHistoryPrev', 'allowanceHistoryNext', 'allowanceHistoryPageLabel', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
+      'themeColorMeta', 'themeUnlockDialog', 'themeUnlockForm', 'themePassword', 'themePasswordError', 'secretPinDots', 'secretKeypad', 'secretRememberUnlock', 'secretUnlockButton', 'secretPocketDialog', 'secretPocketSettingButton', 'secretPocketSummary', 'secretThemeDark', 'secretThemeLight', 'secretCompanionToggle', 'secretCompanionLabel', 'secretCompanionSwitch', 'secretCompanionSpeech', 'secretCompanionMovement', 'secretCompanionPerformance', 'secretRememberToggle', 'secretRememberLabel', 'secretRememberSwitch', 'secretWorldHeroTitle', 'secretWorldHeroSubtitle', 'secretLightScene', 'secretLightFx', 'changeSecretPinDialog', 'changeSecretPinForm', 'newSecretPin', 'confirmSecretPin', 'changeSecretPinError', 'secretPocketReveal', 'versionSecretTrigger', 'privacyLabel', 'privacySwitch', 'privacySettingButton', 'textSizeSetting', 'allowanceRecordSummary', 'allowanceHistorySummary', 'allowanceHistoryDialog', 'allowanceHistoryCount', 'allowanceHistoryList', 'allowanceHistoryPager', 'allowanceHistoryPrev', 'allowanceHistoryNext', 'allowanceHistoryPageLabel', 'walletsList', 'importFile', 'storageProtectionSummary', 'storageProtectionStatus', 'dataHealthSummary', 'dataHealthStatus', 'recoveryPointSummary', 'restoreRecoveryButton', 'restoreRecoverySummary', 'exportBackupSummary',
       'allowanceDialog', 'allowanceForm', 'allowanceDialogTitle', 'allowanceAmount', 'allowanceAmountEntry', 'allowanceCustomAmountButton', 'allowanceKeypad', 'allowanceSaveButton',
       'allowanceReceivedDate', 'allowanceAccount',
       'expenseDate', 'transferDate', 'goalSaveDate', 'goalTransferDate', 'contributeDate',
@@ -7985,9 +7865,6 @@
     els.secretCompanionSpeech.addEventListener('change',()=>{secretConfig.companionSpeech=els.secretCompanionSpeech.value;saveSecretConfig();renderSecretPocketSettings();syncCompanion({fast:true});});
     els.secretCompanionMovement.addEventListener('change',()=>{secretConfig.companionMovement=els.secretCompanionMovement.value;saveSecretConfig();clearCompanionTimers();syncCompanion({fast:true});});
     els.secretCompanionPerformance.addEventListener('change',()=>{secretConfig.companionPerformance=['auto','full','battery'].includes(els.secretCompanionPerformance.value)?els.secretCompanionPerformance.value:'auto';saveSecretConfig();renderSecretPocketSettings();clearCompanionTimers();syncSecretLightWorld({force:true});syncCompanion({fast:true});showToast(`Companion performance set to ${els.secretCompanionPerformance.options[els.secretCompanionPerformance.selectedIndex].text.toLowerCase()}.`);});
-    els.companionNameInput.addEventListener('change',()=>{ const profile=companionProfileState(); profile.name=els.companionNameInput.value.trim().slice(0,14)||'Bunny'; profile.lastInteractionAt=Date.now(); saveSecretConfig(); renderCompanionRoom(); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`${profile.name} likes the new name ♡`; });
-    els.companionPersonality.addEventListener('change',()=>{ const profile=companionProfileState(); profile.personality=['gentle','playful','curious'].includes(els.companionPersonality.value)?els.companionPersonality.value:'gentle'; profile.mood=companionMoodFromState(); profile.lastInteractionAt=Date.now(); saveSecretConfig(); renderCompanionRoom(); clearCompanionTimers(); syncCompanion({fast:true}); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`${profile.name} feels a little more ${profile.personality} now ✨`; });
-    els.companionDataSpeech.addEventListener('change',()=>{ secretConfig.companionDataSpeech=['quiet','balanced','chatty','very-chatty'].includes(els.companionDataSpeech.value)?els.companionDataSpeech.value:'chatty'; saveSecretConfig(); renderCompanionRoom(); clearCompanionTimers(); syncCompanion({fast:true}); if(els.companionRoomMessage) els.companionRoomMessage.textContent=`Real-data talk set to ${els.companionDataSpeech.options[els.companionDataSpeech.selectedIndex].text.toLowerCase()} ♡`; });
     els.companionBunny.addEventListener('pointerdown', companionPointerDown);
     els.companionBunny.addEventListener('pointermove', companionPointerMove);
     els.companionBunny.addEventListener('pointerup', (event)=>companionPointerEnd(event,false));
@@ -8132,7 +8009,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.26');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.27');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
