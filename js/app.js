@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.29';
+  const APP_VERSION = '3.5.30';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -31,7 +31,10 @@
   const LEDGER_SAMPLE_LETTER_QUERY = 'for you';
   const WALLET_SAMPLE_LETTER_HOLD = 560;
   const WALLET_SAMPLE_LETTER_PULL = 58;
-  const COMPANION_SAMPLE_LETTER_HOLD = 7000;
+  const COMPANION_SAMPLE_LETTER_CORNER_TAPS = 3;
+  const COMPANION_SAMPLE_LETTER_CORNER_ARM_WINDOW = 6000;
+  const COMPANION_SAMPLE_LETTER_CORNER_TAP_WINDOW = 1500;
+  const COMPANION_SAMPLE_LETTER_CORNER_TOLERANCE = 38;
   const SAMPLE_HIDDEN_LETTERS = {
     ledger: {
       label: 'Found in the ledger',
@@ -200,7 +203,9 @@
   let secretLetterUnlockTimer = 0;
   let walletSampleLetterPull = null;
   let walletSampleLetterHoldTimer = 0;
-  let companionSampleLetterTimer = 0;
+  let companionSampleLetterCornerArmedUntil = 0;
+  let companionSampleLetterCornerTapCount = 0;
+  let companionSampleLetterCornerTapTimer = 0;
   const companionEffectNodes = new Set();
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
@@ -3435,6 +3440,47 @@
     try { navigator.vibrate?.(14); } catch (error) {}
   }
 
+  function resetCompanionSampleLetterCornerRitual() {
+    window.clearTimeout(companionSampleLetterCornerTapTimer);
+    companionSampleLetterCornerTapTimer = 0;
+    companionSampleLetterCornerTapCount = 0;
+    companionSampleLetterCornerArmedUntil = 0;
+  }
+
+  function companionInSampleLetterCorner() {
+    if (!companionIsAvailable()) return false;
+    const bounds = companionBounds();
+    const x = Number.isFinite(companionPosition.x) ? companionPosition.x : bounds.maxX;
+    const y = Number.isFinite(companionPosition.y) ? companionPosition.y : bounds.maxY;
+    return x >= bounds.maxX - COMPANION_SAMPLE_LETTER_CORNER_TOLERANCE
+      && y >= bounds.maxY - COMPANION_SAMPLE_LETTER_CORNER_TOLERANCE;
+  }
+
+  function armCompanionSampleLetterCornerRitual() {
+    resetCompanionSampleLetterCornerRitual();
+    hideCompanionSampleLetterEnvelope();
+    companionSampleLetterCornerArmedUntil = Date.now() + COMPANION_SAMPLE_LETTER_CORNER_ARM_WINDOW;
+  }
+
+  function handleCompanionSampleLetterCornerTap() {
+    if (!companionSampleLetterCornerArmedUntil) return false;
+    if (Date.now() > companionSampleLetterCornerArmedUntil || !companionInSampleLetterCorner()) {
+      resetCompanionSampleLetterCornerRitual();
+      return false;
+    }
+    companionSampleLetterCornerTapCount += 1;
+    window.clearTimeout(companionSampleLetterCornerTapTimer);
+    if (companionSampleLetterCornerTapCount >= COMPANION_SAMPLE_LETTER_CORNER_TAPS) {
+      resetCompanionSampleLetterCornerRitual();
+      revealCompanionSampleLetterEnvelope();
+      return true;
+    }
+    companionSampleLetterCornerTapTimer = window.setTimeout(() => {
+      resetCompanionSampleLetterCornerRitual();
+    }, COMPANION_SAMPLE_LETTER_CORNER_TAP_WINDOW);
+    return true;
+  }
+
   function allLedgerEntries() {
     const transactions = (state.transactions || []).map((tx) => ({ ...tx }));
     const goalTransfers = (state.goalTransfers || []).map((item) => ({
@@ -3932,26 +3978,11 @@
     els.pocketCompanion?.classList.add('is-held');
     window.clearTimeout(companionPetTimer);
     companionPetTimer = window.setTimeout(companionPetMain, 500);
-    window.clearTimeout(companionSampleLetterTimer);
-    companionSampleLetterTimer = window.setTimeout(() => {
-      const pointer = companionPointerState;
-      if (!pointer || pointer.id !== event.pointerId || pointer.dragging || pointer.strokeDistance > 7) return;
-      pointer.secretLetterTriggered = true;
-      pointer.petting = false;
-      window.clearTimeout(companionPetTimer);
-      els.pocketCompanion?.classList.remove('is-petting', 'is-pet-stroking');
-      if (els.pocketCompanion) delete els.pocketCompanion.dataset.petZone;
-      revealCompanionSampleLetterEnvelope();
-    }, COMPANION_SAMPLE_LETTER_HOLD);
   }
 
   function companionPointerMove(event) {
     if (!companionPointerState || event.pointerId !== companionPointerState.id) return;
     event.preventDefault();
-    if (Math.hypot(event.clientX - companionPointerState.startX, event.clientY - companionPointerState.startY) > 8) {
-      window.clearTimeout(companionSampleLetterTimer);
-      companionSampleLetterTimer = 0;
-    }
     if (companionPointerState.petting) {
       companionPetStroke(event);
       return;
@@ -3961,6 +3992,7 @@
     const distance = Math.hypot(dx, dy);
     if (!companionPointerState.dragging && distance > 11) {
       window.clearTimeout(companionPetTimer);
+      resetCompanionSampleLetterCornerRitual();
       companionPointerState.dragging = true;
       els.pocketCompanion?.classList.add('is-dragging');
       companionSetMood('curious');
@@ -3973,8 +4005,6 @@
     event.preventDefault();
     event.stopPropagation();
     window.clearTimeout(companionPetTimer);
-    window.clearTimeout(companionSampleLetterTimer);
-    companionSampleLetterTimer = 0;
     const pointer = companionPointerState;
     const dx = event.clientX - pointer.startX;
     const dy = event.clientY - pointer.startY;
@@ -3992,10 +4022,6 @@
     if (cancelled) {
       els.pocketCompanion?.classList.remove('is-petting');
       if (els.pocketCompanion) delete els.pocketCompanion.dataset.petZone;
-      return;
-    }
-    if (pointer.secretLetterTriggered) {
-      scheduleCompanionAction(7000);
       return;
     }
     if (pointer.petting) {
@@ -4024,22 +4050,34 @@
       return;
     }
     if (pointer.dragging) {
-      const dropTarget = companionPerchElementAt(event.clientX, event.clientY);
+      const bounds = companionBounds();
+      const releaseX = Math.max(bounds.minX, Math.min(bounds.maxX, pointer.originX + dx));
+      const releaseY = Math.max(bounds.minY, Math.min(bounds.maxY, pointer.originY + dy));
+      const secretCornerDrop = releaseX >= bounds.maxX - COMPANION_SAMPLE_LETTER_CORNER_TOLERANCE
+        && releaseY >= bounds.maxY - COMPANION_SAMPLE_LETTER_CORNER_TOLERANCE;
       const profile = companionAdjustProfile({ affection: 1, energy: -2, drag: 1, mood: 'curious' }, { render: false });
       companionSetMood('curious');
-      if (dropTarget) {
-        companionPerchOnElement(dropTarget, 9000, false).then((perched) => {
-          if (perched && Date.now() - companionLastMessageAt > 6500) companionSay('Oh! This spot is nice ♡', 2800);
-        });
+      if (secretCornerDrop) {
+        armCompanionSampleLetterCornerRitual();
+        els.pocketCompanion?.classList.add('is-soft-drop');
+        window.setTimeout(() => els.pocketCompanion?.classList.remove('is-soft-drop'), 420);
       } else {
-        const speed = Math.hypot(pointer.velocityX || 0, pointer.velocityY || 0);
-        els.pocketCompanion?.classList.add(speed > 5 ? 'is-bouncy-drop' : 'is-soft-drop');
-        window.setTimeout(() => els.pocketCompanion?.classList.remove('is-bouncy-drop', 'is-soft-drop'), 420);
-        if (profile.drags % 4 === 0) companionSay('New favorite spot? ✨', 2600);
+        const dropTarget = companionPerchElementAt(event.clientX, event.clientY);
+        if (dropTarget) {
+          companionPerchOnElement(dropTarget, 9000, false).then((perched) => {
+            if (perched && Date.now() - companionLastMessageAt > 6500) companionSay('Oh! This spot is nice ♡', 2800);
+          });
+        } else {
+          const speed = Math.hypot(pointer.velocityX || 0, pointer.velocityY || 0);
+          els.pocketCompanion?.classList.add(speed > 5 ? 'is-bouncy-drop' : 'is-soft-drop');
+          window.setTimeout(() => els.pocketCompanion?.classList.remove('is-bouncy-drop', 'is-soft-drop'), 420);
+          if (profile.drags % 4 === 0) companionSay('New favorite spot? ✨', 2600);
+        }
       }
-      scheduleCompanionAction(8000);
+      scheduleCompanionAction(secretCornerDrop ? 9000 : 8000);
       return;
     }
+    if (handleCompanionSampleLetterCornerTap()) return;
     companionHandleTap();
   }
 
@@ -4124,9 +4162,13 @@
     window.clearTimeout(companionBlinkTimer);
     window.clearTimeout(companionPetTimer);
     window.clearTimeout(companionSingleTapTimer);
+    window.clearTimeout(companionSampleLetterCornerTapTimer);
     if (companionPointerLookFrame) cancelAnimationFrame(companionPointerLookFrame);
     if (companionGazeFrame) cancelAnimationFrame(companionGazeFrame);
     companionActionTimer = companionAffirmationTimer = companionIdleTimer = companionBubbleTimer = companionPoseTimer = companionFocusTimer = companionBlinkTimer = companionPetTimer = companionSingleTapTimer = 0;
+    companionSampleLetterCornerTapTimer = 0;
+    companionSampleLetterCornerTapCount = 0;
+    companionSampleLetterCornerArmedUntil = 0;
     companionPointerLookFrame = 0;
     companionGazeFrame = 0;
     companionStoryGeneration += 1;
@@ -8202,7 +8244,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.29');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.30');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
