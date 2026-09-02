@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.28';
+  const APP_VERSION = '3.5.29';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -31,7 +31,7 @@
   const LEDGER_SAMPLE_LETTER_QUERY = 'for you';
   const WALLET_SAMPLE_LETTER_HOLD = 560;
   const WALLET_SAMPLE_LETTER_PULL = 58;
-  const COMPANION_SAMPLE_LETTER_HOLD = 2100;
+  const COMPANION_SAMPLE_LETTER_HOLD = 7000;
   const SAMPLE_HIDDEN_LETTERS = {
     ledger: {
       label: 'Found in the ledger',
@@ -8202,7 +8202,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.28');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.29');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
