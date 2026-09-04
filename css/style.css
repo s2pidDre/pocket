@@ -7822,3 +7822,49 @@ body.companion-low-power .pocket-companion:not(.is-held):not(.is-dragging):not(.
   .wallet-mode-card.has-sample-letter .wallet-secret-envelope,
   .pocket-companion.has-sample-letter .companion-secret-envelope { animation: none !important; }
 }
+
+
+/* Pocket v3.5.31 — center shared sample-letter reader across every viewport. */
+.sample-hidden-letter-panel {
+  position: relative;
+  display: block;
+  width: 100vw;
+  height: 100dvh;
+  padding: 0;
+  overflow: hidden;
+}
+.sample-hidden-letter-paper {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  margin: 0;
+  width: min(520px, calc(100vw - 28px));
+  max-height: min(72dvh, 620px);
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  animation: sample-hidden-letter-centered-in .4s cubic-bezier(.18,.88,.22,1);
+}
+@keyframes sample-hidden-letter-centered-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 18px)) scale(.97); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@media (max-width: 560px) {
+  .sample-hidden-letter-paper {
+    left: 50%;
+    top: 50%;
+    width: calc(100vw - 20px);
+    max-height: min(76dvh, calc(100dvh - 96px));
+    transform: translate(-50%, -50%);
+  }
+}
+@media (max-height: 700px) {
+  .sample-hidden-letter-paper {
+    max-height: calc(100dvh - 88px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sample-hidden-letter-paper {
+    animation: none !important;
+    transform: translate(-50%, -50%) !important;
+  }
+}
