@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.32';
+  const APP_VERSION = '3.5.33';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -38,11 +38,11 @@
   const SAMPLE_HIDDEN_LETTERS = {
     ledger: {
       label: 'Found in the ledger',
-      body: ['Not everything worth remembering has a category or an amount.', 'Some things are just meant to stay.']
+      body: ["for you i would do it, i like you that deep and i know careful ako na tao, i don't jump into some stupid shit unless sigurado akong gusto ko.", "I wanna spend more time with u, gumala, do fun things with u, be happy, confused, sad, angry, tampo, feel anything, as long as it's with u.", "in a heartbeat Lyn, I would do whatever makes u happy that is not self-degrading sa side ko."]
     },
     wallet: {
       label: 'Tucked behind a wallet',
-      body: ['You found something I tucked away.', 'Maybe the things we keep closest are not always the ones we can count.']
+      body: ["can't even pinpoint what makes my heart feel heavy, enang buhay to, kung alam ko lang ik naman na kaya ko magtake ng action about don, madetermine ko lang talaga ano cause netong putanginang to.", "wala tuloy ako magawa kundi mag isolate and shit.", "wat the fuck ba kasi ginagawa ko sa buhay, nothing good comes from opening up too much, kaya ko na to. kahit naman gusto ko magsabi about this shit di ko parin ma-organize sarili kong isipan so mas gugulo lang.", "idefk but i think pansin mo rin na ini-stretch ko oras pag kasama ka, like lakad nalang tayo papunta kainan or anything like that.", "one thing na na-realize ko on why i don't fucking open up pala, it's because kapag sinabi ko mismo kong thoughts about something or situation, some people think rehearsed yon or prepared na sagot, and some even say it's for manipulating something like that e tangina kaya pala di na ako nagsasabi, mas mabuti nalang sarilihin lahat."]
     },
     companion: {
       label: 'Left by Bunny',
@@ -8252,7 +8252,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.32');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.33');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
