@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.31';
+  const APP_VERSION = '3.5.32';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -46,7 +46,15 @@
     },
     companion: {
       label: 'Left by Bunny',
-      body: ['You stayed long enough for Bunny to leave this here.', 'Consider this a tiny reminder to be gentle with yourself today.']
+      body: [
+        "I won't be bothering u na, Lyn. I still won't say my thoughts about that, yung pag-uusapan sana natin ngayon (Sep 4), but this letter would probably be about the things I wanna say to YOU. I JUST HOPE NA DI MO ’TO PABASA SA IBA, KASI FOR YOU NGA, BITCHASS.",
+        "alalahanin mo kung gaano kaunti lang yung na-share ko sayo about sa sarili ko. Maybe kaunti nga lang ’yon, pero for me, ikaw na yung pinakamarami kong nasabihan about sa sarili ko talaga, not about somebody else na kinukwento ko, but about me. First time in a long time, I guess, kasi madaldal ako dati sa ibang tao, pero mostly none of those conversations were really about me.",
+        "I feel safe around you, Lyn. That is why kaya kong umupo in silence with u without feeling the need to start a forced conversation. Wala lang, I just feel calm in your presence. I know that I am someone who doesn't have much to offer, but I was working on it, trying to at least make anything about me better (hindi pag-absent, nag-aaral na, nag-iipon, working out, etc.). It's not that I was doing those things only for you, kasi ginagawa ko rin naman ’yon for myself. Ofc, part ka rin ng reason na ’yon, Lyn.",
+        "kagabi pala, I wasn't really expecting na rin naman na pupunta ka. “Di ’yon pupunta.” “I know na busy siya, imposibleng lumabas siya ngayon para lang makipag-usap sa akin.” Mga ganyang thoughts. Pero behind all that, I was still hoping na mali yung thoughts ko. Probably a trait that I developed para if ganon talaga yung mangyari, at least I already expected it. But that night when I waited for u, one of my saddest nights na rin siguro. I didn't say anything because ayokong maistorbo ka or mapilitan kang pumunta out of pity. But idk, I can't really explain it. I just needed someone who I knew would listen to all my magulong thoughts. And I also wanted to clear things up about the picture. Siyempre, that was the plan lang naman talaga, but idk, I just felt that way.",
+        "anyways, in short, I was ready to share anything that night and be vulnerable with u. I haven't felt that way in a long time. Not even Salen knows that much about me.",
+        "Lyn, thank you so much. For everything, for real. I'm happy na nakilala kita, and I'm grateful for all the time u spent with me. I'm just so glad that I got to know a part of u. I know hindi natin nakilala nang fully ang isa't isa, pero I know that you're a pretty great person.I haven't felt this way about someone in a long time, so thank you. Dahil sayo, I realized that I still have the capability to be happy(I just wanted it to be with u tho). Sounds ironic din pala, pero kaya ko na ulit umiyak, like wtf hahahaha I thought hindi na ako iiyak about something like this again. There are so many things u made me realize, Lyn, and I'm so thankful for that.",
+        "I was just hoping you'd at least hear me out. I was ready naman to adjust and make up for whatever made u feel that way. I really wanted to make things right with you, Lyn."
+      ]
     }
   };
   const CURRENCY = new Intl.NumberFormat('en-PH', {
@@ -8244,7 +8252,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.31');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.32');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
