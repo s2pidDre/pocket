@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
-  <link rel="stylesheet" href="css/style.css?v=3.5.31">
+  <link rel="stylesheet" href="css/style.css?v=3.5.34">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -120,6 +120,15 @@
             </div>
 
             <div class="wallet-mode-indicators" id="walletModeIndicators" aria-label="Wallet pages"></div>
+
+            <div class="valen-delivery-anchor" id="valenDeliveryAnchor" aria-live="polite">
+              <button class="valen-delivery-letter" id="valenDeliveryLetter" type="button" data-action="open-sample-letter" data-letter-source="valen" aria-label="Open the letter Bunny delivered" hidden>
+                <span class="valen-envelope-back" aria-hidden="true"></span>
+                <span class="valen-envelope-front" aria-hidden="true"></span>
+                <span class="valen-envelope-flap" aria-hidden="true"></span>
+                <span class="valen-envelope-seal" aria-hidden="true">♡</span>
+              </button>
+            </div>
 
             <article class="home-wallet-overview" aria-label="Spending overview">
               <div class="home-wallet-overview-row">
@@ -1126,11 +1135,12 @@
       <span class="companion-wearable" aria-hidden="true"></span>
       <span class="companion-zzz" aria-hidden="true">zZ</span>
     </div>
+    <span class="companion-valen-carry" id="companionValenCarry" aria-hidden="true"><span>♡</span></span>
     <button class="companion-secret-envelope" id="companionSecretEnvelope" type="button" data-action="open-sample-letter" data-letter-source="companion" aria-label="Open the hidden note" aria-hidden="true" tabindex="-1"><span aria-hidden="true">♡</span></button>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMessage"></span><button type="button" id="toastAction"></button></div>
 
-  <script src="js/app.js?v=3.5.33" defer></script>
+  <script src="js/app.js?v=3.5.34" defer></script>
 </body>
 </html>

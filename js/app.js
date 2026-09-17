@@ -12,7 +12,7 @@
   const DB_SECRET_KEY = 'secret';
   const DB_RECOVERY_KEY = 'recovery';
   const SCHEMA_VERSION = 5;
-  const APP_VERSION = '3.5.33';
+  const APP_VERSION = '3.5.34';
   const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
   const DEFAULT_SECRET_PIN = '0322';
   const SECRET_POCKET_KEY = 'pocket-secret-pocket-v1';
@@ -29,6 +29,7 @@
   const SECRET_LETTER_GESTURE_MIN_PATH = 148;
   const SECRET_LETTER_GESTURE_COOLDOWN = 900;
   const LEDGER_SAMPLE_LETTER_QUERY = 'for you';
+  const VALEN_LEDGER_QUERY = 'valen';
   const WALLET_SAMPLE_LETTER_HOLD = 560;
   const WALLET_SAMPLE_LETTER_PULL = 58;
   const COMPANION_SAMPLE_LETTER_CORNER_TAPS = 3;
@@ -43,6 +44,12 @@
     wallet: {
       label: 'Tucked behind a wallet',
       body: ["can't even pinpoint what makes my heart feel heavy, enang buhay to, kung alam ko lang ik naman na kaya ko magtake ng action about don, madetermine ko lang talaga ano cause netong putanginang to.", "wala tuloy ako magawa kundi mag isolate and shit.", "wat the fuck ba kasi ginagawa ko sa buhay, nothing good comes from opening up too much, kaya ko na to. kahit naman gusto ko magsabi about this shit di ko parin ma-organize sarili kong isipan so mas gugulo lang.", "idefk but i think pansin mo rin na ini-stretch ko oras pag kasama ka, like lakad nalang tayo papunta kainan or anything like that.", "one thing na na-realize ko on why i don't fucking open up pala, it's because kapag sinabi ko mismo kong thoughts about something or situation, some people think rehearsed yon or prepared na sagot, and some even say it's for manipulating something like that e tangina kaya pala di na ako nagsasabi, mas mabuti nalang sarilihin lahat."]
+    },
+    valen: {
+      label: 'Valen',
+      body: [
+        "hey ik na u don't feel that good about the results sa DOST, and imma say cheer up Lyn but u don't have to suppress naman kung ano feel mo about it , u can rant naman about don sa akin, waiting lang ako na ikaw mag-open non coz idk how to start, pero i honestly think super valid naman whatever u feel about that, if u wanna cry u can cry and makikinig ako, u did your best naman and it counts. If you want to labas and pag-usapan yon, actually kahit ano kung gusto mo man pag-usapan or kalimutan yon, u do you Babin, i'll try my best to help kung ano gusto mo gawin."
+      ]
     },
     companion: {
       label: 'Left by Bunny',
@@ -214,6 +221,8 @@
   let companionSampleLetterCornerArmedUntil = 0;
   let companionSampleLetterCornerTapCount = 0;
   let companionSampleLetterCornerTapTimer = 0;
+  let valenDeliveryTimer = 0;
+  let valenDeliveryQueued = false;
   const companionEffectNodes = new Set();
   const SECRET_LIGHT_VIEW_EFFECTS = { home: 'heart', activity: 'sparkle', savings: 'confetti', more: 'soft' };
   const COMPANION_PERCH_SELECTOR = '.wallet-mode-card, .home-wallet-overview, .activity-summary-strip, .activity-day-card, .savings-balance-hero, .goal-card:not(.empty-goal-card), .settings-card';
@@ -360,13 +369,13 @@
   }
 
   function defaultSecretConfig() {
-    return { pinSalt: '', pinHash: '', pinScheme: '', remember: false, companionEnabled: true, companionSpeech: 'normal', companionMovement: 'normal', companionPerformance: 'auto', companionDataSpeech: 'chatty', discovered: false, firstRevealSeen: false, companionProfile: defaultCompanionProfile() };
+    return { pinSalt: '', pinHash: '', pinScheme: '', remember: false, companionEnabled: true, companionSpeech: 'normal', companionMovement: 'normal', companionPerformance: 'auto', companionDataSpeech: 'chatty', discovered: false, firstRevealSeen: false, valenLetterDelivered: false, valenLetterOpened: false, companionProfile: defaultCompanionProfile() };
   }
 
   function normalizeSecretConfig(input) {
     const parsed = input && typeof input === 'object' ? input : {};
     const base = defaultSecretConfig();
-    return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', pinScheme: ['pbkdf2-sha256','legacy'].includes(parsed.pinScheme) ? parsed.pinScheme : (parsed.pinHash ? 'legacy' : ''), remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', companionPerformance: ['auto','full','battery'].includes(parsed.companionPerformance) ? parsed.companionPerformance : 'auto', companionDataSpeech: ['quiet','balanced','chatty','very-chatty'].includes(parsed.companionDataSpeech) ? parsed.companionDataSpeech : 'chatty', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
+    return { ...base, pinSalt: typeof parsed.pinSalt === 'string' ? parsed.pinSalt : '', pinHash: typeof parsed.pinHash === 'string' ? parsed.pinHash : '', pinScheme: ['pbkdf2-sha256','legacy'].includes(parsed.pinScheme) ? parsed.pinScheme : (parsed.pinHash ? 'legacy' : ''), remember: Boolean(parsed.remember), companionEnabled: parsed.companionEnabled !== false, companionSpeech: ['normal','quiet','off'].includes(parsed.companionSpeech) ? parsed.companionSpeech : 'normal', companionMovement: parsed.companionMovement === 'calm' ? 'calm' : 'normal', companionPerformance: ['auto','full','battery'].includes(parsed.companionPerformance) ? parsed.companionPerformance : 'auto', companionDataSpeech: ['quiet','balanced','chatty','very-chatty'].includes(parsed.companionDataSpeech) ? parsed.companionDataSpeech : 'chatty', discovered: Boolean(parsed.discovered), firstRevealSeen: Boolean(parsed.firstRevealSeen), valenLetterDelivered: Boolean(parsed.valenLetterDelivered), valenLetterOpened: Boolean(parsed.valenLetterOpened), companionProfile: normalizeCompanionProfile(parsed.companionProfile) };
   }
 
   class PocketStorageConflictError extends Error {
@@ -3346,6 +3355,12 @@
   function openSampleHiddenLetter(source = 'ledger') {
     const letter = SAMPLE_HIDDEN_LETTERS[source] || SAMPLE_HIDDEN_LETTERS.ledger;
     if (!els.sampleHiddenLetterDialog || !els.sampleHiddenLetterBody || !els.sampleHiddenLetterLabel) return;
+    if (source === 'valen' && secretConfig) {
+      secretConfig.valenLetterDelivered = true;
+      secretConfig.valenLetterOpened = true;
+      saveSecretConfig();
+      syncValenDeliveryLetter({ animate: false });
+    }
     if (els.globalHistoryDialog?.open) closeDialog(els.globalHistoryDialog);
     hideWalletSampleLetterEnvelope();
     if (source === 'companion') hideCompanionSampleLetterEnvelope();
@@ -3362,6 +3377,15 @@
         <span class="ledger-secret-result-icon" aria-hidden="true">♡</span>
         <span class="ledger-secret-result-copy"><strong>Something you forgot</strong><small>Personal · No category</small></span>
         <span class="ledger-secret-result-mark" aria-hidden="true">···</span>
+      </button>`;
+  }
+
+  function ledgerValenLetterResult() {
+    return `
+      <button class="ledger-secret-result ledger-valen-result" type="button" data-action="open-sample-letter" data-letter-source="valen" aria-label="Open Valen letter">
+        <span class="ledger-secret-result-icon" aria-hidden="true">✉</span>
+        <span class="ledger-secret-result-copy"><strong>Valen</strong><small>Letter · Delivered by Bunny</small></span>
+        <span class="ledger-secret-result-mark" aria-hidden="true">♡</span>
       </button>`;
   }
 
@@ -3438,6 +3462,88 @@
     try { navigator.vibrate?.(18); } catch (error) {}
   }
 
+  function setValenDeliveryEnvelopeVisible(visible, { animate = false } = {}) {
+    if (!els.valenDeliveryAnchor || !els.valenDeliveryLetter) return;
+    els.valenDeliveryAnchor.classList.toggle('is-delivered', Boolean(visible));
+    els.valenDeliveryAnchor.classList.toggle('is-arriving', Boolean(visible && animate));
+    els.valenDeliveryLetter.hidden = !visible;
+    els.valenDeliveryLetter.tabIndex = visible ? 0 : -1;
+    if (visible && animate) {
+      window.setTimeout(() => els.valenDeliveryAnchor?.classList.remove('is-arriving'), 900);
+    }
+  }
+
+  function clearValenDeliverySchedule() {
+    window.clearTimeout(valenDeliveryTimer);
+    valenDeliveryTimer = 0;
+  }
+
+  function valenDeliveryTarget() {
+    const bounds = companionBounds();
+    const rect = els.valenDeliveryAnchor?.getBoundingClientRect();
+    if (!rect) return { x: Math.round((bounds.minX + bounds.maxX) / 2), y: Math.round(bounds.minY + (bounds.maxY - bounds.minY) * .48) };
+    return {
+      x: Math.max(bounds.minX, Math.min(bounds.maxX, Math.round(rect.left + rect.width / 2 - bounds.boxWidth / 2))),
+      y: Math.max(bounds.minY, Math.min(bounds.maxY, Math.round(rect.top - bounds.boxHeight * .62)))
+    };
+  }
+
+  function deliverValenLetterWithCompanion() {
+    if (valenDeliveryQueued || !secretConfig || secretConfig.valenLetterOpened || secretConfig.valenLetterDelivered) return;
+    if (currentView !== 'home' || !companionIsAvailable() || document.querySelector('dialog[open]')) return;
+    valenDeliveryQueued = true;
+    resetCompanionSampleLetterCornerRitual();
+    companionQueueAction('valen-letter-delivery', async () => {
+      if (!secretConfig || secretConfig.valenLetterOpened || secretConfig.valenLetterDelivered || currentView !== 'home' || !companionIsAvailable() || document.querySelector('dialog[open]')) return false;
+      els.pocketCompanion?.classList.add('is-valen-delivering');
+      companionSetProp('receipt');
+      companionSetMood('happy');
+      companionSay('I brought you something ♡', 3600, { essential: true });
+      const target = valenDeliveryTarget();
+      await companionMoveTo(target.x, target.y, { mode: 'hop' });
+      if (!secretConfig || secretConfig.valenLetterOpened || currentView !== 'home' || !companionIsAvailable()) return false;
+      await companionPose('presenting', companionReducedMotion ? 180 : 620);
+      secretConfig.valenLetterDelivered = true;
+      saveSecretConfig();
+      setValenDeliveryEnvelopeVisible(true, { animate: true });
+      els.pocketCompanion?.classList.remove('is-valen-delivering');
+      companionSetProp('');
+      companionSetMood('happy');
+      if (secretPocketLightActive()) emitSecretLightFx('heart', { count: companionReducedMotion ? 2 : 5, area: 'center', duration: companionReducedMotion ? 800 : 1700 });
+      try { navigator.vibrate?.(14); } catch (error) {}
+      return true;
+    }).finally(() => {
+      valenDeliveryQueued = false;
+      els.pocketCompanion?.classList.remove('is-valen-delivering');
+      if (els.pocketCompanion?.dataset.prop === 'receipt') companionSetProp('');
+    });
+  }
+
+  function scheduleValenLetterDelivery(delay = 1500) {
+    if (valenDeliveryTimer || valenDeliveryQueued || !secretConfig || secretConfig.valenLetterOpened || secretConfig.valenLetterDelivered) return;
+    if (currentView !== 'home' || !companionIsAvailable() || document.querySelector('dialog[open]')) return;
+    valenDeliveryTimer = window.setTimeout(() => {
+      valenDeliveryTimer = 0;
+      deliverValenLetterWithCompanion();
+    }, delay);
+  }
+
+  function syncValenDeliveryLetter({ animate = false } = {}) {
+    if (!els.valenDeliveryAnchor || !els.valenDeliveryLetter || !secretConfig) return;
+    if (secretConfig.valenLetterOpened) {
+      clearValenDeliverySchedule();
+      setValenDeliveryEnvelopeVisible(false);
+      return;
+    }
+    if (secretConfig.valenLetterDelivered) {
+      clearValenDeliverySchedule();
+      setValenDeliveryEnvelopeVisible(currentView === 'home', { animate });
+      return;
+    }
+    setValenDeliveryEnvelopeVisible(false);
+    scheduleValenLetterDelivery();
+  }
+
   function revealCompanionSampleLetterEnvelope() {
     if (!companionIsAvailable() || !els.pocketCompanion || !els.companionSecretEnvelope) return;
     els.pocketCompanion.classList.add('has-sample-letter');
@@ -3451,6 +3557,8 @@
   function resetCompanionSampleLetterCornerRitual() {
     window.clearTimeout(companionSampleLetterCornerTapTimer);
     companionSampleLetterCornerTapTimer = 0;
+    valenDeliveryTimer = 0;
+    valenDeliveryQueued = false;
     companionSampleLetterCornerTapCount = 0;
     companionSampleLetterCornerArmedUntil = 0;
   }
@@ -3544,12 +3652,13 @@
     const query = String(els.globalHistorySearch.value || '').trim().toLowerCase();
     const categoryId = els.globalHistoryCategory.value || 'all';
     const revealLedgerSampleLetter = query === LEDGER_SAMPLE_LETTER_QUERY && categoryId === 'all';
+    const revealValenLetter = Boolean(secretConfig?.valenLetterOpened) && query === VALEN_LEDGER_QUERY && categoryId === 'all';
 
-    if (revealLedgerSampleLetter) {
+    if (revealLedgerSampleLetter || revealValenLetter) {
       els.globalHistoryCount.textContent = '1 record';
       els.globalHistoryClear.classList.remove('is-hidden');
       els.globalHistoryClear.disabled = false;
-      els.globalHistoryResults.innerHTML = ledgerSampleLetterResult();
+      els.globalHistoryResults.innerHTML = revealValenLetter ? ledgerValenLetterResult() : ledgerSampleLetterResult();
       if (els.globalHistoryPager) els.globalHistoryPager.classList.add('is-hidden');
       return;
     }
@@ -5196,6 +5305,7 @@
       delete els.pocketCompanion.dataset.placed;
       companionPosition = { x: null, y: null };
       companionSetPhase('idle');
+      syncValenDeliveryLetter();
       return;
     }
     if (!els.pocketCompanion.dataset.placed) {
@@ -5212,6 +5322,7 @@
     const fastSpeechDelay = options.fast ? Math.max(7000, Math.round(companionDataSpeechSettings().scheduledMin * .72)) : undefined;
     scheduleCompanionAffirmation(fastSpeechDelay);
     resetCompanionIdleTimer();
+    syncValenDeliveryLetter();
     if (options.welcome) {
       companionQueueAction('welcome', async () => {
         companionSetMood('happy');
@@ -7802,11 +7913,11 @@
       'savingsWithdrawDialog', 'savingsWithdrawForm', 'savingsWithdrawTitle', 'savingsWithdrawGoalId', 'savingsWithdrawSummary', 'savingsWithdrawAccount', 'savingsWithdrawAvailable', 'savingsWithdrawAmount', 'savingsWithdrawDate', 'savingsWithdrawReason', 'savingsWithdrawNote', 'savingsWithdrawSaveButton',
       'legacySavingsSourceDialog', 'legacySavingsSourceForm', 'legacySavingsGoalId', 'legacySavingsSourceTitle', 'legacySavingsSourceSummary', 'legacySavingsAccount',
       'walletPickerDialog', 'walletPickerTitle', 'walletPickerSubtitle', 'walletPickerList',
-      'globalHistoryDialog', 'globalHistorySearch', 'globalHistoryCategory', 'globalHistoryCount', 'globalHistoryClear', 'globalHistoryResults', 'globalHistoryPager', 'globalHistoryPrev', 'globalHistoryNext', 'globalHistoryPageLabel',
+      'globalHistoryDialog', 'globalHistorySearch', 'globalHistoryCategory', 'globalHistoryCount', 'globalHistoryClear', 'globalHistoryResults', 'globalHistoryPager', 'globalHistoryPrev', 'globalHistoryNext', 'globalHistoryPageLabel', 'valenDeliveryAnchor', 'valenDeliveryLetter',
       'categoryManagerDialog', 'categoryManagerForm', 'categoryEditId', 'categoryName', 'categoryIcon', 'categorySaveButton', 'categoryManagerList',
       'walletDetailDialog', 'walletDetailTitle', 'walletDetailSummary', 'walletDetailTransactions', 'dataHealthDialog', 'dataHealthHero', 'dataHealthDetailsList',
       'reconciliationCorrectionDialog', 'reconciliationCorrectionForm', 'reconciliationCorrectionAmount', 'reconciliationCorrectionDate', 'reconciliationCorrectionReason', 'reconciliationCorrectionNote',
-      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'sampleHiddenLetterDialog', 'sampleHiddenLetterLabel', 'sampleHiddenLetterBody', 'secretLetterGateDialog', 'secretLetterGateForm', 'secretLetterPinDots', 'secretLetterPinInput', 'secretLetterPinError', 'secretLetterKeypad', 'secretLetterSceneDialog', 'secretLetterStage', 'secretLetterEnvelope', 'secretLetterSheet', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'companionSecretEnvelope', 'toast', 'toastMessage', 'toastAction',
+      'confirmDialog', 'confirmTitle', 'confirmMessage', 'confirmAction', 'sampleHiddenLetterDialog', 'sampleHiddenLetterLabel', 'sampleHiddenLetterBody', 'secretLetterGateDialog', 'secretLetterGateForm', 'secretLetterPinDots', 'secretLetterPinInput', 'secretLetterPinError', 'secretLetterKeypad', 'secretLetterSceneDialog', 'secretLetterStage', 'secretLetterEnvelope', 'secretLetterSheet', 'pocketCompanion', 'companionBubble', 'companionMessage', 'companionBunny', 'companionValenCarry', 'companionSecretEnvelope', 'toast', 'toastMessage', 'toastAction',
       'updateBanner', 'appVersion', 'updateStatus'
     ].forEach((id) => { els[id] = document.getElementById(id); });
   }
@@ -8252,7 +8363,7 @@
     }
 
     try {
-      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.33');
+      serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js?v=3.5.34');
 
       if (serviceWorkerRegistration.waiting && navigator.serviceWorker.controller) {
         showUpdateAvailable(serviceWorkerRegistration.waiting);
